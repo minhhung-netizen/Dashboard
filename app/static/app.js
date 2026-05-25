@@ -86,6 +86,7 @@ const translations = {
     entryPrice: "Entry",
     currentPrice: "Current Price",
     returnPct: "Return",
+    holdingDays: "Days Held",
     entryTime: "Entry Time",
     entryDate: "Entry Date",
     exitPrice: "Exit",
@@ -197,6 +198,7 @@ const translations = {
     entryPrice: "Giá vào",
     currentPrice: "Giá hiện tại",
     returnPct: "Lãi/lỗ",
+    holdingDays: "Số ngày giữ",
     entryTime: "Thời gian vào",
     entryDate: "Ngày vào",
     exitPrice: "Giá bán",
@@ -424,7 +426,7 @@ function renderManualPortfolio(payload) {
   drawManualEquityCurve(payload.equity_curve || []);
 
   if (!positions.length) {
-    els.manualPortfolioTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noManualPositions")}</td></tr>`;
+    els.manualPortfolioTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noManualPositions")}</td></tr>`;
     return;
   }
 
@@ -443,6 +445,7 @@ function renderManualPortfolio(payload) {
           <td>${formatPrice(position.quantity)}</td>
           <td><span class="statusBadge ${status}">${escapeHtml(isOpen ? t("openStatus") : t("closedStatus"))}</span></td>
           <td>${formatDateOnly(position.entry_date)}</td>
+          <td>${formatHoldingDaysBetween(position.entry_date, isOpen ? null : position.closed_at)}</td>
           <td>${escapeHtml(position.note || "-")}</td>
           <td>
             <div class="portfolioActions">
@@ -661,7 +664,7 @@ function renderPerformance(strategies) {
 function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="6">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="7">${t("noOpenPositions")}</td></tr>`;
     return;
   }
 
@@ -673,6 +676,7 @@ function renderOpenPositions() {
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
+        <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
       </tr>
     `)
@@ -1175,6 +1179,26 @@ function formatDateOnly(value) {
   if (!isoDate) return formatDate(value);
   const [year, month, day] = isoDate.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function formatHoldingDaysBetween(startValue, endValue = null) {
+  const start = parseDateValue(startValue);
+  const end = endValue ? parseDateValue(endValue) : new Date();
+  if (!start || !end) return "-";
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.max(0, Math.floor((end.getTime() - start.getTime()) / dayMs));
+  return `${days}d`;
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+  const raw = String(value);
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function formatPrice(value) {
