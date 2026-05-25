@@ -35,6 +35,30 @@ class EnrichmentHelpersTest(unittest.TestCase):
         self.assertEqual(result["history"], [])
         self.assertEqual(result["metrics"], {})
 
+    def test_enricher_caches_by_ticker(self):
+        class CountingEnricher(VnstockEnricher):
+            def __init__(self):
+                super().__init__(cache_ttl_seconds=60, min_request_interval_seconds=0)
+                self.calls = 0
+
+            def _enrich_with_vnstock(self, ticker):
+                self.calls += 1
+                return {
+                    "status": "ok",
+                    "ticker": ticker,
+                    "history": [{"close": 10}],
+                    "metrics": {},
+                }
+
+        enricher = CountingEnricher()
+
+        first = enricher.enrich("VPB")
+        second = enricher.enrich("VPB")
+        first["history"][0]["close"] = 99
+
+        self.assertEqual(enricher.calls, 1)
+        self.assertEqual(second["history"][0]["close"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()

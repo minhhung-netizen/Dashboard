@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
+from copy import deepcopy
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import date, timedelta
 from importlib import import_module
@@ -60,20 +63,38 @@ def normalize_action(raw_action: str | None) -> str:
 class VnstockEnricher:
     """Small adapter around vnstock with graceful fallback when APIs differ."""
 
-    def __init__(self, lookback_days: int = 120) -> None:
+    def __init__(
+        self,
+        lookback_days: int = 90,
+        *,
+        cache_ttl_seconds: int = 240 * 60,
+        min_request_interval_seconds: float = 4.0,
+        include_metrics: bool = False,
+    ) -> None:
         self.lookback_days = lookback_days
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self.min_request_interval_seconds = min_request_interval_seconds
+        self.include_metrics = include_metrics
+        self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+        self._last_request_at = 0.0
 
     def enrich(self, ticker: str) -> dict[str, Any]:
+        cached = self._get_cached(ticker)
+        if cached is not None:
+            return cached
         try:
-            return self._enrich_with_vnstock(ticker)
+            enrichment = self._enrich_with_vnstock(ticker)
         except BaseException as exc:  # vnstock may raise non-Exception exits internally.
-            return {
+            enrichment = {
                 "status": "unavailable",
                 "message": str(exc),
                 "ticker": ticker,
                 "history": [],
                 "metrics": {},
             }
+        self._set_cached(ticker, enrichment)
+        return deepcopy(enrichment)
 
     def _enrich_with_vnstock(self, ticker: str) -> dict[str, Any]:
         vnstock_home = PROJECT_ROOT / "data" / "vnstock-home"
@@ -88,8 +109,12 @@ class VnstockEnricher:
             module = __import__("vnstock")
             end = date.today()
             start = end - timedelta(days=self.lookback_days)
+            self._wait_for_rate_limit()
             history = self._get_history(module, ticker, start.isoformat(), end.isoformat())
-            metrics = self._get_metrics(module, ticker)
+            metrics = {}
+            if self.include_metrics:
+                self._wait_for_rate_limit()
+                metrics = self._get_metrics(module, ticker)
 
         return {
             "status": "ok",
@@ -97,6 +122,33 @@ class VnstockEnricher:
             "history": history[-80:],
             "metrics": metrics,
         }
+
+    def _get_cached(self, ticker: str) -> dict[str, Any] | None:
+        now = time.monotonic()
+        with self._lock:
+            cached = self._cache.get(ticker)
+            if not cached:
+                return None
+            cached_at, enrichment = cached
+            if now - cached_at > self.cache_ttl_seconds:
+                self._cache.pop(ticker, None)
+                return None
+            return deepcopy(enrichment)
+
+    def _set_cached(self, ticker: str, enrichment: dict[str, Any]) -> None:
+        with self._lock:
+            self._cache[ticker] = (time.monotonic(), deepcopy(enrichment))
+
+    def _wait_for_rate_limit(self) -> None:
+        if self.min_request_interval_seconds <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait_seconds = self.min_request_interval_seconds - (now - self._last_request_at)
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+                now = time.monotonic()
+            self._last_request_at = now
 
     def _get_history(
         self, module: Any, ticker: str, start: str, end: str

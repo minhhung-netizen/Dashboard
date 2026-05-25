@@ -26,7 +26,12 @@ from app.services.performance import build_performance
 
 settings = get_settings()
 store = SignalStore(settings.database_path)
-enricher = VnstockEnricher()
+enricher = VnstockEnricher(
+    lookback_days=settings.vnstock_lookback_days,
+    cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
+    min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
+    include_metrics=settings.vnstock_include_metrics,
+)
 logger = logging.getLogger(__name__)
 
 

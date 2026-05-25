@@ -27,14 +27,22 @@ http://127.0.0.1:8000
 
 Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh.
 
-Open-position prices refresh every 30 minutes during configured market sessions.
+Open-position prices refresh every 120 minutes during configured market sessions.
 By default this uses Vietnam time with `09:00-11:30,13:00-15:00`.
 Change these values in `.env` if needed:
 
 ```powershell
-PRICE_REFRESH_MINUTES=30
+PRICE_REFRESH_MINUTES=120
 MARKET_SESSIONS=09:00-11:30,13:00-15:00
+VNSTOCK_CACHE_TTL_MINUTES=240
+VNSTOCK_MIN_REQUEST_INTERVAL_SECONDS=4
+VNSTOCK_LOOKBACK_DAYS=90
+VNSTOCK_INCLUDE_METRICS=false
 ```
+
+The default `vnstock` settings are intentionally conservative for the free tier:
+each ticker is cached for 4 hours, calls are spaced by at least 4 seconds, and
+fundamental metrics are skipped unless explicitly enabled.
 
 ## Performance Tracking
 
