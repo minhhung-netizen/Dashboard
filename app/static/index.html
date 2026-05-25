@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TradingView VN Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow" data-i18n="webhookLabel">TradingView Webhook</p>
+        <h1>VN Signals Dashboard</h1>
+      </div>
+      <div class="actions">
+        <input id="tickerFilter" aria-label="Ticker filter" placeholder="VPB" />
+        <select id="languageSelect" aria-label="Language">
+          <option value="en">English</option>
+          <option value="vi">Tiếng Việt</option>
+        </select>
+        <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme" data-i18n="darkMode">Dark mode</button>
+        <button id="refreshButton" type="button" title="Refresh signals" data-i18n="refresh">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <nav class="tabs" aria-label="Dashboard sections">
+        <button class="tabButton active" type="button" data-tab-target="overview" data-i18n="tabOverview">Overview</button>
+        <button class="tabButton" type="button" data-tab-target="positions" data-i18n="tabPositions">Positions</button>
+        <button class="tabButton" type="button" data-tab-target="manualPortfolio" data-i18n="tabManualPortfolio">Manual Portfolio</button>
+        <button class="tabButton" type="button" data-tab-target="performance" data-i18n="tabPerformance">Performance</button>
+        <button class="tabButton" type="button" data-tab-target="logs" data-i18n="tabLogs">Logs</button>
+      </nav>
+
+      <div class="tabPanel active" data-tab-panel="overview">
+        <section class="metrics" aria-label="Signal summary">
+          <article>
+            <span data-i18n="total">Total</span>
+            <strong id="totalSignals">0</strong>
+          </article>
+          <article>
+            <span data-i18n="buy">Buy</span>
+            <strong id="buySignals">0</strong>
+          </article>
+          <article>
+            <span data-i18n="sell">Sell</span>
+            <strong id="sellSignals">0</strong>
+          </article>
+          <article>
+            <span data-i18n="tickers">Tickers</span>
+            <strong id="tickerCount">0</strong>
+          </article>
+        </section>
+
+        <section class="workspace">
+          <div class="chartPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="priceHistory">Price History</p>
+                <h2 id="chartTitle">No ticker selected</h2>
+              </div>
+              <span id="lastUpdated">Waiting for webhook</span>
+            </div>
+            <canvas id="priceChart" height="340"></canvas>
+          </div>
+
+          <div class="signalsPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="realtimeFeed">Realtime Feed</p>
+                <h2 data-i18n="signals">Signals</h2>
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="time">Time</th>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="side">Side</th>
+                    <th data-i18n="price">Price</th>
+                    <th data-i18n="timeframe">Timeframe</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="signalsTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="positions">
+        <section class="openPositionsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="openPositions">Open Positions</p>
+              <h2 data-i18n="currentHoldings">Current Holdings</h2>
+            </div>
+            <div class="positionControls">
+              <input id="openPositionTickerFilter" aria-label="Open position ticker filter" placeholder="Ticker" />
+              <input id="openPositionStrategyFilter" aria-label="Open position strategy filter" placeholder="Strategy" />
+              <select id="openPositionSort" aria-label="Open position sort">
+                <option value="return_desc" data-i18n="sortReturnDesc">Return desc</option>
+                <option value="return_asc" data-i18n="sortReturnAsc">Return asc</option>
+                <option value="current_price_desc" data-i18n="sortCurrentPriceDesc">Current price desc</option>
+                <option value="current_price_asc" data-i18n="sortCurrentPriceAsc">Current price asc</option>
+                <option value="entry_newest" data-i18n="sortEntryNewest">Entry newest</option>
+                <option value="entry_oldest" data-i18n="sortEntryOldest">Entry oldest</option>
+                <option value="ticker_asc" data-i18n="sortTickerAsc">Ticker A-Z</option>
+                <option value="strategy_asc" data-i18n="sortStrategyAsc">Strategy A-Z</option>
+              </select>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="currentPrice">Current Price</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="entryTime">Entry Time</th>
+                </tr>
+              </thead>
+              <tbody id="openPositionsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="closedTradesPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="closedTrades">Closed Trades</p>
+              <h2 data-i18n="tradeHistory">Trade History</h2>
+            </div>
+            <div id="closedTradesFilter" class="filterStatus" hidden>
+              <span id="closedTradesFilterLabel"></span>
+              <button id="clearClosedTradesFilter" class="smallButton" type="button" data-i18n="clearFilter">Clear</button>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="exitPrice">Exit</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="holdTime">Hold Time</th>
+                  <th data-i18n="exitTime">Exit Time</th>
+                </tr>
+              </thead>
+              <tbody id="closedTradesTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="manualPortfolio">
+        <section class="manualPortfolioGrid">
+          <div class="manualFormPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="manualEntry">Manual Entry</p>
+                <h2 data-i18n="addHolding">Add Holding</h2>
+              </div>
+            </div>
+            <form id="manualPositionForm" class="manualForm">
+              <input id="manualTicker" required aria-label="Manual ticker" placeholder="Ticker" />
+              <input id="manualWeight" required min="0.01" step="0.01" type="number" aria-label="Manual weight" placeholder="Weight %" />
+              <input id="manualEntryPrice" required min="0.001" step="0.001" type="number" aria-label="Manual entry price" placeholder="Entry" />
+              <input id="manualCurrentPrice" disabled aria-label="Manual current price" placeholder="Auto market price" />
+              <input id="manualQuantity" min="0.0001" step="0.0001" type="number" aria-label="Manual quantity" placeholder="Quantity" />
+              <input id="manualEntryDate" type="date" aria-label="Manual entry date" />
+              <input id="manualNote" aria-label="Manual note" placeholder="Note" />
+              <button type="submit" data-i18n="addPosition">Add</button>
+            </form>
+          </div>
+
+          <div class="manualEquityPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="manualEquityCurve">Manual Equity Curve</p>
+                <h2 data-i18n="portfolioGrowth">Portfolio Growth</h2>
+              </div>
+              <span id="manualPortfolioReturn">-</span>
+            </div>
+            <canvas id="manualEquityChart" height="260"></canvas>
+          </div>
+        </section>
+
+        <section class="manualPositionsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="manualPortfolio">Manual Portfolio</p>
+              <h2 data-i18n="portfolioDetail">Portfolio Detail</h2>
+            </div>
+            <div class="portfolioSummary">
+              <button id="manualRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
+              <span><span data-i18n="totalWeight">Weight</span>: <strong id="manualTotalWeight">0%</strong></span>
+              <span><span data-i18n="open">Open</span>: <strong id="manualOpenCount">0</strong></span>
+              <span><span data-i18n="closed">Closed</span>: <strong id="manualClosedCount">0</strong></span>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="weight">Weight</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="currentPrice">Current Price</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="quantity">Quantity</th>
+                  <th data-i18n="status">Status</th>
+                  <th data-i18n="entryDate">Entry Date</th>
+                  <th data-i18n="note">Note</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="manualPortfolioTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="performance">
+        <section class="analyticsGrid">
+          <div class="equityPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="equityCurve">Equity Curve</p>
+                <h2 data-i18n="closedTradeGrowth">Closed Trade Growth</h2>
+              </div>
+            </div>
+            <canvas id="equityChart" height="260"></canvas>
+          </div>
+
+          <div class="performancePanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="strategyPerformance">Strategy Performance</p>
+                <h2 data-i18n="buyToSellResults">Buy to Sell Results</h2>
+              </div>
+              <div class="performanceControls">
+                <input id="performanceTickerFilter" aria-label="Performance ticker filter" placeholder="Ticker" />
+                <input id="performanceStrategyFilter" aria-label="Performance strategy filter" placeholder="Strategy" />
+                <select id="performanceSort" aria-label="Performance sort">
+                  <option value="current_desc" data-i18n="sortCurrentDesc">Current desc</option>
+                  <option value="current_asc" data-i18n="sortCurrentAsc">Current asc</option>
+                  <option value="realized_desc" data-i18n="sortRealizedDesc">Realized desc</option>
+                  <option value="realized_asc" data-i18n="sortRealizedAsc">Realized asc</option>
+                  <option value="win_desc" data-i18n="sortWinDesc">Win rate desc</option>
+                  <option value="ticker_asc" data-i18n="sortTickerAsc">Ticker A-Z</option>
+                  <option value="strategy_asc" data-i18n="sortStrategyAsc">Strategy A-Z</option>
+                </select>
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th data-i18n="closed">Closed</th>
+                    <th data-i18n="open">Open</th>
+                    <th data-i18n="winRate">Win Rate</th>
+                    <th data-i18n="realized">Realized</th>
+                    <th data-i18n="openPl">Open P/L</th>
+                    <th data-i18n="current">Current</th>
+                  </tr>
+                </thead>
+                <tbody id="performanceTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="logs">
+        <section class="invalidSignalsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="invalidSignalLog">Invalid Signal Log</p>
+              <h2 data-i18n="ignoredAlerts">Ignored Alerts</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="time">Time</th>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="side">Side</th>
+                  <th data-i18n="timeframe">Timeframe</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="reason">Reason</th>
+                </tr>
+              </thead>
+              <tbody id="invalidSignalsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

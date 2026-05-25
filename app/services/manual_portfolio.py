@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+def build_manual_portfolio(positions: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [_position_row(position) for position in positions]
+    open_positions = [row for row in rows if row["status"] == "open"]
+    closed_positions = [row for row in rows if row["status"] == "closed"]
+    return {
+        "summary": _summary(rows, open_positions, closed_positions),
+        "positions": rows,
+        "open_positions": open_positions,
+        "closed_positions": closed_positions,
+        "equity_curve": _equity_curve(positions),
+    }
+
+
+def _position_row(position: dict[str, Any]) -> dict[str, Any]:
+    entry_price = _safe_float(position.get("entry_price")) or 0
+    current_price = _safe_float(position.get("current_price")) or entry_price
+    exit_price = _safe_float(position.get("exit_price"))
+    status = position.get("status") or "open"
+    mark_price = exit_price if status == "closed" and exit_price is not None else current_price
+    quantity = _safe_float(position.get("quantity"))
+    weight_pct = _safe_float(position.get("weight_pct")) or 0
+    return_pct = ((mark_price - entry_price) / entry_price * 100) if entry_price > 0 else None
+    cost_value = entry_price * quantity if quantity is not None else None
+    market_value = mark_price * quantity if quantity is not None else None
+    pnl_value = market_value - cost_value if market_value is not None and cost_value is not None else None
+    row = dict(position)
+    row.update(
+        {
+            "weight_pct": weight_pct,
+            "entry_price": entry_price,
+            "current_price": current_price,
+            "mark_price": mark_price,
+            "quantity": quantity,
+            "return_pct": return_pct,
+            "cost_value": cost_value,
+            "market_value": market_value,
+            "pnl_value": pnl_value,
+        }
+    )
+    return row
+
+
+def _summary(
+    rows: list[dict[str, Any]],
+    open_positions: list[dict[str, Any]],
+    closed_positions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    total_weight = sum(row["weight_pct"] for row in open_positions)
+    weighted_return = _weighted_return(open_positions)
+    cost_value = sum(row["cost_value"] or 0 for row in open_positions)
+    market_value = sum(row["market_value"] or 0 for row in open_positions)
+    return {
+        "total_positions": len(rows),
+        "open_count": len(open_positions),
+        "closed_count": len(closed_positions),
+        "total_weight_pct": total_weight,
+        "portfolio_return_pct": weighted_return,
+        "cost_value": cost_value or None,
+        "market_value": market_value or None,
+        "pnl_value": market_value - cost_value if cost_value or market_value else None,
+        "winners": sum(1 for row in open_positions if (row["return_pct"] or 0) > 0),
+        "losers": sum(1 for row in open_positions if (row["return_pct"] or 0) < 0),
+    }
+
+
+def _weighted_return(rows: list[dict[str, Any]]) -> float | None:
+    weighted = [
+        (row["weight_pct"], row["return_pct"])
+        for row in rows
+        if row["weight_pct"] > 0 and row["return_pct"] is not None
+    ]
+    total_weight = sum(weight for weight, _ in weighted)
+    if total_weight <= 0:
+        return None
+    return sum(weight * return_pct for weight, return_pct in weighted) / total_weight
+
+
+def _equity_curve(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    positions_by_id = {position["id"]: position for position in positions}
+    for position in positions:
+        entry_date = position.get("entry_date") or position.get("created_at")
+        if entry_date:
+            events.append(
+                {
+                    "position_id": position["id"],
+                    "price": _safe_float(position.get("entry_price")) or 0,
+                    "time": entry_date,
+                }
+            )
+        for snapshot in position.get("snapshots") or []:
+            events.append(
+                {
+                    "position_id": position["id"],
+                    "price": _safe_float(snapshot.get("price")) or 0,
+                    "time": snapshot.get("recorded_at") or entry_date,
+                }
+            )
+
+    events = sorted(
+        [event for event in events if event["time"] and event["price"] > 0],
+        key=lambda event: event["time"],
+    )
+    if not events:
+        return []
+
+    marks: dict[int, float] = {}
+    curve: list[dict[str, Any]] = []
+    last_time = ""
+    for event in events:
+        marks[event["position_id"]] = event["price"]
+        time = event["time"]
+        if time == last_time and curve:
+            curve.pop()
+        eligible_rows = []
+        for position_id, mark_price in marks.items():
+            position = positions_by_id[position_id]
+            row = dict(position)
+            row["current_price"] = mark_price
+            closed_at = position.get("closed_at") or ""
+            if position.get("status") == "closed" and closed_at and closed_at <= time:
+                row["exit_price"] = mark_price
+            else:
+                row["exit_price"] = None
+                row["status"] = "open"
+            eligible_rows.append(_position_row(row))
+        weighted_return = _weighted_return(eligible_rows) or 0
+        curve.append(
+            {
+                "time": time,
+                "value": 100 + weighted_return,
+                "return_pct": weighted_return,
+            }
+        )
+        last_time = time
+    return curve
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
