@@ -25,7 +25,6 @@ const els = {
   closedTradesFilter: document.querySelector("#closedTradesFilter"),
   closedTradesFilterLabel: document.querySelector("#closedTradesFilterLabel"),
   clearClosedTradesFilter: document.querySelector("#clearClosedTradesFilter"),
-  tickerFilter: document.querySelector("#tickerFilter"),
   watchlistInput: document.querySelector("#watchlistInput"),
   watchlistOnly: document.querySelector("#watchlistOnly"),
   addTickerToWatchlist: document.querySelector("#addTickerToWatchlist"),
@@ -407,8 +406,7 @@ async function fetchJson(url) {
 }
 
 async function refresh() {
-  const ticker = els.tickerFilter.value.trim().toUpperCase();
-  const query = ticker && !state.watchlistOnly ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  const query = "";
   const performanceQuery = buildPerformanceQuery();
   const [summary, signalsPayload, performancePayload, invalidPayload, manualPayload] = await Promise.all([
     fetchJson("/api/summary"),
@@ -440,7 +438,7 @@ async function refresh() {
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
 
-  const firstTicker = ticker || state.signals[0]?.ticker || "";
+  const firstTicker = state.selectedTicker || state.signals[0]?.ticker || "";
   if (firstTicker) {
     await renderChart(firstTicker);
   } else {
@@ -809,7 +807,7 @@ function toggleWatchlistOnly() {
 }
 
 function addSelectedTickerToWatchlist() {
-  const ticker = (state.selectedTicker || els.tickerFilter.value || "").trim().toUpperCase();
+  const ticker = (state.selectedTicker || "").trim().toUpperCase();
   if (!ticker) return;
   if (!state.watchlist.includes(ticker)) {
     state.watchlist.push(ticker);
@@ -1404,9 +1402,6 @@ els.themeToggle.addEventListener("click", () => {
 });
 els.tabButtons.forEach((button) => {
   button.addEventListener("click", () => setActiveTab(button.dataset.tabTarget));
-});
-els.tickerFilter.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") refresh();
 });
 els.watchlistInput.addEventListener("change", updateWatchlistFromInput);
 els.watchlistInput.addEventListener("keydown", (event) => {
