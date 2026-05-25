@@ -233,6 +233,12 @@ async def refresh_manual_portfolio_prices_endpoint() -> dict[str, Any]:
     return {"status": "refreshed", "updated_positions": updated}
 
 
+@app.post("/api/open-positions/refresh-prices")
+async def refresh_open_position_prices_endpoint() -> dict[str, Any]:
+    updated = await refresh_open_position_prices(include_manual=False)
+    return {"status": "refreshed", "updated_positions": updated}
+
+
 @app.post("/api/manual-portfolio/{position_id}/close")
 def close_manual_position(position_id: int, payload: ManualClosePayload) -> dict[str, Any]:
     try:
@@ -294,15 +300,16 @@ async def price_refresh_loop() -> None:
         await asyncio.sleep(interval_seconds)
 
 
-async def refresh_open_position_prices() -> None:
+async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
     performance_data = build_performance(store.list_all_signals())
     open_trades = performance_data["open_trades"]
     signal_ids_by_ticker: dict[str, list[int]] = {}
     for trade in open_trades:
         signal_ids_by_ticker.setdefault(trade["ticker"], []).append(trade["entry_signal_id"])
 
-    manual_tickers = set(store.list_open_manual_tickers())
+    manual_tickers = set(store.list_open_manual_tickers()) if include_manual else set()
     refresh_tickers = sorted(set(signal_ids_by_ticker) | manual_tickers)
+    updated_signals = 0
 
     for ticker in refresh_tickers:
         try:
@@ -316,6 +323,7 @@ async def refresh_open_position_prices() -> None:
         enrichment["refreshed_at"] = utc_now_iso()
         for signal_id in signal_ids_by_ticker.get(ticker, []):
             store.update_signal_enrichment(signal_id, enrichment)
+            updated_signals += 1
         if ticker in manual_tickers:
             price = latest_history_close(enrichment)
             if price is not None and price > 0:
@@ -324,6 +332,7 @@ async def refresh_open_position_prices() -> None:
                     price=price,
                     recorded_at=enrichment["refreshed_at"],
                 )
+    return updated_signals
 
 
 async def refresh_manual_portfolio_prices() -> int:

@@ -26,6 +26,7 @@ const els = {
   closedTradesFilterLabel: document.querySelector("#closedTradesFilterLabel"),
   clearClosedTradesFilter: document.querySelector("#clearClosedTradesFilter"),
   tickerFilter: document.querySelector("#tickerFilter"),
+  openPositionRefreshPrices: document.querySelector("#openPositionRefreshPrices"),
   openPositionTickerFilter: document.querySelector("#openPositionTickerFilter"),
   openPositionStrategyFilter: document.querySelector("#openPositionStrategyFilter"),
   openPositionSort: document.querySelector("#openPositionSort"),
@@ -535,6 +536,17 @@ async function deleteManualPosition(positionId) {
 
 async function refreshManualMarketPrices() {
   const response = await fetch("/api/manual-portfolio/refresh-prices", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    window.alert(t("refreshPricesFailed"));
+    return;
+  }
+  await refresh();
+}
+
+async function refreshOpenPositionMarketPrices() {
+  const response = await fetch("/api/open-positions/refresh-prices", {
     method: "POST",
   });
   if (!response.ok) {
@@ -1250,6 +1262,7 @@ els.tickerFilter.addEventListener("keydown", (event) => {
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
 els.openPositionStrategyFilter.addEventListener("input", renderOpenPositions);
 els.openPositionSort.addEventListener("change", renderOpenPositions);
+els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);
 els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("input", refresh);
 els.performanceSort.addEventListener("change", refresh);
