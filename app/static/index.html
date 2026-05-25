@@ -14,6 +14,11 @@
       </div>
       <div class="actions">
         <input id="tickerFilter" aria-label="Ticker filter" placeholder="VPB" />
+        <input id="watchlistInput" aria-label="Watchlist symbols" placeholder="VPB,TCB,FPT" />
+        <label class="checkboxControl">
+          <input id="watchlistOnly" type="checkbox" />
+          <span data-i18n="watchlistOnly">Watchlist only</span>
+        </label>
         <select id="languageSelect" aria-label="Language">
           <option value="en">English</option>
           <option value="vi">Tiếng Việt</option>
@@ -59,7 +64,10 @@
                 <p class="eyebrow" data-i18n="priceHistory">Price History</p>
                 <h2 id="chartTitle">No ticker selected</h2>
               </div>
-              <span id="lastUpdated">Waiting for webhook</span>
+              <div class="panelActions">
+                <button id="addTickerToWatchlist" class="smallButton" type="button" data-i18n="addToWatchlist">Add to watchlist</button>
+                <span id="lastUpdated">Waiting for webhook</span>
+              </div>
             </div>
             <canvas id="priceChart" height="340"></canvas>
           </div>
@@ -88,6 +96,16 @@
               </table>
             </div>
           </div>
+        </section>
+
+        <section class="timelinePanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="tickerTimeline">Ticker Timeline</p>
+              <h2 id="timelineTitle" data-i18n="noTickerSelected">No ticker selected</h2>
+            </div>
+          </div>
+          <div id="tickerTimeline" class="timelineList"></div>
         </section>
       </div>
 

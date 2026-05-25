@@ -111,6 +111,7 @@ h2 {
 .actions,
 .performanceControls,
 .positionControls,
+.panelActions,
 .portfolioSummary,
 .portfolioActions,
 .filterStatus {
@@ -122,6 +123,25 @@ h2 {
 
 .actions {
   justify-content: flex-end;
+}
+
+.checkboxControl {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  display: inline-flex;
+  gap: 8px;
+  height: 38px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.checkboxControl input {
+  height: 16px;
+  margin: 0;
+  max-width: none;
+  width: 16px;
 }
 
 input,
@@ -262,6 +282,7 @@ main {
 .closedTradesPanel,
 .invalidSignalsPanel,
 .performancePanel,
+.timelinePanel,
 .manualFormPanel,
 .manualEquityPanel,
 .manualPositionsPanel {
@@ -337,6 +358,7 @@ main {
 .closedTradesPanel,
 .invalidSignalsPanel,
 .performancePanel,
+.timelinePanel,
 .manualFormPanel,
 .manualEquityPanel,
 .manualPositionsPanel {
@@ -353,6 +375,7 @@ main {
 .tabPanel > .openPositionsPanel,
 .tabPanel > .closedTradesPanel,
 .tabPanel > .invalidSignalsPanel,
+.tabPanel > .timelinePanel,
 .tabPanel > .analyticsGrid,
 .tabPanel > .manualPortfolioGrid,
 .tabPanel > .manualPositionsPanel,
@@ -361,7 +384,8 @@ main {
 }
 
 .tabPanel > .closedTradesPanel,
-.tabPanel > .manualPositionsPanel {
+.tabPanel > .manualPositionsPanel,
+.tabPanel > .timelinePanel {
   margin-top: 16px;
 }
 
@@ -399,6 +423,11 @@ main {
 .filterStatus {
   color: var(--muted);
   font-size: 13px;
+  justify-content: flex-end;
+}
+
+.panelActions {
+  color: var(--muted);
   justify-content: flex-end;
 }
 
@@ -548,6 +577,47 @@ td strong {
   padding: 18px;
 }
 
+.timelineList {
+  display: grid;
+  gap: 0;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.timelineItem {
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 12px 16px;
+}
+
+.timelineItem:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.timelineItem div {
+  min-width: 0;
+}
+
+.timelineItem strong,
+.timelineItem span,
+.timelineItem time {
+  display: block;
+}
+
+.timelineItem div span,
+.timelineItem time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timelineItem time {
+  text-align: right;
+  white-space: nowrap;
+}
+
 .positive {
   color: var(--buy);
   font-weight: 760;
@@ -585,6 +655,7 @@ td strong {
   .actions,
   .performanceControls,
   .positionControls,
+  .panelActions,
   .portfolioSummary,
   .portfolioActions {
     justify-content: flex-start;
@@ -600,7 +671,8 @@ td strong {
 
   .actions,
   .performanceControls,
-  .positionControls {
+  .positionControls,
+  .panelActions {
     display: grid;
     grid-template-columns: 1fr;
   }
@@ -630,5 +702,15 @@ td strong {
 
   .manualForm input[aria-label="Manual note"] {
     grid-column: auto;
+  }
+
+  .timelineItem {
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .timelineItem time {
+    grid-column: 2;
+    text-align: left;
   }
 }

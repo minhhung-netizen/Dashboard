@@ -26,6 +26,11 @@ const els = {
   closedTradesFilterLabel: document.querySelector("#closedTradesFilterLabel"),
   clearClosedTradesFilter: document.querySelector("#clearClosedTradesFilter"),
   tickerFilter: document.querySelector("#tickerFilter"),
+  watchlistInput: document.querySelector("#watchlistInput"),
+  watchlistOnly: document.querySelector("#watchlistOnly"),
+  addTickerToWatchlist: document.querySelector("#addTickerToWatchlist"),
+  timelineTitle: document.querySelector("#timelineTitle"),
+  tickerTimeline: document.querySelector("#tickerTimeline"),
   openPositionRefreshPrices: document.querySelector("#openPositionRefreshPrices"),
   openPositionTickerFilter: document.querySelector("#openPositionTickerFilter"),
   openPositionStrategyFilter: document.querySelector("#openPositionStrategyFilter"),
@@ -51,6 +56,9 @@ const translations = {
     refresh: "Refresh",
     darkMode: "Dark mode",
     lightMode: "Light mode",
+    watchlistOnly: "Watchlist only",
+    addToWatchlist: "Add to watchlist",
+    tickerTimeline: "Ticker Timeline",
     clearFilter: "Clear",
     filteredTrades: "Showing trades for",
     tabOverview: "Overview",
@@ -148,6 +156,7 @@ const translations = {
     missingSellPrice: "Missing sell price",
     positionAlreadyOpen: "Position already open",
     noSignals: "No signals yet",
+    noTimeline: "No timeline for this ticker",
     noHistory: "No price history available",
     delete: "Delete",
     deleteTitle: "Delete signal",
@@ -163,6 +172,9 @@ const translations = {
     refresh: "Làm mới",
     darkMode: "Chế độ tối",
     lightMode: "Chế độ sáng",
+    watchlistOnly: "Chỉ watchlist",
+    addToWatchlist: "Thêm watchlist",
+    tickerTimeline: "Timeline mã",
     clearFilter: "Xóa lọc",
     filteredTrades: "Đang xem giao dịch của",
     tabOverview: "Tổng quan",
@@ -260,6 +272,7 @@ const translations = {
     missingSellPrice: "Thiếu giá bán",
     positionAlreadyOpen: "Vị thế đã mở",
     noSignals: "Chưa có tín hiệu",
+    noTimeline: "Chưa có timeline cho mã này",
     noHistory: "Chưa có lịch sử giá",
     delete: "Xóa",
     deleteTitle: "Xóa tín hiệu",
@@ -277,6 +290,8 @@ const state = {
   theme: localStorage.getItem("dashboardTheme") || "light",
   activeTab: localStorage.getItem("dashboardActiveTab") || "overview",
   selectedTicker: "",
+  watchlist: loadWatchlist(),
+  watchlistOnly: localStorage.getItem("dashboardWatchlistOnly") === "true",
   signals: [],
   openTrades: [],
   closedTrades: [],
@@ -296,6 +311,25 @@ function numberValue(value) {
   return value === null || value === undefined || Number.isNaN(Number(value))
     ? Number.NEGATIVE_INFINITY
     : Number(value);
+}
+
+function loadWatchlist() {
+  return parseWatchlist(localStorage.getItem("dashboardWatchlist") || "");
+}
+
+function parseWatchlist(value) {
+  return [
+    ...new Set(
+      String(value || "")
+        .split(/[,\s]+/)
+        .map((ticker) => ticker.trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function saveWatchlist() {
+  localStorage.setItem("dashboardWatchlist", state.watchlist.join(","));
 }
 
 function applyTranslations() {
@@ -374,7 +408,7 @@ async function fetchJson(url) {
 
 async function refresh() {
   const ticker = els.tickerFilter.value.trim().toUpperCase();
-  const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  const query = ticker && !state.watchlistOnly ? `?ticker=${encodeURIComponent(ticker)}` : "";
   const performanceQuery = buildPerformanceQuery();
   const [summary, signalsPayload, performancePayload, invalidPayload, manualPayload] = await Promise.all([
     fetchJson("/api/summary"),
@@ -384,7 +418,7 @@ async function refresh() {
     fetchJson("/api/manual-portfolio"),
   ]);
 
-  state.signals = signalsPayload.signals || [];
+  state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
   renderSummary(summary);
   renderSignals();
   state.openTrades = performancePayload.open_trades || [];
@@ -412,8 +446,16 @@ async function refresh() {
   } else {
     state.selectedTicker = "";
     els.chartTitle.textContent = t("noTickerSelected");
+    renderTickerTimeline("");
     clearChart(t("noTickerSelected"));
   }
+}
+
+function filterSignalsForWatchlist(signals) {
+  if (!state.watchlistOnly) return signals;
+  if (!state.watchlist.length) return [];
+  const allowed = new Set(state.watchlist);
+  return signals.filter((signal) => allowed.has(String(signal.ticker || "").toUpperCase()));
 }
 
 function renderManualPortfolio(payload) {
@@ -749,6 +791,33 @@ function updateClosedTradesFilterLabel() {
     `${t("filteredTrades")} ${state.closedTradeFilter.ticker} / ${state.closedTradeFilter.strategy}`;
 }
 
+function updateWatchlistControls() {
+  els.watchlistInput.value = state.watchlist.join(",");
+  els.watchlistOnly.checked = state.watchlistOnly;
+}
+
+function updateWatchlistFromInput() {
+  state.watchlist = parseWatchlist(els.watchlistInput.value);
+  saveWatchlist();
+  refresh();
+}
+
+function toggleWatchlistOnly() {
+  state.watchlistOnly = els.watchlistOnly.checked;
+  localStorage.setItem("dashboardWatchlistOnly", String(state.watchlistOnly));
+  refresh();
+}
+
+function addSelectedTickerToWatchlist() {
+  const ticker = (state.selectedTicker || els.tickerFilter.value || "").trim().toUpperCase();
+  if (!ticker) return;
+  if (!state.watchlist.includes(ticker)) {
+    state.watchlist.push(ticker);
+    saveWatchlist();
+    updateWatchlistControls();
+  }
+}
+
 function renderInvalidSignals(invalidSignals) {
   if (!invalidSignals.length) {
     els.invalidSignalsTable.innerHTML = `<tr><td class="empty" colspan="6">${t("noInvalidSignals")}</td></tr>`;
@@ -917,14 +986,33 @@ function drawManualEquityCurve(curve) {
 }
 
 function renderSummary(summary) {
-  els.total.textContent = summary.total ?? 0;
-  els.buy.textContent = summary.buy_count ?? 0;
-  els.sell.textContent = summary.sell_count ?? 0;
-  els.tickers.textContent = summary.tickers ?? 0;
+  const visibleSummary = state.watchlistOnly ? summarizeSignals(state.signals) : summary;
+  els.total.textContent = visibleSummary.total ?? 0;
+  els.buy.textContent = visibleSummary.buy_count ?? 0;
+  els.sell.textContent = visibleSummary.sell_count ?? 0;
+  els.tickers.textContent = visibleSummary.tickers ?? 0;
   els.lastUpdated.textContent = summary.latest_received_at
     ? formatDate(summary.latest_received_at)
     : t("waitingWebhook");
   els.lastUpdated.dataset.empty = summary.latest_received_at ? "false" : "true";
+}
+
+function summarizeSignals(signals) {
+  const tickers = new Set();
+  let buyCount = 0;
+  let sellCount = 0;
+  signals.forEach((signal) => {
+    if (signal.ticker) tickers.add(signal.ticker);
+    const action = String(signal.action || "").toLowerCase();
+    if (action === "buy") buyCount += 1;
+    if (action === "sell") sellCount += 1;
+  });
+  return {
+    total: signals.length,
+    buy_count: buyCount,
+    sell_count: sellCount,
+    tickers: tickers.size,
+  };
 }
 
 function renderSignals() {
@@ -980,11 +1068,48 @@ async function deleteSignal(signalId) {
 async function renderChart(ticker) {
   state.selectedTicker = ticker;
   els.chartTitle.textContent = ticker;
+  renderTickerTimeline(ticker);
   const payload = await fetchJson(`/api/chart/${encodeURIComponent(ticker)}`);
   drawCandles(
     normalizeHistory(payload.history || []),
     normalizeMarkers(payload.markers || [])
   );
+}
+
+function renderTickerTimeline(ticker) {
+  const normalizedTicker = String(ticker || "").toUpperCase();
+  if (!normalizedTicker) {
+    els.timelineTitle.textContent = t("noTickerSelected");
+    els.tickerTimeline.innerHTML = `<div class="empty">${t("noTickerSelected")}</div>`;
+    return;
+  }
+
+  els.timelineTitle.textContent = normalizedTicker;
+  const timeline = state.signals
+    .filter((signal) => String(signal.ticker || "").toUpperCase() === normalizedTicker)
+    .sort((left, right) => String(right.received_at || "").localeCompare(String(left.received_at || "")));
+
+  if (!timeline.length) {
+    els.tickerTimeline.innerHTML = `<div class="empty">${t("noTimeline")}</div>`;
+    return;
+  }
+
+  els.tickerTimeline.innerHTML = timeline
+    .slice(0, 30)
+    .map((signal) => {
+      const action = String(signal.action || "").toLowerCase();
+      return `
+        <div class="timelineItem">
+          <span class="side ${escapeHtml(action)}">${escapeHtml(signal.action || "-")}</span>
+          <div>
+            <strong>${formatPrice(signal.price)}</strong>
+            <span>${escapeHtml(signal.timeframe || "-")} / ${escapeHtml(signal.strategy || "-")}</span>
+          </div>
+          <time>${formatDate(signal.received_at)}</time>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function normalizeHistory(history) {
@@ -1283,6 +1408,12 @@ els.tabButtons.forEach((button) => {
 els.tickerFilter.addEventListener("keydown", (event) => {
   if (event.key === "Enter") refresh();
 });
+els.watchlistInput.addEventListener("change", updateWatchlistFromInput);
+els.watchlistInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") updateWatchlistFromInput();
+});
+els.watchlistOnly.addEventListener("change", toggleWatchlistOnly);
+els.addTickerToWatchlist.addEventListener("click", addSelectedTickerToWatchlist);
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
 els.openPositionStrategyFilter.addEventListener("input", renderOpenPositions);
 els.openPositionSort.addEventListener("change", renderOpenPositions);
@@ -1302,6 +1433,7 @@ window.addEventListener("resize", () => {
 
 applyTheme();
 applyTranslations();
+updateWatchlistControls();
 setActiveTab(state.activeTab);
 refresh();
 setInterval(refresh, 15000);
