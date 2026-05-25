@@ -1,6 +1,11 @@
 import unittest
 
-from app.services.enrichment import coerce_float, normalize_action, normalize_ticker
+from app.services.enrichment import (
+    VnstockEnricher,
+    coerce_float,
+    normalize_action,
+    normalize_ticker,
+)
 
 
 class EnrichmentHelpersTest(unittest.TestCase):
@@ -17,6 +22,18 @@ class EnrichmentHelpersTest(unittest.TestCase):
     def test_coerce_float_accepts_tradingview_strings(self):
         self.assertEqual(coerce_float("19,500"), 19500.0)
         self.assertIsNone(coerce_float(""))
+
+    def test_enricher_handles_non_exception_vnstock_failures(self):
+        class ExplodingEnricher(VnstockEnricher):
+            def _enrich_with_vnstock(self, ticker):
+                raise SystemExit("vnstock exited")
+
+        result = ExplodingEnricher().enrich("VPB")
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["ticker"], "VPB")
+        self.assertEqual(result["history"], [])
+        self.assertEqual(result["metrics"], {})
 
 
 if __name__ == "__main__":

@@ -66,7 +66,7 @@ class VnstockEnricher:
     def enrich(self, ticker: str) -> dict[str, Any]:
         try:
             return self._enrich_with_vnstock(ticker)
-        except Exception as exc:  # vnstock changes shape across versions.
+        except BaseException as exc:  # vnstock may raise non-Exception exits internally.
             return {
                 "status": "unavailable",
                 "message": str(exc),
@@ -141,7 +141,7 @@ class VnstockEnricher:
             ratio = finance.ratio(period="year", lang="en", dropna=True)
             records = _records_from_dataframe_like(ratio)
             return records[-1] if records else {}
-        except Exception:
+        except BaseException:
             pass
 
         try:
@@ -152,7 +152,7 @@ class VnstockEnricher:
                 ratio = stock.finance.ratio(period="year", lang="en", dropna=True)
                 records = _records_from_dataframe_like(ratio)
                 return records[-1] if records else {}
-        except Exception:
+        except BaseException:
             return {}
         return {}
 

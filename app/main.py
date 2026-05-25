@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -26,6 +27,7 @@ from app.services.performance import build_performance
 settings = get_settings()
 store = SignalStore(settings.database_path)
 enricher = VnstockEnricher()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -282,8 +284,13 @@ def enrich_signal(signal_id: int, ticker: str) -> None:
 async def price_refresh_loop() -> None:
     interval_seconds = settings.price_refresh_minutes * 60
     while True:
-        if is_market_open(sessions=settings.market_sessions):
-            await refresh_open_position_prices()
+        try:
+            if is_market_open(sessions=settings.market_sessions):
+                await refresh_open_position_prices()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Scheduled price refresh failed")
         await asyncio.sleep(interval_seconds)
 
 
@@ -298,7 +305,13 @@ async def refresh_open_position_prices() -> None:
     refresh_tickers = sorted(set(signal_ids_by_ticker) | manual_tickers)
 
     for ticker in refresh_tickers:
-        enrichment = await asyncio.to_thread(enricher.enrich, ticker)
+        try:
+            enrichment = await asyncio.to_thread(enricher.enrich, ticker)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Skipping scheduled price refresh for %s", ticker)
+            continue
         enrichment["refreshed_by"] = "scheduled_price_refresh"
         enrichment["refreshed_at"] = utc_now_iso()
         for signal_id in signal_ids_by_ticker.get(ticker, []):
