@@ -826,7 +826,7 @@ function renderInvalidSignals(invalidSignals) {
     .slice(0, 100)
     .map((signal) => `
       <tr>
-        <td>${formatDate(signal.received_at)}</td>
+        <td>${formatSignalTime(signal)}</td>
         <td><strong>${escapeHtml(signal.ticker || "-")}</strong></td>
         <td>${escapeHtml(signal.action || "-")}</td>
         <td>${escapeHtml(signal.timeframe || "-")}</td>
@@ -1024,7 +1024,7 @@ function renderSignals() {
       const action = (signal.action || "").toLowerCase();
       return `
         <tr data-ticker="${escapeHtml(signal.ticker)}">
-          <td>${formatDate(signal.received_at)}</td>
+          <td>${formatSignalTime(signal)}</td>
           <td><strong>${escapeHtml(signal.ticker)}</strong></td>
           <td><span class="side ${action}">${escapeHtml(signal.action)}</span></td>
           <td>${formatPrice(signal.price)}</td>
@@ -1085,7 +1085,7 @@ function renderTickerTimeline(ticker) {
   els.timelineTitle.textContent = normalizedTicker;
   const timeline = state.signals
     .filter((signal) => String(signal.ticker || "").toUpperCase() === normalizedTicker)
-    .sort((left, right) => String(right.received_at || "").localeCompare(String(left.received_at || "")));
+    .sort((left, right) => String(signalTimeValue(right) || "").localeCompare(String(signalTimeValue(left) || "")));
 
   if (!timeline.length) {
     els.tickerTimeline.innerHTML = `<div class="empty">${t("noTimeline")}</div>`;
@@ -1103,7 +1103,7 @@ function renderTickerTimeline(ticker) {
             <strong>${formatPrice(signal.price)}</strong>
             <span>${escapeHtml(signal.timeframe || "-")} / ${escapeHtml(signal.strategy || "-")}</span>
           </div>
-          <time>${formatDate(signal.received_at)}</time>
+          <time>${formatSignalTime(signal)}</time>
         </div>
       `;
     })
@@ -1290,9 +1290,17 @@ function priceToY(price, min, range, top, height) {
 
 function formatDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateValue(value);
+  if (!date) return value;
   return date.toLocaleString();
+}
+
+function signalTimeValue(signal) {
+  return signal?.source_time || signal?.received_at || "";
+}
+
+function formatSignalTime(signal) {
+  return formatDate(signalTimeValue(signal));
 }
 
 function formatDateOnly(value) {
@@ -1319,6 +1327,21 @@ function parseDateValue(value) {
   const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (dateOnly) {
     return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  const slashDateTime = raw.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i
+  );
+  if (slashDateTime) {
+    const month = Number(slashDateTime[1]);
+    const day = Number(slashDateTime[2]);
+    const year = Number(slashDateTime[3]);
+    let hour = Number(slashDateTime[4]);
+    const minute = Number(slashDateTime[5]);
+    const second = Number(slashDateTime[6] || 0);
+    const meridiem = slashDateTime[7].toUpperCase();
+    if (meridiem === "PM" && hour < 12) hour += 12;
+    if (meridiem === "AM" && hour === 12) hour = 0;
+    return new Date(year, month - 1, day, hour, minute, second);
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;

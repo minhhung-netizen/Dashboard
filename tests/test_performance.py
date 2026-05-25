@@ -3,13 +3,14 @@ import unittest
 from app.services.performance import build_performance
 
 
-def signal(signal_id, ticker, action, price, strategy="RS", received_at=None):
+def signal(signal_id, ticker, action, price, strategy="RS", received_at=None, source_time=None):
     return {
         "id": signal_id,
         "ticker": ticker,
         "action": action,
         "price": price,
         "strategy": strategy,
+        "source_time": source_time,
         "received_at": received_at or f"2026-01-0{signal_id}T00:00:00+00:00",
         "enrichment": {},
     }
@@ -75,6 +76,35 @@ class PerformanceTest(unittest.TestCase):
         result = build_performance([buy, later_signal])
 
         self.assertAlmostEqual(result["open_trades"][0]["return_pct"], 20)
+
+    def test_uses_source_time_for_trade_timing_when_available(self):
+        result = build_performance(
+            [
+                signal(
+                    1,
+                    "POW",
+                    "buy",
+                    13.95,
+                    "STxanhdo",
+                    received_at="2026-05-25T09:32:00+00:00",
+                    source_time="2026-04-09T13:59:37+07:00",
+                ),
+                signal(
+                    2,
+                    "POW",
+                    "sell",
+                    14.5,
+                    "STxanhdo",
+                    received_at="2026-05-25T09:33:00+00:00",
+                    source_time="2026-04-10T13:59:37+07:00",
+                ),
+            ]
+        )
+
+        trade = result["closed_trades"][0]
+        self.assertEqual(trade["entry_time"], "2026-04-09T13:59:37+07:00")
+        self.assertEqual(trade["exit_time"], "2026-04-10T13:59:37+07:00")
+        self.assertEqual(trade["holding_seconds"], 86400)
 
 
 if __name__ == "__main__":

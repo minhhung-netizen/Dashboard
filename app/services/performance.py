@@ -19,7 +19,7 @@ class OpenPosition:
 
 
 def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
-    ordered = sorted(signals, key=lambda item: (item["received_at"], item["id"]))
+    ordered = sorted(signals, key=lambda item: (_signal_sort_time(item), item["id"]))
     latest_prices = _latest_prices_by_ticker(ordered)
     open_positions: dict[tuple[str, str], OpenPosition] = {}
     trades: list[dict[str, Any]] = []
@@ -43,7 +43,7 @@ def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
                 ticker=ticker,
                 strategy=strategy,
                 entry_price=price,
-                entry_time=signal["received_at"],
+                entry_time=_signal_time(signal),
                 entry_signal_id=signal["id"],
             )
             continue
@@ -61,7 +61,7 @@ def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
                 _trade_record(
                     position=position,
                     exit_price=price,
-                    exit_time=signal["received_at"],
+                    exit_time=_signal_time(signal),
                     exit_signal_id=signal["id"],
                     status="closed",
                 )
@@ -248,7 +248,23 @@ def _parse_datetime(value: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return None
+        pass
+    for fmt in ("%m/%d/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M:%S %p"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _signal_time(signal: dict[str, Any]) -> str:
+    return signal.get("source_time") or signal["received_at"]
+
+
+def _signal_sort_time(signal: dict[str, Any]) -> str:
+    signal_time = _signal_time(signal)
+    parsed = _parse_datetime(signal_time)
+    return parsed.isoformat() if parsed else signal_time
 
 
 def _ignored(signal: dict[str, Any], reason: str) -> dict[str, Any]:
