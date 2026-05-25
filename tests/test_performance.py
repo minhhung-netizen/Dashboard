@@ -106,6 +106,32 @@ class PerformanceTest(unittest.TestCase):
         self.assertEqual(trade["exit_time"], "2026-04-10T13:59:37+07:00")
         self.assertEqual(trade["holding_seconds"], 86400)
 
+    def test_uses_pinescript_time_close_iso_payload(self):
+        result = build_performance(
+            [
+                signal(
+                    1,
+                    "POW",
+                    "buy",
+                    13.95,
+                    "STxanhdo",
+                    received_at="2026-05-25T09:32:00+00:00",
+                    source_time="2026-04-09T15:00:00+07:00",
+                ),
+                signal(
+                    2,
+                    "POW",
+                    "sell",
+                    14.5,
+                    "STxanhdo",
+                    received_at="2026-05-25T09:33:00+00:00",
+                    source_time="2026-04-09T17:00:00+07:00",
+                ),
+            ]
+        )
+
+        self.assertEqual(result["closed_trades"][0]["holding_seconds"], 7200)
+
 
 if __name__ == "__main__":
     unittest.main()

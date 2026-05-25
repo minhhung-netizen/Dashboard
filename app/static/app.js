@@ -1085,7 +1085,7 @@ function renderTickerTimeline(ticker) {
   els.timelineTitle.textContent = normalizedTicker;
   const timeline = state.signals
     .filter((signal) => String(signal.ticker || "").toUpperCase() === normalizedTicker)
-    .sort((left, right) => String(signalTimeValue(right) || "").localeCompare(String(signalTimeValue(left) || "")));
+    .sort((left, right) => signalTimeSortValue(right) - signalTimeSortValue(left));
 
   if (!timeline.length) {
     els.tickerTimeline.innerHTML = `<div class="empty">${t("noTimeline")}</div>`;
@@ -1299,6 +1299,11 @@ function signalTimeValue(signal) {
   return signal?.source_time || signal?.received_at || "";
 }
 
+function signalTimeSortValue(signal) {
+  const parsed = parseDateValue(signalTimeValue(signal));
+  return parsed ? parsed.getTime() : 0;
+}
+
 function formatSignalTime(signal) {
   return formatDate(signalTimeValue(signal));
 }
@@ -1327,6 +1332,10 @@ function parseDateValue(value) {
   const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (dateOnly) {
     return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  const pineIso = raw.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/);
+  if (pineIso) {
+    return new Date(`${pineIso[1]}T${pineIso[2]}`);
   }
   const slashDateTime = raw.match(
     /^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i

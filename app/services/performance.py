@@ -245,8 +245,13 @@ def _holding_seconds(entry_time: str, exit_time: str | None) -> int | None:
 def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
+    value = value.strip()
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
     except ValueError:
         pass
     for fmt in ("%m/%d/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M:%S %p"):
