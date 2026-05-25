@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
+
+
+MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+EQUITY_CURVE_DAILY_CUTOFF = time(15, 0)
 
 
 def build_manual_portfolio(positions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -91,20 +97,14 @@ def _equity_curve(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "position_id": position["id"],
                     "price": _safe_float(position.get("entry_price")) or 0,
                     "time": entry_date,
+                    "sort_time": _sort_timestamp(entry_date),
                 }
             )
-        for snapshot in position.get("snapshots") or []:
-            events.append(
-                {
-                    "position_id": position["id"],
-                    "price": _safe_float(snapshot.get("price")) or 0,
-                    "time": snapshot.get("recorded_at") or entry_date,
-                }
-            )
+        events.extend(_daily_equity_snapshot_events(position, entry_date))
 
     events = sorted(
         [event for event in events if event["time"] and event["price"] > 0],
-        key=lambda event: event["time"],
+        key=lambda event: (event["sort_time"], event["position_id"]),
     )
     if not events:
         return []
@@ -139,6 +139,49 @@ def _equity_curve(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
         last_time = time
     return curve
+
+
+def _daily_equity_snapshot_events(
+    position: dict[str, Any], entry_date: str | None
+) -> list[dict[str, Any]]:
+    snapshots_by_day: dict[str, dict[str, Any]] = {}
+    for snapshot in position.get("snapshots") or []:
+        price = _safe_float(snapshot.get("price")) or 0
+        recorded_at = snapshot.get("recorded_at") or entry_date
+        recorded_dt = _parse_market_datetime(recorded_at)
+        if price <= 0 or recorded_dt is None:
+            continue
+        if recorded_dt.time() < EQUITY_CURVE_DAILY_CUTOFF:
+            continue
+
+        market_day = recorded_dt.date().isoformat()
+        event = {
+            "position_id": position["id"],
+            "price": price,
+            "time": recorded_at,
+            "sort_time": recorded_dt.timestamp(),
+        }
+        existing = snapshots_by_day.get(market_day)
+        if existing is None or event["sort_time"] > existing["sort_time"]:
+            snapshots_by_day[market_day] = event
+    return list(snapshots_by_day.values())
+
+
+def _parse_market_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=MARKET_TZ)
+    return parsed.astimezone(MARKET_TZ)
+
+
+def _sort_timestamp(value: str | None) -> float:
+    parsed = _parse_market_datetime(value)
+    return parsed.timestamp() if parsed else 0
 
 
 def _safe_float(value: Any) -> float | None:
