@@ -89,9 +89,13 @@ const translations = {
     open: "Open",
     winRate: "Win Rate",
     realized: "Realized",
+    realizedPl: "Realized P/L",
     openPl: "Open P/L",
     current: "Current",
+    currentPl: "Current P/L",
     openUnrealizedPl: "Unrealized P/L (5% each)",
+    allocationWeight: "Weight",
+    portfolioPl: "P/L",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
     entryPrice: "Entry",
@@ -171,6 +175,10 @@ const translations = {
     openPositionStrategyPlaceholder: "Strategy",
   },
   vi: {
+    realizedPl: "Lai/lo da chot",
+    currentPl: "Lai/lo hien tai",
+    allocationWeight: "Ty trong",
+    portfolioPl: "Lai/lo",
     webhookLabel: "Webhook TradingView",
     refresh: "Làm mới",
     darkMode: "Chế độ tối",
@@ -315,6 +323,13 @@ function numberValue(value) {
   return value === null || value === undefined || Number.isNaN(Number(value))
     ? Number.NEGATIVE_INFINITY
     : Number(value);
+}
+
+function allocatedReturnPct(returnPct) {
+  const value = Number(returnPct);
+  return Number.isFinite(value)
+    ? (value * DEFAULT_OPEN_POSITION_WEIGHT_PCT) / 100
+    : null;
 }
 
 function loadWatchlist() {
@@ -680,7 +695,7 @@ function sortOpenPositions(openTrades) {
 
 function renderPerformance(strategies) {
   if (!strategies.length) {
-    els.performanceTable.innerHTML = `<tr><td class="empty" colspan="8">${t("noTrades")}</td></tr>`;
+    els.performanceTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noTrades")}</td></tr>`;
     return;
   }
 
@@ -689,12 +704,13 @@ function renderPerformance(strategies) {
       <tr class="clickableRow" data-performance-ticker="${escapeHtml(strategy.ticker)}" data-performance-strategy="${escapeHtml(strategy.strategy)}">
         <td><strong>${escapeHtml(strategy.ticker)}</strong></td>
         <td><strong>${escapeHtml(strategy.strategy)}</strong></td>
+        <td>${formatPercent(DEFAULT_OPEN_POSITION_WEIGHT_PCT)}</td>
         <td>${strategy.closed_trades}</td>
         <td>${strategy.open_trades}</td>
         <td>${formatPercent(strategy.win_rate_pct)}</td>
-        <td>${formatSignedPercent(strategy.realized_return_pct)}</td>
-        <td>${formatSignedPercent(strategy.open_return_avg_pct)}</td>
-        <td>${formatSignedPercent(strategy.current_return_pct)}</td>
+        <td>${formatSignedPercent(strategy.closed_trades ? allocatedReturnPct(strategy.realized_return_pct) : null)}</td>
+        <td>${formatSignedPercent(strategy.open_trades ? allocatedReturnPct(strategy.open_return_avg_pct) : null)}</td>
+        <td>${formatSignedPercent(allocatedReturnPct(strategy.current_return_pct))}</td>
       </tr>
     `)
     .join("");
@@ -735,10 +751,8 @@ function renderOpenPositions() {
 
 function renderOpenPositionsTotalReturn(openTrades) {
   const totalReturn = openTrades.reduce((sum, trade) => {
-    const value = Number(trade.return_pct);
-    return Number.isFinite(value)
-      ? sum + (value * DEFAULT_OPEN_POSITION_WEIGHT_PCT) / 100
-      : sum;
+    const value = allocatedReturnPct(trade.return_pct);
+    return Number.isFinite(value) ? sum + value : sum;
   }, 0);
   els.openPositionsTotalReturn.innerHTML = openTrades.length
     ? formatSignedPercent(totalReturn)
@@ -753,7 +767,7 @@ function renderClosedTrades(closedTrades) {
   );
 
   if (!sorted.length) {
-    els.closedTradesTable.innerHTML = `<tr><td class="empty" colspan="7">${t("noClosedTrades")}</td></tr>`;
+    els.closedTradesTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noClosedTrades")}</td></tr>`;
     return;
   }
 
@@ -765,6 +779,8 @@ function renderClosedTrades(closedTrades) {
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
+        <td>${formatPercent(DEFAULT_OPEN_POSITION_WEIGHT_PCT)}</td>
+        <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
         <td>${formatDuration(trade.holding_seconds)}</td>
         <td>${formatDate(trade.exit_time)}</td>
       </tr>
@@ -889,8 +905,9 @@ function drawEquityCurve(closedTrades) {
   const points = [{ value: 100, label: "Start" }];
   sorted.forEach((trade) => {
     const previous = points[points.length - 1].value;
+    const allocatedReturn = allocatedReturnPct(trade.return_pct) || 0;
     points.push({
-      value: previous * (1 + Number(trade.return_pct || 0) / 100),
+      value: previous * (1 + allocatedReturn / 100),
       label: trade.ticker,
     });
   });
