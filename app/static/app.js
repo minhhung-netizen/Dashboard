@@ -50,6 +50,8 @@ const els = {
   manualEquityCanvas: document.querySelector("#manualEquityChart"),
 };
 
+const DEFAULT_OPEN_POSITION_WEIGHT_PCT = 5;
+
 const translations = {
   en: {
     webhookLabel: "TradingView Webhook",
@@ -89,7 +91,7 @@ const translations = {
     realized: "Realized",
     openPl: "Open P/L",
     current: "Current",
-    openUnrealizedPl: "Unrealized P/L",
+    openUnrealizedPl: "Unrealized P/L (5% each)",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
     entryPrice: "Entry",
@@ -206,7 +208,7 @@ const translations = {
     realized: "Đã chốt",
     openPl: "Lãi/lỗ mở",
     current: "Hiện tại",
-    openUnrealizedPl: "Lãi/lỗ tạm tính",
+    openUnrealizedPl: "Lãi/lỗ tạm tính (5%/mã)",
     openPositions: "Vị thế đang mở",
     currentHoldings: "Danh mục hiện tại",
     entryPrice: "Giá vào",
@@ -734,7 +736,9 @@ function renderOpenPositions() {
 function renderOpenPositionsTotalReturn(openTrades) {
   const totalReturn = openTrades.reduce((sum, trade) => {
     const value = Number(trade.return_pct);
-    return Number.isFinite(value) ? sum + value : sum;
+    return Number.isFinite(value)
+      ? sum + (value * DEFAULT_OPEN_POSITION_WEIGHT_PCT) / 100
+      : sum;
   }, 0);
   els.openPositionsTotalReturn.innerHTML = openTrades.length
     ? formatSignedPercent(totalReturn)
