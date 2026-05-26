@@ -521,6 +521,23 @@ td strong {
   color: var(--ink);
 }
 
+.positionTotal {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 7px;
+  color: var(--muted);
+  display: inline-flex;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.positionTotal strong {
+  color: var(--ink);
+}
+
 .portfolioActions input {
   height: 32px;
   max-width: 94px;

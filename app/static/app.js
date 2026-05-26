@@ -31,6 +31,7 @@ const els = {
   timelineTitle: document.querySelector("#timelineTitle"),
   tickerTimeline: document.querySelector("#tickerTimeline"),
   openPositionRefreshPrices: document.querySelector("#openPositionRefreshPrices"),
+  openPositionsTotalReturn: document.querySelector("#openPositionsTotalReturn"),
   openPositionTickerFilter: document.querySelector("#openPositionTickerFilter"),
   openPositionStrategyFilter: document.querySelector("#openPositionStrategyFilter"),
   openPositionSort: document.querySelector("#openPositionSort"),
@@ -88,6 +89,7 @@ const translations = {
     realized: "Realized",
     openPl: "Open P/L",
     current: "Current",
+    openUnrealizedPl: "Unrealized P/L",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
     entryPrice: "Entry",
@@ -204,6 +206,7 @@ const translations = {
     realized: "Đã chốt",
     openPl: "Lãi/lỗ mở",
     current: "Hiện tại",
+    openUnrealizedPl: "Lãi/lỗ tạm tính",
     openPositions: "Vị thế đang mở",
     currentHoldings: "Danh mục hiện tại",
     entryPrice: "Giá vào",
@@ -703,6 +706,7 @@ function renderPerformance(strategies) {
 
 function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
+  renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
     els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="7">${t("noOpenPositions")}</td></tr>`;
     return;
@@ -725,6 +729,16 @@ function renderOpenPositions() {
   els.openPositionsTable.querySelectorAll("[data-ticker]").forEach((row) => {
     row.addEventListener("click", () => renderChart(row.dataset.ticker));
   });
+}
+
+function renderOpenPositionsTotalReturn(openTrades) {
+  const totalReturn = openTrades.reduce((sum, trade) => {
+    const value = Number(trade.return_pct);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+  els.openPositionsTotalReturn.innerHTML = openTrades.length
+    ? formatSignedPercent(totalReturn)
+    : "-";
 }
 
 function renderClosedTrades(closedTrades) {
