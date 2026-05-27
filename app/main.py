@@ -20,7 +20,11 @@ from app.services.enrichment import (
     normalize_ticker,
 )
 from app.services.market_hours import is_market_open
-from app.services.manual_portfolio import build_manual_portfolio
+from app.services.manual_portfolio import (
+    build_daily_performance_record,
+    build_manual_portfolio,
+    is_after_daily_cutoff,
+)
 from app.services.performance import build_performance
 
 
@@ -248,7 +252,10 @@ def invalid_signals(limit: int = 100) -> dict[str, Any]:
 
 @app.get("/api/manual-portfolio")
 def manual_portfolio() -> dict[str, Any]:
-    return build_manual_portfolio(store.list_manual_positions())
+    return build_manual_portfolio(
+        store.list_manual_positions(),
+        store.list_manual_daily_performance(),
+    )
 
 
 @app.post("/api/manual-portfolio")
@@ -286,7 +293,18 @@ def update_manual_position(
 @app.post("/api/manual-portfolio/refresh-prices")
 async def refresh_manual_portfolio_prices_endpoint() -> dict[str, Any]:
     updated = await refresh_manual_portfolio_prices()
-    return {"status": "refreshed", "updated_positions": updated}
+    daily_performance = record_manual_daily_performance_if_due()
+    return {
+        "status": "refreshed",
+        "updated_positions": updated,
+        "daily_performance": daily_performance,
+    }
+
+
+@app.post("/api/manual-portfolio/record-daily-performance")
+def record_manual_daily_performance_endpoint() -> dict[str, Any]:
+    daily_performance = record_manual_daily_performance()
+    return {"status": "recorded", "daily_performance": daily_performance}
 
 
 @app.post("/api/open-positions/refresh-prices")
@@ -388,6 +406,8 @@ async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
                     price=price,
                     recorded_at=enrichment["refreshed_at"],
                 )
+    if manual_tickers:
+        record_manual_daily_performance_if_due()
     return updated_signals
 
 
@@ -395,6 +415,7 @@ async def refresh_manual_portfolio_prices() -> int:
     updated = 0
     for ticker in store.list_open_manual_tickers():
         updated += await asyncio.to_thread(refresh_manual_ticker_price, ticker)
+    record_manual_daily_performance_if_due()
     return updated
 
 
@@ -408,6 +429,17 @@ def refresh_manual_ticker_price(ticker: str) -> int:
         price=price,
         recorded_at=utc_now_iso(),
     )
+
+
+def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:
+    if not is_after_daily_cutoff(recorded_at):
+        return None
+    return record_manual_daily_performance(recorded_at=recorded_at)
+
+
+def record_manual_daily_performance(recorded_at: str | None = None) -> dict[str, Any]:
+    record = build_daily_performance_record(store.list_manual_positions(), recorded_at)
+    return store.upsert_manual_daily_performance(**record)
 
 
 def latest_history_close(enrichment: dict[str, Any]) -> float | None:

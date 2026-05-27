@@ -165,6 +165,41 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(positions[closed_position["id"]]["current_price"], 31)
             self.assertIn("VPB", store.list_open_manual_tickers())
 
+    def test_upserts_manual_daily_performance_by_trade_date(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            first = store.upsert_manual_daily_performance(
+                trade_date="2026-05-25",
+                portfolio_return_pct=2,
+                equity_value=102,
+                total_weight_pct=50,
+                open_count=1,
+                closed_count=0,
+                cost_value=None,
+                market_value=None,
+                pnl_value=None,
+                recorded_at="2026-05-25T15:01:00+07:00",
+            )
+            second = store.upsert_manual_daily_performance(
+                trade_date="2026-05-25",
+                portfolio_return_pct=3,
+                equity_value=103,
+                total_weight_pct=60,
+                open_count=2,
+                closed_count=0,
+                cost_value=None,
+                market_value=None,
+                pnl_value=None,
+                recorded_at="2026-05-25T15:10:00+07:00",
+            )
+            rows = store.list_manual_daily_performance()
+
+            self.assertEqual(first["trade_date"], "2026-05-25")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(second["id"], rows[0]["id"])
+            self.assertAlmostEqual(rows[0]["portfolio_return_pct"], 3)
+            self.assertAlmostEqual(rows[0]["equity_value"], 103)
+
 
 if __name__ == "__main__":
     unittest.main()

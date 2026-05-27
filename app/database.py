@@ -74,6 +74,23 @@ CREATE TABLE IF NOT EXISTS manual_price_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_manual_price_snapshots_position_time
 ON manual_price_snapshots (position_id, recorded_at);
+
+CREATE TABLE IF NOT EXISTS manual_daily_performance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_date TEXT NOT NULL UNIQUE,
+    portfolio_return_pct REAL,
+    equity_value REAL NOT NULL,
+    total_weight_pct REAL NOT NULL,
+    open_count INTEGER NOT NULL,
+    closed_count INTEGER NOT NULL,
+    cost_value REAL,
+    market_value REAL,
+    pnl_value REAL,
+    recorded_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_manual_daily_performance_date
+ON manual_daily_performance (trade_date ASC);
 """
 
 
@@ -363,6 +380,76 @@ class SignalStore:
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.execute("DELETE FROM manual_positions WHERE id = ?", (position_id,))
             return cursor.rowcount > 0
+
+    def upsert_manual_daily_performance(
+        self,
+        *,
+        trade_date: str,
+        portfolio_return_pct: float | None,
+        equity_value: float,
+        total_weight_pct: float,
+        open_count: int,
+        closed_count: int,
+        cost_value: float | None,
+        market_value: float | None,
+        pnl_value: float | None,
+        recorded_at: str,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO manual_daily_performance (
+                    trade_date, portfolio_return_pct, equity_value,
+                    total_weight_pct, open_count, closed_count,
+                    cost_value, market_value, pnl_value, recorded_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trade_date) DO UPDATE SET
+                    portfolio_return_pct = excluded.portfolio_return_pct,
+                    equity_value = excluded.equity_value,
+                    total_weight_pct = excluded.total_weight_pct,
+                    open_count = excluded.open_count,
+                    closed_count = excluded.closed_count,
+                    cost_value = excluded.cost_value,
+                    market_value = excluded.market_value,
+                    pnl_value = excluded.pnl_value,
+                    recorded_at = excluded.recorded_at
+                """,
+                (
+                    trade_date,
+                    portfolio_return_pct,
+                    equity_value,
+                    total_weight_pct,
+                    open_count,
+                    closed_count,
+                    cost_value,
+                    market_value,
+                    pnl_value,
+                    recorded_at,
+                ),
+            )
+        return self.get_manual_daily_performance(trade_date)
+
+    def get_manual_daily_performance(self, trade_date: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM manual_daily_performance WHERE trade_date = ?",
+                (trade_date,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Manual daily performance {trade_date} was not found")
+        return dict(row)
+
+    def list_manual_daily_performance(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM manual_daily_performance
+                ORDER BY trade_date ASC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def _insert_manual_snapshot(
         self,

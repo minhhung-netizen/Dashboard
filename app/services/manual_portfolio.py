@@ -9,7 +9,10 @@ MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 EQUITY_CURVE_DAILY_CUTOFF = time(15, 0)
 
 
-def build_manual_portfolio(positions: list[dict[str, Any]]) -> dict[str, Any]:
+def build_manual_portfolio(
+    positions: list[dict[str, Any]],
+    daily_performance: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     rows = [_position_row(position) for position in positions]
     open_positions = [row for row in rows if row["status"] == "open"]
     closed_positions = [row for row in rows if row["status"] == "closed"]
@@ -18,8 +21,47 @@ def build_manual_portfolio(positions: list[dict[str, Any]]) -> dict[str, Any]:
         "positions": rows,
         "open_positions": open_positions,
         "closed_positions": closed_positions,
-        "equity_curve": _equity_curve(positions),
+        "daily_performance": daily_performance or [],
+        "equity_curve": _stored_equity_curve(daily_performance)
+        if daily_performance
+        else _equity_curve(positions),
     }
+
+
+def build_daily_performance_record(
+    positions: list[dict[str, Any]], recorded_at: str | None = None
+) -> dict[str, Any]:
+    recorded_at = recorded_at or datetime.now(MARKET_TZ).isoformat()
+    recorded_dt = _parse_market_datetime(recorded_at)
+    if recorded_dt is None:
+        recorded_dt = datetime.now(MARKET_TZ)
+        recorded_at = recorded_dt.isoformat()
+
+    rows = [_position_row(position) for position in positions]
+    open_positions = [row for row in rows if row["status"] == "open"]
+    closed_positions = [row for row in rows if row["status"] == "closed"]
+    summary = _summary(rows, open_positions, closed_positions)
+    portfolio_return = summary["portfolio_return_pct"]
+    equity_value = 100 + (portfolio_return or 0)
+    return {
+        "trade_date": recorded_dt.date().isoformat(),
+        "portfolio_return_pct": portfolio_return,
+        "equity_value": equity_value,
+        "total_weight_pct": summary["total_weight_pct"],
+        "open_count": summary["open_count"],
+        "closed_count": summary["closed_count"],
+        "cost_value": summary["cost_value"],
+        "market_value": summary["market_value"],
+        "pnl_value": summary["pnl_value"],
+        "recorded_at": recorded_at,
+    }
+
+
+def is_after_daily_cutoff(recorded_at: str | None = None) -> bool:
+    recorded_dt = _parse_market_datetime(recorded_at)
+    if recorded_dt is None:
+        recorded_dt = datetime.now(MARKET_TZ)
+    return recorded_dt.time() >= EQUITY_CURVE_DAILY_CUTOFF
 
 
 def _position_row(position: dict[str, Any]) -> dict[str, Any]:
@@ -138,6 +180,27 @@ def _equity_curve(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
         last_time = time
+    return curve
+
+
+def _stored_equity_curve(daily_performance: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    curve = []
+    for row in daily_performance or []:
+        trade_date = row.get("trade_date")
+        if not trade_date:
+            continue
+        portfolio_return = _safe_float(row.get("portfolio_return_pct"))
+        equity_value = _safe_float(row.get("equity_value"))
+        if equity_value is None:
+            equity_value = 100 + (portfolio_return or 0)
+        curve.append(
+            {
+                "time": row.get("recorded_at") or trade_date,
+                "trade_date": trade_date,
+                "value": equity_value,
+                "return_pct": portfolio_return or 0,
+            }
+        )
     return curve
 
 
