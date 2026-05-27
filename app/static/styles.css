@@ -676,6 +676,10 @@ td strong {
   font-weight: 760;
 }
 
+.confirmedTicker {
+  color: var(--buy);
+}
+
 @media (max-width: 980px) {
   .workspace,
   .manualPortfolioGrid,

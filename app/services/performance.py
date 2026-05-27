@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from math import prod
 from typing import Any
@@ -16,6 +16,7 @@ class OpenPosition:
     entry_price: float
     entry_time: str
     entry_signal_id: int
+    confirmations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
@@ -66,6 +67,16 @@ def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
                     status="closed",
                 )
             )
+
+        if action == "confirm_buy":
+            base_strategy = _base_strategy_name(signal)
+            if not base_strategy:
+                continue
+            position_key = _find_open_position_key(open_positions, ticker, base_strategy)
+            if position_key is None:
+                continue
+            open_positions[position_key].confirmations.append(_confirmation_record(signal))
+            continue
 
     open_trades = []
     for position in open_positions.values():
@@ -182,6 +193,11 @@ def _trade_record(
         "exit_signal_id": exit_signal_id,
         "holding_seconds": holding_seconds,
         "return_pct": return_pct,
+        "confirmations": list(position.confirmations),
+        "has_confirm_buy": any(
+            confirmation.get("action") == "confirm_buy"
+            for confirmation in position.confirmations
+        ),
     }
 
 
@@ -221,6 +237,38 @@ def _latest_history_close(enrichment: dict[str, Any]) -> float | None:
 
 def _strategy_name(value: str | None) -> str:
     return (value or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY
+
+
+def _base_strategy_name(signal: dict[str, Any]) -> str | None:
+    payload = signal.get("payload") or {}
+    for key in ("base_strategy", "confirm_for", "requires_open_strategy"):
+        value = payload.get(key)
+        if value and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _find_open_position_key(
+    open_positions: dict[tuple[str, str], OpenPosition],
+    ticker: str,
+    strategy: str,
+) -> tuple[str, str] | None:
+    target_strategy = strategy.strip().lower()
+    for key, position in open_positions.items():
+        if position.ticker == ticker and position.strategy.strip().lower() == target_strategy:
+            return key
+    return None
+
+
+def _confirmation_record(signal: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "signal_id": signal["id"],
+        "action": signal.get("action"),
+        "strategy": _strategy_name(signal.get("strategy")),
+        "price": _safe_float(signal.get("price")),
+        "time": _signal_time(signal),
+        "note": signal.get("note"),
+    }
 
 
 def _safe_float(value: Any) -> float | None:

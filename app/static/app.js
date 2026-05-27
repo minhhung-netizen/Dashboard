@@ -768,9 +768,12 @@ function renderOpenPositions() {
   }
 
   els.openPositionsTable.innerHTML = openTrades
-    .map((trade) => `
+    .map((trade) => {
+      const tickerClass = trade.has_confirm_buy ? "confirmedTicker" : "";
+      const confirmTitle = trade.has_confirm_buy ? "Confirmed by confirm_buy signal" : "";
+      return `
       <tr data-ticker="${escapeHtml(trade.ticker)}">
-        <td><strong>${escapeHtml(trade.ticker)}</strong></td>
+        <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(trade.strategy)}</strong></td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
@@ -778,7 +781,8 @@ function renderOpenPositions() {
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
       </tr>
-    `)
+    `;
+    })
     .join("");
 
   els.openPositionsTable.querySelectorAll("[data-ticker]").forEach((row) => {
