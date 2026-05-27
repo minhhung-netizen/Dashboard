@@ -18,6 +18,8 @@ const els = {
   manualEntryDate: document.querySelector("#manualEntryDate"),
   manualNote: document.querySelector("#manualNote"),
   manualPortfolioReturn: document.querySelector("#manualPortfolioReturn"),
+  manualRecordDailyPerformance: document.querySelector("#manualRecordDailyPerformance"),
+  manualDailyPerformanceStatus: document.querySelector("#manualDailyPerformanceStatus"),
   manualTotalWeight: document.querySelector("#manualTotalWeight"),
   manualOpenCount: document.querySelector("#manualOpenCount"),
   manualClosedCount: document.querySelector("#manualClosedCount"),
@@ -116,6 +118,10 @@ const translations = {
     portfolioDetail: "Portfolio Detail",
     manualEquityCurve: "Manual Equity Curve",
     portfolioGrowth: "Portfolio Growth",
+    recordDailyPerformance: "Save EOD",
+    dailyPerformanceEmpty: "No saved daily performance yet",
+    dailyPerformanceStatus: "Saved days",
+    dailyPerformanceLatest: "Latest",
     totalWeight: "Weight",
     weight: "Weight",
     quantity: "Quantity",
@@ -239,6 +245,10 @@ const translations = {
     portfolioDetail: "Chi tiết danh mục",
     manualEquityCurve: "Đường vốn danh mục tay",
     portfolioGrowth: "Tăng trưởng danh mục",
+    recordDailyPerformance: "Lưu cuối ngày",
+    dailyPerformanceEmpty: "Chưa có hiệu suất ngày đã lưu",
+    dailyPerformanceStatus: "Số ngày đã lưu",
+    dailyPerformanceLatest: "Gần nhất",
     totalWeight: "Tỷ trọng",
     weight: "Tỷ trọng",
     quantity: "Số lượng",
@@ -485,6 +495,7 @@ function renderManualPortfolio(payload) {
   els.manualTotalWeight.textContent = formatPercent(summary.total_weight_pct || 0);
   els.manualOpenCount.textContent = summary.open_count ?? 0;
   els.manualClosedCount.textContent = summary.closed_count ?? 0;
+  renderManualDailyPerformanceStatus(payload.daily_performance || []);
   drawManualEquityCurve(payload.equity_curve || []);
 
   if (!positions.length) {
@@ -536,6 +547,19 @@ function renderManualPortfolio(payload) {
   els.manualPortfolioTable.querySelectorAll("[data-manual-delete-id]").forEach((button) => {
     button.addEventListener("click", () => deleteManualPosition(button.dataset.manualDeleteId));
   });
+}
+
+function renderManualDailyPerformanceStatus(dailyPerformance) {
+  if (!dailyPerformance.length) {
+    els.manualDailyPerformanceStatus.textContent = t("dailyPerformanceEmpty");
+    return;
+  }
+  const latest = dailyPerformance[dailyPerformance.length - 1];
+  els.manualDailyPerformanceStatus.innerHTML = `
+    <span>${escapeHtml(t("dailyPerformanceStatus"))}: <strong>${dailyPerformance.length}</strong></span>
+    <span>${escapeHtml(t("dailyPerformanceLatest"))}: <strong>${escapeHtml(formatDateOnly(latest.trade_date || latest.recorded_at))}</strong></span>
+    <span>${escapeHtml(t("returnPct"))}: ${formatSignedPercent(latest.portfolio_return_pct)}</span>
+  `;
 }
 
 async function addManualPosition(event) {
@@ -605,6 +629,17 @@ async function refreshManualMarketPrices() {
   });
   if (!response.ok) {
     window.alert(t("refreshPricesFailed"));
+    return;
+  }
+  await refresh();
+}
+
+async function recordManualDailyPerformance() {
+  const response = await fetch("/api/manual-portfolio/record-daily-performance", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    window.alert(t("manualSaveFailed"));
     return;
   }
   await refresh();
@@ -1489,6 +1524,7 @@ els.performanceSort.addEventListener("change", refresh);
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);
+els.manualRecordDailyPerformance.addEventListener("click", recordManualDailyPerformance);
 window.addEventListener("resize", () => {
   if (state.selectedTicker) renderChart(state.selectedTicker);
   if (state.activeTab === "manualPortfolio") {

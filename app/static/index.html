@@ -209,8 +209,12 @@
                 <p class="eyebrow" data-i18n="manualEquityCurve">Manual Equity Curve</p>
                 <h2 data-i18n="portfolioGrowth">Portfolio Growth</h2>
               </div>
-              <span id="manualPortfolioReturn">-</span>
+              <div class="dailyPerformanceControls">
+                <span id="manualPortfolioReturn">-</span>
+                <button id="manualRecordDailyPerformance" class="smallButton" type="button" data-i18n="recordDailyPerformance">Save EOD</button>
+              </div>
             </div>
+            <div id="manualDailyPerformanceStatus" class="dailyPerformanceStatus">-</div>
             <canvas id="manualEquityChart" height="260"></canvas>
           </div>
         </section>

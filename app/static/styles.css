@@ -426,6 +426,28 @@ main {
   justify-content: flex-end;
 }
 
+.dailyPerformanceControls {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.dailyPerformanceStatus {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 13px;
+  gap: 8px 14px;
+  justify-content: flex-end;
+  margin: -6px 0 12px;
+}
+
+.dailyPerformanceStatus strong {
+  color: var(--ink);
+}
+
 .panelActions {
   color: var(--muted);
   justify-content: flex-end;
