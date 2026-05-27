@@ -70,6 +70,10 @@ class WebhookPayload(BaseModel):
     note: str | None = None
     time: str | None = None
     secret: str | None = None
+    base_strategy: str | None = None
+    confirm_for: str | None = None
+    requires_open_strategy: str | None = None
+    signal_type: str | None = None
 
 
 class ManualPositionPayload(BaseModel):
@@ -122,6 +126,29 @@ def receive_webhook(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    required_open_strategy = confirmation_base_strategy(payload)
+    if is_confirmation_signal(payload, action) and not required_open_strategy:
+        raise HTTPException(
+            status_code=422,
+            detail="Confirmation signals require base_strategy or confirm_for",
+        )
+    if required_open_strategy and not has_open_strategy(ticker, required_open_strategy):
+        invalid_signal = store.record_invalid_signal(
+            ticker=ticker,
+            action=action,
+            timeframe=payload.timeframe,
+            strategy=payload.strategy,
+            reason="base_strategy_not_open",
+            source_time=payload.time,
+            payload=payload.model_dump(),
+        )
+        return {
+            "status": "rejected",
+            "reason": "base_strategy_not_open",
+            "required_open_strategy": required_open_strategy,
+            "invalid_signal": invalid_signal,
+        }
+
     duplicate = store.find_duplicate_signal(
         ticker=ticker,
         action=action,
@@ -156,6 +183,30 @@ def receive_webhook(
     )
     background_tasks.add_task(enrich_signal, signal["id"], ticker)
     return {"status": "accepted", "signal": signal}
+
+
+def confirmation_base_strategy(payload: WebhookPayload) -> str | None:
+    explicit_strategy = (
+        payload.requires_open_strategy or payload.base_strategy or payload.confirm_for
+    )
+    return explicit_strategy.strip() if explicit_strategy and explicit_strategy.strip() else None
+
+
+def is_confirmation_signal(payload: WebhookPayload, action: str) -> bool:
+    signal_type = (payload.signal_type or "").strip().lower()
+    return signal_type in {"confirm", "confirmation"} or action.startswith("confirm")
+
+
+def has_open_strategy(ticker: str, strategy: str) -> bool:
+    target_strategy = strategy.strip().lower()
+    if not target_strategy:
+        return False
+    performance_data = build_performance(store.list_all_signals(ticker=ticker))
+    return any(
+        trade["ticker"] == ticker
+        and (trade.get("strategy") or "").strip().lower() == target_strategy
+        for trade in performance_data["open_trades"]
+    )
 
 
 @app.get("/api/signals")

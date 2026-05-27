@@ -56,6 +56,12 @@ def normalize_action(raw_action: str | None) -> str:
         "short": "sell",
         "exit": "sell",
         "close": "sell",
+        "confirmbuy": "confirm_buy",
+        "confirm-buy": "confirm_buy",
+        "confirmation_buy": "confirm_buy",
+        "confirmsell": "confirm_sell",
+        "confirm-sell": "confirm_sell",
+        "confirmation_sell": "confirm_sell",
     }
     return aliases.get(action, action)
 

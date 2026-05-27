@@ -162,6 +162,7 @@ const translations = {
     missingBuyPrice: "Missing buy price",
     missingSellPrice: "Missing sell price",
     positionAlreadyOpen: "Position already open",
+    baseStrategyNotOpen: "Base strategy is not open",
     noSignals: "No signals yet",
     noTimeline: "No timeline for this ticker",
     noHistory: "No price history available",
@@ -179,6 +180,7 @@ const translations = {
     currentPl: "Lai/lo hien tai",
     allocationWeight: "Ty trong",
     portfolioPl: "Lai/lo",
+    baseStrategyNotOpen: "Chien luoc goc chua mo",
     webhookLabel: "Webhook TradingView",
     refresh: "Làm mới",
     darkMode: "Chế độ tối",
@@ -878,6 +880,7 @@ function formatReason(reason) {
     missing_buy_price: "missingBuyPrice",
     missing_sell_price: "missingSellPrice",
     position_already_open: "positionAlreadyOpen",
+    base_strategy_not_open: "baseStrategyNotOpen",
   }[reason];
   return key ? t(key) : reason || "-";
 }

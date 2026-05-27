@@ -571,6 +571,15 @@ td strong {
   background: var(--sell);
 }
 
+.side.confirm_buy,
+.side.confirm {
+  background: #2563eb;
+}
+
+.side.confirm_sell {
+  background: #7c3aed;
+}
+
 .statusBadge {
   border: 1px solid var(--line);
   color: var(--muted);
