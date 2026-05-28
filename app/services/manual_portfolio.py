@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from app.services.dividends import dividend_adjustment
 
 
 MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -12,8 +14,13 @@ EQUITY_CURVE_DAILY_CUTOFF = time(15, 0)
 def build_manual_portfolio(
     positions: list[dict[str, Any]],
     daily_performance: list[dict[str, Any]] | None = None,
+    dividend_events: list[dict[str, Any]] | None = None,
+    as_of_date: date | None = None,
 ) -> dict[str, Any]:
-    rows = [_position_row(position) for position in positions]
+    rows = [
+        _position_row(position, dividend_events=dividend_events, as_of_date=as_of_date)
+        for position in positions
+    ]
     open_positions = [row for row in rows if row["status"] == "open"]
     closed_positions = [row for row in rows if row["status"] == "closed"]
     return {
@@ -29,7 +36,9 @@ def build_manual_portfolio(
 
 
 def build_daily_performance_record(
-    positions: list[dict[str, Any]], recorded_at: str | None = None
+    positions: list[dict[str, Any]],
+    recorded_at: str | None = None,
+    dividend_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     recorded_at = recorded_at or datetime.now(MARKET_TZ).isoformat()
     recorded_dt = _parse_market_datetime(recorded_at)
@@ -37,7 +46,14 @@ def build_daily_performance_record(
         recorded_dt = datetime.now(MARKET_TZ)
         recorded_at = recorded_dt.isoformat()
 
-    rows = [_position_row(position) for position in positions]
+    rows = [
+        _position_row(
+            position,
+            dividend_events=dividend_events,
+            as_of_date=recorded_dt.date(),
+        )
+        for position in positions
+    ]
     open_positions = [row for row in rows if row["status"] == "open"]
     closed_positions = [row for row in rows if row["status"] == "closed"]
     summary = _summary(rows, open_positions, closed_positions)
@@ -64,12 +80,26 @@ def is_after_daily_cutoff(recorded_at: str | None = None) -> bool:
     return recorded_dt.time() >= EQUITY_CURVE_DAILY_CUTOFF
 
 
-def _position_row(position: dict[str, Any]) -> dict[str, Any]:
-    entry_price = _safe_float(position.get("entry_price")) or 0
-    current_price = _safe_float(position.get("current_price")) or entry_price
+def _position_row(
+    position: dict[str, Any],
+    dividend_events: list[dict[str, Any]] | None = None,
+    as_of_date: date | None = None,
+) -> dict[str, Any]:
+    original_entry_price = _safe_float(position.get("entry_price")) or 0
+    current_price = _safe_float(position.get("current_price")) or original_entry_price
     exit_price = _safe_float(position.get("exit_price"))
     status = position.get("status") or "open"
     mark_price = exit_price if status == "closed" and exit_price is not None else current_price
+    adjustment = dividend_adjustment(
+        ticker=position.get("ticker"),
+        entry_price=original_entry_price,
+        entry_time=position.get("entry_date") or position.get("created_at"),
+        valuation_time=position.get("closed_at") if status == "closed" else None,
+        dividend_events=dividend_events,
+        as_of_date=as_of_date,
+        include_upcoming=status == "open",
+    )
+    entry_price = adjustment["entry_price_adjusted"]
     quantity = _safe_float(position.get("quantity"))
     weight_pct = _safe_float(position.get("weight_pct")) or 0
     return_pct = ((mark_price - entry_price) / entry_price * 100) if entry_price > 0 else None
@@ -81,10 +111,13 @@ def _position_row(position: dict[str, Any]) -> dict[str, Any]:
         {
             "weight_pct": weight_pct,
             "entry_price": entry_price,
+            "entry_price_original": adjustment["entry_price_original"],
             "current_price": current_price,
             "mark_price": mark_price,
             "quantity": quantity,
             "return_pct": return_pct,
+            "dividend_adjusted": adjustment["dividend_adjusted"],
+            "dividend_notes": adjustment["dividend_notes"],
             "cost_value": cost_value,
             "market_value": market_value,
             "pnl_value": pnl_value,

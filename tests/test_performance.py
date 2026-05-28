@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 from app.services.performance import build_performance
 
@@ -185,6 +186,53 @@ class PerformanceTest(unittest.TestCase):
         )
 
         self.assertEqual(result["closed_trades"][0]["holding_seconds"], 7200)
+
+    def test_dividend_event_adjusts_entry_price_after_ex_date(self):
+        result = build_performance(
+            [
+                signal(1, "VPB", "buy", 100, "ST", source_time="2026-01-01T09:00:00+07:00"),
+                signal(2, "VPB", "note", 110, "ST", source_time="2026-01-12T09:00:00+07:00"),
+            ],
+            dividend_events=[
+                {
+                    "ticker": "VPB",
+                    "ex_date": "2026-01-10",
+                    "cash_amount": 10,
+                    "stock_ratio_pct": None,
+                    "note": "cash dividend",
+                }
+            ],
+            as_of_date=date(2026, 1, 12),
+        )
+
+        trade = result["open_trades"][0]
+        self.assertAlmostEqual(trade["entry_price"], 90)
+        self.assertAlmostEqual(trade["return_pct"], 22.222222, places=5)
+        self.assertTrue(trade["dividend_adjusted"])
+        self.assertEqual(trade["dividend_notes"][0]["status"], "applied")
+
+    def test_upcoming_dividend_is_noted_for_open_trade(self):
+        result = build_performance(
+            [
+                signal(1, "VPB", "buy", 100, "ST", source_time="2026-01-01T09:00:00+07:00"),
+            ],
+            dividend_events=[
+                {
+                    "ticker": "VPB",
+                    "ex_date": "2026-01-10",
+                    "cash_amount": 10,
+                    "stock_ratio_pct": None,
+                    "note": None,
+                }
+            ],
+            as_of_date=date(2026, 1, 5),
+        )
+
+        trade = result["open_trades"][0]
+        self.assertAlmostEqual(trade["entry_price"], 100)
+        self.assertFalse(trade["dividend_adjusted"])
+        self.assertEqual(trade["dividend_notes"][0]["status"], "upcoming")
+        self.assertEqual(trade["dividend_notes"][0]["days_until"], 5)
 
 
 if __name__ == "__main__":

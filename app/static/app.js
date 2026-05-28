@@ -52,6 +52,13 @@ const els = {
   canvas: document.querySelector("#priceChart"),
   equityCanvas: document.querySelector("#equityChart"),
   manualEquityCanvas: document.querySelector("#manualEquityChart"),
+  dividendEventForm: document.querySelector("#dividendEventForm"),
+  dividendTicker: document.querySelector("#dividendTicker"),
+  dividendExDate: document.querySelector("#dividendExDate"),
+  dividendCashAmount: document.querySelector("#dividendCashAmount"),
+  dividendStockRatio: document.querySelector("#dividendStockRatio"),
+  dividendNote: document.querySelector("#dividendNote"),
+  dividendEventsTable: document.querySelector("#dividendEventsTable"),
 };
 
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
@@ -71,6 +78,7 @@ const translations = {
     tabPositions: "Positions",
     tabManualPortfolio: "Manual Portfolio",
     tabPerformance: "Performance",
+    tabDividends: "Dividends",
     tabLogs: "Logs",
     total: "Total",
     buy: "Buy",
@@ -125,7 +133,22 @@ const translations = {
     exportSignals: "Signals CSV",
     exportManualPortfolio: "Manual CSV",
     exportDailyPerformance: "Daily CSV",
+    exportDividends: "Dividends CSV",
     backupDatabase: "Backup DB",
+    dividendCalendar: "Dividend Calendar",
+    dividendRules: "Ex-rights Adjustments",
+    dividend: "Dividend",
+    exDate: "Ex-date",
+    cashDividend: "Cash",
+    stockDividend: "Stock %",
+    addDividendEvent: "Add event",
+    noDividendEvents: "No dividend events",
+    noDividends: "No dividend events",
+    upcomingDividend: "Upcoming",
+    appliedDividend: "Adjusted",
+    dividendDeleteConfirm: "Delete this dividend event?",
+    dividendSaveFailed: "Could not save dividend event",
+    dividendDeleteFailed: "Could not delete dividend event",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
     entryPrice: "Entry",
@@ -411,6 +434,7 @@ Object.assign(translations.vi, {
   tabPositions: "Vị thế",
   tabManualPortfolio: "Danh mục tay",
   tabPerformance: "Hiệu suất",
+  tabDividends: "Cổ tức",
   tabLogs: "Nhật ký",
   total: "Tổng",
   buy: "Mua",
@@ -465,7 +489,22 @@ Object.assign(translations.vi, {
   exportSignals: "Tín hiệu CSV",
   exportManualPortfolio: "Danh mục CSV",
   exportDailyPerformance: "Hiệu suất ngày CSV",
+  exportDividends: "Cổ tức CSV",
   backupDatabase: "Sao lưu DB",
+  dividendCalendar: "Lịch cổ tức",
+  dividendRules: "Điều chỉnh ngày GDKHQ",
+  dividend: "Cổ tức",
+  exDate: "Ngày GDKHQ",
+  cashDividend: "Tiền mặt",
+  stockDividend: "Cổ phiếu %",
+  addDividendEvent: "Thêm sự kiện",
+  noDividendEvents: "Chưa có lịch cổ tức",
+  noDividends: "Không có cổ tức",
+  upcomingDividend: "Sắp tới",
+  appliedDividend: "Đã điều chỉnh",
+  dividendDeleteConfirm: "Xóa sự kiện cổ tức này?",
+  dividendSaveFailed: "Không thể lưu sự kiện cổ tức",
+  dividendDeleteFailed: "Không thể xóa sự kiện cổ tức",
   baseStrategyNotOpen: "Chiến lược gốc chưa mở",
   openPositions: "Vị thế đang mở",
   currentHoldings: "Danh mục hiện tại",
@@ -563,6 +602,7 @@ const state = {
   closedTradeFilter: null,
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
+  dividendEvents: [],
 };
 
 function cssVar(name) {
@@ -682,13 +722,22 @@ async function fetchJson(url) {
 async function refresh() {
   const query = "";
   const performanceQuery = buildPerformanceQuery();
-  const [settingsPayload, summary, signalsPayload, performancePayload, invalidPayload, manualPayload] = await Promise.all([
+  const [
+    settingsPayload,
+    summary,
+    signalsPayload,
+    performancePayload,
+    invalidPayload,
+    manualPayload,
+    dividendPayload,
+  ] = await Promise.all([
     fetchJson("/api/settings"),
     fetchJson("/api/summary"),
     fetchJson(`/api/signals${query}`),
     fetchJson(`/api/performance${performanceQuery}`),
     fetchJson("/api/invalid-signals"),
     fetchJson("/api/manual-portfolio"),
+    fetchJson("/api/dividend-events"),
   ]);
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
@@ -713,6 +762,8 @@ async function refresh() {
   renderPerformance(sortPerformance(performancePayload.strategies || []));
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
+  state.dividendEvents = dividendPayload.dividend_events || [];
+  renderDividendEvents();
 
   const firstTicker = state.selectedTicker || state.signals[0]?.ticker || "";
   if (firstTicker) {
@@ -744,7 +795,7 @@ function renderManualPortfolio(payload) {
   drawManualEquityCurve(payload.equity_curve || []);
 
   if (!positions.length) {
-    els.manualPortfolioTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noManualPositions")}</td></tr>`;
+    els.manualPortfolioTable.innerHTML = `<tr><td class="empty" colspan="12">${t("noManualPositions")}</td></tr>`;
     return;
   }
 
@@ -764,6 +815,7 @@ function renderManualPortfolio(payload) {
           <td><span class="statusBadge ${status}">${escapeHtml(isOpen ? t("openStatus") : t("closedStatus"))}</span></td>
           <td>${formatDateOnly(position.entry_date)}</td>
           <td>${formatHoldingDaysBetween(position.entry_date, isOpen ? null : position.closed_at)}</td>
+          <td>${renderDividendNotes(position.dividend_notes || [])}</td>
           <td>${escapeHtml(position.note || "-")}</td>
           <td>
             <div class="portfolioActions">
@@ -937,6 +989,71 @@ async function deleteManualDailyPerformance(tradeDate) {
   await refresh();
 }
 
+function renderDividendEvents() {
+  if (!els.dividendEventsTable) return;
+  const rows = [...state.dividendEvents].sort((left, right) =>
+    String(left.ex_date || "").localeCompare(String(right.ex_date || ""))
+  );
+  if (!rows.length) {
+    els.dividendEventsTable.innerHTML = `<tr><td class="empty" colspan="6">${t("noDividendEvents")}</td></tr>`;
+    return;
+  }
+  els.dividendEventsTable.innerHTML = rows
+    .map((event) => `
+      <tr>
+        <td><strong>${escapeHtml(event.ticker || "-")}</strong></td>
+        <td>${formatDateOnly(event.ex_date)}</td>
+        <td>${formatPrice(event.cash_amount)}</td>
+        <td>${formatPercent(event.stock_ratio_pct)}</td>
+        <td>${escapeHtml(event.note || "-")}</td>
+        <td>
+          <button class="deleteButton" type="button" data-dividend-delete-id="${event.id}">${escapeHtml(t("delete"))}</button>
+        </td>
+      </tr>
+    `)
+    .join("");
+
+  els.dividendEventsTable.querySelectorAll("[data-dividend-delete-id]").forEach((button) => {
+    button.addEventListener("click", () => deleteDividendEvent(button.dataset.dividendDeleteId));
+  });
+}
+
+async function addDividendEvent(event) {
+  event.preventDefault();
+  const body = {
+    ticker: els.dividendTicker.value.trim().toUpperCase(),
+    ex_date: els.dividendExDate.value,
+    cash_amount: optionalNumber(els.dividendCashAmount.value),
+    stock_ratio_pct: optionalNumber(els.dividendStockRatio.value),
+    note: els.dividendNote.value.trim() || null,
+  };
+  const response = await fetch("/api/dividend-events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    window.alert(t("dividendSaveFailed"));
+    return;
+  }
+  els.dividendEventForm.reset();
+  await refresh();
+}
+
+async function deleteDividendEvent(eventId) {
+  if (!window.confirm(t("dividendDeleteConfirm"))) {
+    return;
+  }
+  const response = await fetch(`/api/dividend-events/${encodeURIComponent(eventId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    window.alert(t("dividendDeleteFailed"));
+    return;
+  }
+  await refresh();
+}
+
 async function refreshOpenPositionMarketPrices() {
   const response = await fetch("/api/open-positions/refresh-prices", {
     method: "POST",
@@ -1060,7 +1177,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="8">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noOpenPositions")}</td></tr>`;
     return;
   }
 
@@ -1076,6 +1193,7 @@ function renderOpenPositions() {
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
         <td>${renderConfirmations(trade.confirmations || [])}</td>
+        <td>${renderDividendNotes(trade.dividend_notes || [])}</td>
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
       </tr>
@@ -1101,6 +1219,33 @@ function renderConfirmations(confirmations) {
             <small>${escapeHtml(formatPrice(confirmation.price))} · ${escapeHtml(formatDateOnly(confirmation.time))}</small>
           </span>
         `)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderDividendNotes(notes) {
+  if (!notes.length) {
+    return `<span class="mutedText">${escapeHtml(t("noDividends"))}</span>`;
+  }
+  return `
+    <div class="confirmTimeline">
+      ${notes
+        .map((note) => {
+          const isApplied = note.status === "applied";
+          const label = isApplied ? t("appliedDividend") : t("upcomingDividend");
+          const detail = [
+            note.cash_amount ? `${formatPrice(note.cash_amount)} cash` : "",
+            note.stock_ratio_pct ? `${formatPercent(note.stock_ratio_pct)} stock` : "",
+            note.days_until !== undefined ? `${note.days_until}d` : "",
+          ].filter(Boolean).join(" · ");
+          return `
+            <span class="dividendBadge ${isApplied ? "applied" : "upcoming"}" title="${escapeHtml(note.note || "")}">
+              ${escapeHtml(label)}
+              <small>${escapeHtml(formatDateOnly(note.ex_date))}${detail ? ` · ${escapeHtml(detail)}` : ""}</small>
+            </span>
+          `;
+        })
         .join("")}
     </div>
   `;
@@ -1846,6 +1991,7 @@ els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);
 els.manualRecordDailyPerformance.addEventListener("click", recordManualDailyPerformance);
+els.dividendEventForm.addEventListener("submit", addDividendEvent);
 window.addEventListener("resize", () => {
   if (state.selectedTicker) renderChart(state.selectedTicker);
   if (state.activeTab === "manualPortfolio") {

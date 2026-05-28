@@ -203,6 +203,25 @@ class SignalStoreTest(unittest.TestCase):
             self.assertFalse(store.delete_manual_daily_performance("2026-05-25"))
             self.assertEqual(store.list_manual_daily_performance(), [])
 
+    def test_dividend_event_lifecycle(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            event = store.insert_dividend_event(
+                ticker="vpb",
+                ex_date="2026-06-10",
+                cash_amount=1000,
+                stock_ratio_pct=10,
+                note="cash and stock",
+            )
+
+            rows = store.list_dividend_events("VPB")
+
+            self.assertEqual(event["ticker"], "VPB")
+            self.assertEqual(rows[0]["id"], event["id"])
+            self.assertEqual(rows[0]["ex_date"], "2026-06-10")
+            self.assertTrue(store.delete_dividend_event(event["id"]))
+            self.assertFalse(store.delete_dividend_event(event["id"]))
+
 
 if __name__ == "__main__":
     unittest.main()

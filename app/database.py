@@ -91,6 +91,20 @@ CREATE TABLE IF NOT EXISTS manual_daily_performance (
 
 CREATE INDEX IF NOT EXISTS idx_manual_daily_performance_date
 ON manual_daily_performance (trade_date ASC);
+
+CREATE TABLE IF NOT EXISTS dividend_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    ex_date TEXT NOT NULL,
+    cash_amount REAL,
+    stock_ratio_pct REAL,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dividend_events_ticker_date
+ON dividend_events (ticker, ex_date ASC);
 """
 
 
@@ -457,6 +471,71 @@ class SignalStore:
                 "DELETE FROM manual_daily_performance WHERE trade_date = ?",
                 (trade_date,),
             )
+            return cursor.rowcount > 0
+
+    def insert_dividend_event(
+        self,
+        *,
+        ticker: str,
+        ex_date: str,
+        cash_amount: float | None,
+        stock_ratio_pct: float | None,
+        note: str | None,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO dividend_events (
+                    ticker, ex_date, cash_amount, stock_ratio_pct, note,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ticker.upper(),
+                    ex_date,
+                    cash_amount,
+                    stock_ratio_pct,
+                    note,
+                    now,
+                    now,
+                ),
+            )
+            event_id = cursor.lastrowid
+        return self.get_dividend_event(event_id)
+
+    def get_dividend_event(self, event_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM dividend_events WHERE id = ?",
+                (event_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Dividend event {event_id} was not found")
+        return dict(row)
+
+    def list_dividend_events(self, ticker: str | None = None) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where = ""
+        if ticker:
+            where = "WHERE ticker = ?"
+            params.append(ticker.upper())
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM dividend_events
+                {where}
+                ORDER BY ex_date ASC, ticker ASC, id ASC
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_dividend_event(self, event_id: int) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute("DELETE FROM dividend_events WHERE id = ?", (event_id,))
             return cursor.rowcount > 0
 
     def _insert_manual_snapshot(

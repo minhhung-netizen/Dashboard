@@ -5,6 +5,7 @@ import csv
 import io
 import logging
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
@@ -105,6 +106,14 @@ class ManualPositionUpdatePayload(BaseModel):
 class ManualClosePayload(BaseModel):
     exit_price: float = Field(..., gt=0)
     closed_at: str | None = None
+
+
+class DividendEventPayload(BaseModel):
+    ticker: str = Field(..., examples=["VPB"])
+    ex_date: str = Field(..., examples=["2026-06-10"])
+    cash_amount: float | None = Field(default=None, ge=0, examples=[1000])
+    stock_ratio_pct: float | None = Field(default=None, ge=0, examples=[10])
+    note: str | None = None
 
 
 @app.get("/")
@@ -304,6 +313,25 @@ def export_manual_daily_performance_csv() -> Response:
     )
 
 
+@app.get("/api/export/dividend-events.csv")
+def export_dividend_events_csv() -> Response:
+    rows = store.list_dividend_events()
+    return csv_response(
+        "dividend-events.csv",
+        [
+            "id",
+            "ticker",
+            "ex_date",
+            "cash_amount",
+            "stock_ratio_pct",
+            "note",
+            "created_at",
+            "updated_at",
+        ],
+        rows,
+    )
+
+
 @app.get("/api/export/database")
 def export_database() -> FileResponse:
     if not settings.database_path.exists():
@@ -323,7 +351,7 @@ def performance(ticker: str | None = None, strategy: str | None = None) -> dict[
             if strategy_filter in (signal.get("strategy") or "").strip().lower()
             or strategy_filter in confirmation_payload_strategy(signal)
         ]
-    return build_performance(signals)
+    return build_performance(signals, store.list_dividend_events())
 
 
 def confirmation_payload_strategy(signal: dict[str, Any]) -> str:
@@ -346,7 +374,50 @@ def manual_portfolio() -> dict[str, Any]:
     return build_manual_portfolio(
         store.list_manual_positions(),
         store.list_manual_daily_performance(),
+        store.list_dividend_events(),
     )
+
+
+@app.get("/api/dividend-events")
+def dividend_events(ticker: str | None = None) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    return {"dividend_events": store.list_dividend_events(normalized_ticker)}
+
+
+@app.post("/api/dividend-events")
+def create_dividend_event(payload: DividendEventPayload) -> dict[str, Any]:
+    ticker, _ = normalize_ticker(payload.ticker)
+    try:
+        ex_date = date.fromisoformat(payload.ex_date).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid ex_date") from exc
+    cash_amount = payload.cash_amount if payload.cash_amount is not None else None
+    stock_ratio_pct = (
+        payload.stock_ratio_pct if payload.stock_ratio_pct is not None else None
+    )
+    if (cash_amount or 0) <= 0 and (stock_ratio_pct or 0) <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Dividend event requires cash_amount or stock_ratio_pct",
+        )
+    try:
+        event = store.insert_dividend_event(
+            ticker=ticker,
+            ex_date=ex_date,
+            cash_amount=cash_amount,
+            stock_ratio_pct=stock_ratio_pct,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "created", "dividend_event": event}
+
+
+@app.delete("/api/dividend-events/{event_id}")
+def delete_dividend_event(event_id: int) -> dict[str, Any]:
+    if not store.delete_dividend_event(event_id):
+        raise HTTPException(status_code=404, detail="Dividend event not found")
+    return {"status": "deleted", "event_id": event_id}
 
 
 @app.post("/api/manual-portfolio")
@@ -473,7 +544,10 @@ async def price_refresh_loop() -> None:
 
 
 async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
-    performance_data = build_performance(store.list_all_signals())
+    performance_data = build_performance(
+        store.list_all_signals(),
+        store.list_dividend_events(),
+    )
     open_trades = performance_data["open_trades"]
     signal_ids_by_ticker: dict[str, list[int]] = {}
     for trade in open_trades:
@@ -536,7 +610,11 @@ def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> di
 
 
 def record_manual_daily_performance(recorded_at: str | None = None) -> dict[str, Any]:
-    record = build_daily_performance_record(store.list_manual_positions(), recorded_at)
+    record = build_daily_performance_record(
+        store.list_manual_positions(),
+        recorded_at,
+        store.list_dividend_events(),
+    )
     return store.upsert_manual_daily_performance(**record)
 
 

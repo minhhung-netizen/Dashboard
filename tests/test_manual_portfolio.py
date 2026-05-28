@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 from app.services.manual_portfolio import (
     build_daily_performance_record,
@@ -139,6 +140,44 @@ class ManualPortfolioTest(unittest.TestCase):
         self.assertAlmostEqual(record["equity_value"], 120)
         self.assertTrue(is_after_daily_cutoff("2026-05-25T15:05:00+07:00"))
         self.assertFalse(is_after_daily_cutoff("2026-05-25T14:59:00+07:00"))
+
+    def test_manual_position_uses_adjusted_entry_after_dividend_ex_date(self):
+        result = build_manual_portfolio(
+            [
+                {
+                    "id": 1,
+                    "ticker": "VPB",
+                    "weight_pct": 100,
+                    "entry_price": 100,
+                    "current_price": 110,
+                    "quantity": 10,
+                    "entry_date": "2026-01-01",
+                    "status": "open",
+                    "exit_price": None,
+                    "closed_at": None,
+                    "note": None,
+                    "created_at": "2026-01-01T00:00:00+07:00",
+                    "updated_at": "2026-01-12T00:00:00+07:00",
+                    "snapshots": [],
+                },
+            ],
+            dividend_events=[
+                {
+                    "ticker": "VPB",
+                    "ex_date": "2026-01-10",
+                    "cash_amount": 10,
+                    "stock_ratio_pct": None,
+                    "note": "cash dividend",
+                }
+            ],
+            as_of_date=date(2026, 1, 12),
+        )
+
+        position = result["positions"][0]
+        self.assertAlmostEqual(position["entry_price"], 90)
+        self.assertAlmostEqual(position["return_pct"], 22.222222, places=5)
+        self.assertAlmostEqual(position["cost_value"], 900)
+        self.assertEqual(position["dividend_notes"][0]["status"], "applied")
 
 
 if __name__ == "__main__":

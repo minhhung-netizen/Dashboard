@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from math import prod
 from typing import Any
+
+from app.services.dividends import dividend_adjustment
 
 
 DEFAULT_STRATEGY = "Unspecified"
@@ -19,7 +21,11 @@ class OpenPosition:
     confirmations: list[dict[str, Any]] = field(default_factory=list)
 
 
-def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
+def build_performance(
+    signals: list[dict[str, Any]],
+    dividend_events: list[dict[str, Any]] | None = None,
+    as_of_date: date | None = None,
+) -> dict[str, Any]:
     ordered = sorted(signals, key=lambda item: (_signal_sort_time(item), item["id"]))
     latest_prices = _latest_prices_by_ticker(ordered)
     open_positions: dict[tuple[str, str], OpenPosition] = {}
@@ -65,6 +71,8 @@ def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
                     exit_time=_signal_time(signal),
                     exit_signal_id=signal["id"],
                     status="closed",
+                    dividend_events=dividend_events,
+                    as_of_date=as_of_date,
                 )
             )
 
@@ -88,6 +96,8 @@ def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
                 exit_time=None,
                 exit_signal_id=None,
                 status="open",
+                dividend_events=dividend_events,
+                as_of_date=as_of_date,
             )
         )
 
@@ -224,14 +234,27 @@ def _trade_record(
     exit_time: str | None,
     exit_signal_id: int | None,
     status: str,
+    dividend_events: list[dict[str, Any]] | None = None,
+    as_of_date: date | None = None,
 ) -> dict[str, Any]:
-    return_pct = (exit_price - position.entry_price) / position.entry_price * 100
+    adjustment = dividend_adjustment(
+        ticker=position.ticker,
+        entry_price=position.entry_price,
+        entry_time=position.entry_time,
+        valuation_time=exit_time,
+        dividend_events=dividend_events,
+        as_of_date=as_of_date,
+        include_upcoming=status == "open",
+    )
+    entry_price = adjustment["entry_price_adjusted"]
+    return_pct = (exit_price - entry_price) / entry_price * 100
     holding_seconds = _holding_seconds(position.entry_time, exit_time)
     return {
         "ticker": position.ticker,
         "strategy": position.strategy,
         "status": status,
-        "entry_price": position.entry_price,
+        "entry_price": entry_price,
+        "entry_price_original": adjustment["entry_price_original"],
         "entry_time": position.entry_time,
         "entry_signal_id": position.entry_signal_id,
         "exit_price": exit_price,
@@ -239,6 +262,8 @@ def _trade_record(
         "exit_signal_id": exit_signal_id,
         "holding_seconds": holding_seconds,
         "return_pct": return_pct,
+        "dividend_adjusted": adjustment["dividend_adjusted"],
+        "dividend_notes": adjustment["dividend_notes"],
         "confirmations": list(position.confirmations),
         "has_confirm_buy": any(
             confirmation.get("action") == "confirm_buy"

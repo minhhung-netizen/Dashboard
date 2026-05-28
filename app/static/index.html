@@ -33,6 +33,7 @@
         <button class="tabButton" type="button" data-tab-target="positions" data-i18n="tabPositions">Positions</button>
         <button class="tabButton" type="button" data-tab-target="manualPortfolio" data-i18n="tabManualPortfolio">Manual Portfolio</button>
         <button class="tabButton" type="button" data-tab-target="performance" data-i18n="tabPerformance">Performance</button>
+        <button class="tabButton" type="button" data-tab-target="dividends" data-i18n="tabDividends">Dividends</button>
         <button class="tabButton" type="button" data-tab-target="logs" data-i18n="tabLogs">Logs</button>
       </nav>
 
@@ -147,6 +148,7 @@
                   <th data-i18n="currentPrice">Current Price</th>
                   <th data-i18n="returnPct">Return</th>
                   <th data-i18n="confirm">Trend</th>
+                  <th data-i18n="dividend">Dividend</th>
                   <th data-i18n="holdingDays">Days Held</th>
                   <th data-i18n="entryTime">Entry Time</th>
                 </tr>
@@ -251,6 +253,7 @@
                   <th data-i18n="status">Status</th>
                   <th data-i18n="entryDate">Entry Date</th>
                   <th data-i18n="holdingDays">Days Held</th>
+                  <th data-i18n="dividend">Dividend</th>
                   <th data-i18n="note">Note</th>
                   <th></th>
                 </tr>
@@ -341,6 +344,40 @@
         </section>
       </div>
 
+      <div class="tabPanel" data-tab-panel="dividends">
+        <section class="dividendPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="dividendCalendar">Dividend Calendar</p>
+              <h2 data-i18n="dividendRules">Ex-rights Adjustments</h2>
+            </div>
+          </div>
+          <form id="dividendEventForm" class="manualForm dividendForm">
+            <input id="dividendTicker" required aria-label="Dividend ticker" placeholder="Ticker" />
+            <input id="dividendExDate" required type="date" aria-label="Dividend ex date" />
+            <input id="dividendCashAmount" min="0" step="0.001" type="number" aria-label="Cash dividend" placeholder="Cash / share" />
+            <input id="dividendStockRatio" min="0" step="0.01" type="number" aria-label="Stock dividend ratio" placeholder="Stock %" />
+            <input id="dividendNote" aria-label="Dividend note" placeholder="Note" />
+            <button type="submit" data-i18n="addDividendEvent">Add event</button>
+          </form>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="exDate">Ex-date</th>
+                  <th data-i18n="cashDividend">Cash</th>
+                  <th data-i18n="stockDividend">Stock %</th>
+                  <th data-i18n="note">Note</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="dividendEventsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
       <div class="tabPanel" data-tab-panel="logs">
         <section class="exportPanel">
           <div class="panelHead">
@@ -352,6 +389,7 @@
               <a class="smallButton linkButton" href="/api/export/signals.csv" data-i18n="exportSignals">Signals CSV</a>
               <a class="smallButton linkButton" href="/api/export/manual-portfolio.csv" data-i18n="exportManualPortfolio">Manual CSV</a>
               <a class="smallButton linkButton" href="/api/export/manual-daily-performance.csv" data-i18n="exportDailyPerformance">Daily CSV</a>
+              <a class="smallButton linkButton" href="/api/export/dividend-events.csv" data-i18n="exportDividends">Dividends CSV</a>
               <a class="smallButton linkButton" href="/api/export/database" data-i18n="backupDatabase">Backup DB</a>
             </div>
           </div>
