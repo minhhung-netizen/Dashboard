@@ -43,15 +43,23 @@ def dividend_adjustment(
         if entry_date is not None and ex_date < entry_date:
             continue
 
-        cash_amount = _safe_float(event.get("cash_amount")) or 0.0
+        cash_amount = _normalize_money_amount(event.get("cash_amount")) or 0.0
         stock_ratio_pct = _safe_float(event.get("stock_ratio_pct")) or 0.0
-        has_adjustment = cash_amount > 0 or stock_ratio_pct > 0
+        issue_ratio_pct = _safe_float(event.get("issue_ratio_pct")) or 0.0
+        issue_price = _normalize_money_amount(event.get("issue_price")) or 0.0
+        has_adjustment = cash_amount > 0 or stock_ratio_pct > 0 or issue_ratio_pct > 0
 
         if has_adjustment and ex_date <= valuation_date:
             before = adjusted_entry
+            denominator = 1 + stock_ratio_pct / 100 + issue_ratio_pct / 100
             adjusted_entry = max(
                 0.000001,
-                (adjusted_entry - cash_amount) / (1 + stock_ratio_pct / 100),
+                (
+                    adjusted_entry
+                    - cash_amount
+                    + issue_price * issue_ratio_pct / 100
+                )
+                / denominator,
             )
             notes.append(
                 {
@@ -60,6 +68,8 @@ def dividend_adjustment(
                     "ex_date": ex_date.isoformat(),
                     "cash_amount": cash_amount or None,
                     "stock_ratio_pct": stock_ratio_pct or None,
+                    "issue_ratio_pct": issue_ratio_pct or None,
+                    "issue_price": issue_price or None,
                     "entry_price_before": before,
                     "entry_price_after": adjusted_entry,
                     "note": event.get("note"),
@@ -77,6 +87,8 @@ def dividend_adjustment(
                     "days_until": days_until,
                     "cash_amount": cash_amount or None,
                     "stock_ratio_pct": stock_ratio_pct or None,
+                    "issue_ratio_pct": issue_ratio_pct or None,
+                    "issue_price": issue_price or None,
                     "note": event.get("note"),
                 }
             )
@@ -120,6 +132,13 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_money_amount(value: Any) -> float | None:
+    amount = _safe_float(value)
+    if amount is None:
+        return None
+    return amount / 1000 if abs(amount) >= 100 else amount
 
 
 def _normalize_ticker(value: Any) -> str:

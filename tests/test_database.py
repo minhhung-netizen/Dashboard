@@ -211,6 +211,8 @@ class SignalStoreTest(unittest.TestCase):
                 ex_date="2026-06-10",
                 cash_amount=1000,
                 stock_ratio_pct=10,
+                issue_ratio_pct=20,
+                issue_price=10,
                 note="cash and stock",
             )
 
@@ -219,6 +221,8 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(event["ticker"], "VPB")
             self.assertEqual(rows[0]["id"], event["id"])
             self.assertEqual(rows[0]["ex_date"], "2026-06-10")
+            self.assertEqual(rows[0]["issue_ratio_pct"], 20)
+            self.assertEqual(rows[0]["issue_price"], 10)
             self.assertTrue(store.delete_dividend_event(event["id"]))
             self.assertFalse(store.delete_dividend_event(event["id"]))
 

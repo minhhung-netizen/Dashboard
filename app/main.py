@@ -113,6 +113,8 @@ class DividendEventPayload(BaseModel):
     ex_date: str = Field(..., examples=["2026-06-10"])
     cash_amount: float | None = Field(default=None, ge=0, examples=[1000])
     stock_ratio_pct: float | None = Field(default=None, ge=0, examples=[10])
+    issue_ratio_pct: float | None = Field(default=None, ge=0, examples=[20])
+    issue_price: float | None = Field(default=None, ge=0, examples=[10000])
     note: str | None = None
 
 
@@ -324,6 +326,8 @@ def export_dividend_events_csv() -> Response:
             "ex_date",
             "cash_amount",
             "stock_ratio_pct",
+            "issue_ratio_pct",
+            "issue_price",
             "note",
             "created_at",
             "updated_at",
@@ -391,14 +395,27 @@ def create_dividend_event(payload: DividendEventPayload) -> dict[str, Any]:
         ex_date = date.fromisoformat(payload.ex_date).isoformat()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid ex_date") from exc
-    cash_amount = payload.cash_amount if payload.cash_amount is not None else None
+    cash_amount = normalize_money_unit(payload.cash_amount)
     stock_ratio_pct = (
         payload.stock_ratio_pct if payload.stock_ratio_pct is not None else None
     )
-    if (cash_amount or 0) <= 0 and (stock_ratio_pct or 0) <= 0:
+    issue_ratio_pct = (
+        payload.issue_ratio_pct if payload.issue_ratio_pct is not None else None
+    )
+    issue_price = normalize_money_unit(payload.issue_price)
+    if issue_ratio_pct and issue_ratio_pct > 0 and (issue_price or 0) <= 0:
         raise HTTPException(
             status_code=422,
-            detail="Dividend event requires cash_amount or stock_ratio_pct",
+            detail="Additional issuance requires issue_price",
+        )
+    if (
+        (cash_amount or 0) <= 0
+        and (stock_ratio_pct or 0) <= 0
+        and (issue_ratio_pct or 0) <= 0
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Event requires cash_amount, stock_ratio_pct or issue_ratio_pct",
         )
     try:
         event = store.insert_dividend_event(
@@ -406,6 +423,8 @@ def create_dividend_event(payload: DividendEventPayload) -> dict[str, Any]:
             ex_date=ex_date,
             cash_amount=cash_amount,
             stock_ratio_pct=stock_ratio_pct,
+            issue_ratio_pct=issue_ratio_pct,
+            issue_price=issue_price,
             note=payload.note,
         )
     except ValueError as exc:
@@ -418,6 +437,12 @@ def delete_dividend_event(event_id: int) -> dict[str, Any]:
     if not store.delete_dividend_event(event_id):
         raise HTTPException(status_code=404, detail="Dividend event not found")
     return {"status": "deleted", "event_id": event_id}
+
+
+def normalize_money_unit(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return value / 1000 if abs(value) >= 100 else value
 
 
 @app.post("/api/manual-portfolio")

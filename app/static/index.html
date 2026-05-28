@@ -355,8 +355,10 @@
           <form id="dividendEventForm" class="manualForm dividendForm">
             <input id="dividendTicker" required aria-label="Dividend ticker" placeholder="Ticker" />
             <input id="dividendExDate" required type="date" aria-label="Dividend ex date" />
-            <input id="dividendCashAmount" min="0" step="0.001" type="number" aria-label="Cash dividend" placeholder="Cash / share" />
+            <input id="dividendCashAmount" min="0" step="0.001" type="number" aria-label="Cash dividend" placeholder="Cash / share, e.g. 1000" />
             <input id="dividendStockRatio" min="0" step="0.01" type="number" aria-label="Stock dividend ratio" placeholder="Stock %" />
+            <input id="dividendIssueRatio" min="0" step="0.01" type="number" aria-label="Additional issue ratio" placeholder="Issue %" />
+            <input id="dividendIssuePrice" min="0" step="0.001" type="number" aria-label="Additional issue price" placeholder="Issue price, e.g. 10000" />
             <input id="dividendNote" aria-label="Dividend note" placeholder="Note" />
             <button type="submit" data-i18n="addDividendEvent">Add event</button>
           </form>
@@ -368,6 +370,8 @@
                   <th data-i18n="exDate">Ex-date</th>
                   <th data-i18n="cashDividend">Cash</th>
                   <th data-i18n="stockDividend">Stock %</th>
+                  <th data-i18n="additionalIssue">Issue %</th>
+                  <th data-i18n="issuePrice">Issue Price</th>
                   <th data-i18n="note">Note</th>
                   <th></th>
                 </tr>

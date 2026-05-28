@@ -234,6 +234,33 @@ class PerformanceTest(unittest.TestCase):
         self.assertEqual(trade["dividend_notes"][0]["status"], "upcoming")
         self.assertEqual(trade["dividend_notes"][0]["days_until"], 5)
 
+    def test_cash_vnd_and_additional_issue_adjust_entry_price(self):
+        result = build_performance(
+            [
+                signal(1, "VPB", "buy", 100, "ST", source_time="2026-01-01T09:00:00+07:00"),
+                signal(2, "VPB", "note", 80, "ST", source_time="2026-01-12T09:00:00+07:00"),
+            ],
+            dividend_events=[
+                {
+                    "ticker": "VPB",
+                    "ex_date": "2026-01-10",
+                    "cash_amount": 1000,
+                    "stock_ratio_pct": None,
+                    "issue_ratio_pct": 50,
+                    "issue_price": 10000,
+                    "note": "cash and rights issue",
+                }
+            ],
+            as_of_date=date(2026, 1, 12),
+        )
+
+        trade = result["open_trades"][0]
+        self.assertAlmostEqual(trade["entry_price"], 69.333333, places=5)
+        self.assertAlmostEqual(trade["return_pct"], 15.384615, places=5)
+        self.assertAlmostEqual(trade["dividend_notes"][0]["cash_amount"], 1)
+        self.assertAlmostEqual(trade["dividend_notes"][0]["issue_price"], 10)
+        self.assertEqual(trade["dividend_notes"][0]["issue_ratio_pct"], 50)
+
 
 if __name__ == "__main__":
     unittest.main()

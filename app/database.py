@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS dividend_events (
     ex_date TEXT NOT NULL,
     cash_amount REAL,
     stock_ratio_pct REAL,
+    issue_ratio_pct REAL,
+    issue_price REAL,
     note TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -132,6 +134,17 @@ class SignalStore:
         with self.connect() as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
+            self._ensure_dividend_event_columns(conn)
+
+    def _ensure_dividend_event_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(dividend_events)").fetchall()
+        }
+        if "issue_ratio_pct" not in columns:
+            conn.execute("ALTER TABLE dividend_events ADD COLUMN issue_ratio_pct REAL")
+        if "issue_price" not in columns:
+            conn.execute("ALTER TABLE dividend_events ADD COLUMN issue_price REAL")
 
     def insert_signal(
         self,
@@ -480,23 +493,28 @@ class SignalStore:
         ex_date: str,
         cash_amount: float | None,
         stock_ratio_pct: float | None,
-        note: str | None,
+        issue_ratio_pct: float | None = None,
+        issue_price: float | None = None,
+        note: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now_iso()
         with self.connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO dividend_events (
-                    ticker, ex_date, cash_amount, stock_ratio_pct, note,
+                    ticker, ex_date, cash_amount, stock_ratio_pct,
+                    issue_ratio_pct, issue_price, note,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ticker.upper(),
                     ex_date,
                     cash_amount,
                     stock_ratio_pct,
+                    issue_ratio_pct,
+                    issue_price,
                     note,
                     now,
                     now,

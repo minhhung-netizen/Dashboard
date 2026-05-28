@@ -57,6 +57,8 @@ const els = {
   dividendExDate: document.querySelector("#dividendExDate"),
   dividendCashAmount: document.querySelector("#dividendCashAmount"),
   dividendStockRatio: document.querySelector("#dividendStockRatio"),
+  dividendIssueRatio: document.querySelector("#dividendIssueRatio"),
+  dividendIssuePrice: document.querySelector("#dividendIssuePrice"),
   dividendNote: document.querySelector("#dividendNote"),
   dividendEventsTable: document.querySelector("#dividendEventsTable"),
 };
@@ -141,6 +143,8 @@ const translations = {
     exDate: "Ex-date",
     cashDividend: "Cash",
     stockDividend: "Stock %",
+    additionalIssue: "Issue %",
+    issuePrice: "Issue Price",
     addDividendEvent: "Add event",
     noDividendEvents: "No dividend events",
     noDividends: "No dividend events",
@@ -497,6 +501,8 @@ Object.assign(translations.vi, {
   exDate: "Ngày GDKHQ",
   cashDividend: "Tiền mặt",
   stockDividend: "Cổ phiếu %",
+  additionalIssue: "Phát hành thêm %",
+  issuePrice: "Giá phát hành",
   addDividendEvent: "Thêm sự kiện",
   noDividendEvents: "Chưa có lịch cổ tức",
   noDividends: "Không có cổ tức",
@@ -995,7 +1001,7 @@ function renderDividendEvents() {
     String(left.ex_date || "").localeCompare(String(right.ex_date || ""))
   );
   if (!rows.length) {
-    els.dividendEventsTable.innerHTML = `<tr><td class="empty" colspan="6">${t("noDividendEvents")}</td></tr>`;
+    els.dividendEventsTable.innerHTML = `<tr><td class="empty" colspan="8">${t("noDividendEvents")}</td></tr>`;
     return;
   }
   els.dividendEventsTable.innerHTML = rows
@@ -1005,6 +1011,8 @@ function renderDividendEvents() {
         <td>${formatDateOnly(event.ex_date)}</td>
         <td>${formatPrice(event.cash_amount)}</td>
         <td>${formatPercent(event.stock_ratio_pct)}</td>
+        <td>${formatPercent(event.issue_ratio_pct)}</td>
+        <td>${formatPrice(event.issue_price)}</td>
         <td>${escapeHtml(event.note || "-")}</td>
         <td>
           <button class="deleteButton" type="button" data-dividend-delete-id="${event.id}">${escapeHtml(t("delete"))}</button>
@@ -1025,6 +1033,8 @@ async function addDividendEvent(event) {
     ex_date: els.dividendExDate.value,
     cash_amount: optionalNumber(els.dividendCashAmount.value),
     stock_ratio_pct: optionalNumber(els.dividendStockRatio.value),
+    issue_ratio_pct: optionalNumber(els.dividendIssueRatio.value),
+    issue_price: optionalNumber(els.dividendIssuePrice.value),
     note: els.dividendNote.value.trim() || null,
   };
   const response = await fetch("/api/dividend-events", {
@@ -1237,6 +1247,8 @@ function renderDividendNotes(notes) {
           const detail = [
             note.cash_amount ? `${formatPrice(note.cash_amount)} cash` : "",
             note.stock_ratio_pct ? `${formatPercent(note.stock_ratio_pct)} stock` : "",
+            note.issue_ratio_pct ? `${formatPercent(note.issue_ratio_pct)} issue` : "",
+            note.issue_price ? `${formatPrice(note.issue_price)} price` : "",
             note.days_until !== undefined ? `${note.days_until}d` : "",
           ].filter(Boolean).join(" · ");
           return `
