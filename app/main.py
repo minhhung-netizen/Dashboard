@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -113,6 +115,11 @@ def dashboard() -> FileResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/settings")
+def dashboard_settings() -> dict[str, Any]:
+    return {"default_signal_weight_pct": settings.default_signal_weight_pct}
 
 
 @app.post("/webhook")
@@ -231,6 +238,79 @@ def summary() -> dict[str, Any]:
     return store.summary()
 
 
+@app.get("/api/export/signals.csv")
+def export_signals_csv() -> Response:
+    signals = store.list_all_signals()
+    return csv_response(
+        "signals.csv",
+        [
+            "id",
+            "ticker",
+            "exchange",
+            "action",
+            "price",
+            "timeframe",
+            "strategy",
+            "note",
+            "source_time",
+            "received_at",
+        ],
+        signals,
+    )
+
+
+@app.get("/api/export/manual-portfolio.csv")
+def export_manual_portfolio_csv() -> Response:
+    positions = store.list_manual_positions()
+    return csv_response(
+        "manual-portfolio.csv",
+        [
+            "id",
+            "ticker",
+            "weight_pct",
+            "entry_price",
+            "current_price",
+            "quantity",
+            "entry_date",
+            "status",
+            "exit_price",
+            "closed_at",
+            "note",
+            "created_at",
+            "updated_at",
+        ],
+        positions,
+    )
+
+
+@app.get("/api/export/manual-daily-performance.csv")
+def export_manual_daily_performance_csv() -> Response:
+    rows = store.list_manual_daily_performance()
+    return csv_response(
+        "manual-daily-performance.csv",
+        [
+            "trade_date",
+            "portfolio_return_pct",
+            "equity_value",
+            "total_weight_pct",
+            "open_count",
+            "closed_count",
+            "cost_value",
+            "market_value",
+            "pnl_value",
+            "recorded_at",
+        ],
+        rows,
+    )
+
+
+@app.get("/api/export/database")
+def export_database() -> FileResponse:
+    if not settings.database_path.exists():
+        raise HTTPException(status_code=404, detail="Database file not found")
+    return FileResponse(settings.database_path, filename="signals.db")
+
+
 @app.get("/api/performance")
 def performance(ticker: str | None = None, strategy: str | None = None) -> dict[str, Any]:
     normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
@@ -241,8 +321,19 @@ def performance(ticker: str | None = None, strategy: str | None = None) -> dict[
             signal
             for signal in signals
             if strategy_filter in (signal.get("strategy") or "").strip().lower()
+            or strategy_filter in confirmation_payload_strategy(signal)
         ]
     return build_performance(signals)
+
+
+def confirmation_payload_strategy(signal: dict[str, Any]) -> str:
+    payload = signal.get("payload") or {}
+    values = [
+        payload.get("base_strategy"),
+        payload.get("confirm_for"),
+        payload.get("requires_open_strategy"),
+    ]
+    return " ".join(str(value).strip().lower() for value in values if value)
 
 
 @app.get("/api/invalid-signals")
@@ -454,3 +545,16 @@ def latest_history_close(enrichment: dict[str, Any]) -> float | None:
         or latest_row.get("c")
     )
     return coerce_float(value)
+
+
+def csv_response(filename: str, fields: list[str], rows: list[dict[str, Any]]) -> Response:
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({field: row.get(field) for field in fields})
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

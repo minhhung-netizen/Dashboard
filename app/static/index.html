@@ -120,6 +120,11 @@
               <button id="openPositionRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
               <input id="openPositionTickerFilter" aria-label="Open position ticker filter" placeholder="Ticker" />
               <input id="openPositionStrategyFilter" aria-label="Open position strategy filter" placeholder="Strategy" />
+              <select id="openPositionConfirmFilter" aria-label="Open position confirmation filter">
+                <option value="all" data-i18n="confirmAll">All confirms</option>
+                <option value="confirmed" data-i18n="confirmedOnly">Confirmed</option>
+                <option value="unconfirmed" data-i18n="unconfirmedOnly">Unconfirmed</option>
+              </select>
               <select id="openPositionSort" aria-label="Open position sort">
                 <option value="return_desc" data-i18n="sortReturnDesc">Return desc</option>
                 <option value="return_asc" data-i18n="sortReturnAsc">Return asc</option>
@@ -141,6 +146,7 @@
                   <th data-i18n="entryPrice">Entry</th>
                   <th data-i18n="currentPrice">Current Price</th>
                   <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="confirm">Confirm</th>
                   <th data-i18n="holdingDays">Days Held</th>
                   <th data-i18n="entryTime">Entry Time</th>
                 </tr>
@@ -253,6 +259,31 @@
             </table>
           </div>
         </section>
+
+        <section class="manualDailyPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="dailyPerformance">Daily Performance</p>
+              <h2 data-i18n="savedDailyPerformance">Saved Daily Performance</h2>
+            </div>
+          </div>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="date">Date</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="equityValue">Equity</th>
+                  <th data-i18n="totalWeight">Weight</th>
+                  <th data-i18n="open">Open</th>
+                  <th data-i18n="closed">Closed</th>
+                  <th data-i18n="savedAt">Saved At</th>
+                </tr>
+              </thead>
+              <tbody id="manualDailyPerformanceTable"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <div class="tabPanel" data-tab-panel="performance">
@@ -307,9 +338,48 @@
             </div>
           </div>
         </section>
+
+        <section class="confirmationStatsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="confirmationStats">Confirmation Stats</p>
+              <h2 data-i18n="confirmVsNoConfirm">Confirm vs No Confirm</h2>
+            </div>
+          </div>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="status">Status</th>
+                  <th data-i18n="closed">Closed</th>
+                  <th data-i18n="winRate">Win Rate</th>
+                  <th data-i18n="avgReturn">Avg Return</th>
+                  <th data-i18n="totalReturn">Total Return</th>
+                  <th data-i18n="portfolioPl">P/L</th>
+                </tr>
+              </thead>
+              <tbody id="confirmationStatsTable"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <div class="tabPanel" data-tab-panel="logs">
+        <section class="exportPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="exportBackup">Export / Backup</p>
+              <h2 data-i18n="downloadData">Download Data</h2>
+            </div>
+            <div class="exportActions">
+              <a class="smallButton linkButton" href="/api/export/signals.csv" data-i18n="exportSignals">Signals CSV</a>
+              <a class="smallButton linkButton" href="/api/export/manual-portfolio.csv" data-i18n="exportManualPortfolio">Manual CSV</a>
+              <a class="smallButton linkButton" href="/api/export/manual-daily-performance.csv" data-i18n="exportDailyPerformance">Daily CSV</a>
+              <a class="smallButton linkButton" href="/api/export/database" data-i18n="backupDatabase">Backup DB</a>
+            </div>
+          </div>
+        </section>
+
         <section class="invalidSignalsPanel">
           <div class="panelHead">
             <div>

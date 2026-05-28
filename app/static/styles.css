@@ -114,6 +114,7 @@ h2 {
 .panelActions,
 .portfolioSummary,
 .portfolioActions,
+.exportActions,
 .filterStatus {
   align-items: center;
   display: flex;
@@ -218,6 +219,18 @@ button:hover {
   padding: 0 10px;
 }
 
+.linkButton {
+  align-items: center;
+  color: var(--ink);
+  display: inline-flex;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.linkButton:hover {
+  background: var(--field-hover);
+}
+
 .deleteButton {
   background: transparent;
   border-color: var(--line);
@@ -283,8 +296,11 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .timelinePanel,
+.confirmationStatsPanel,
+.exportPanel,
 .manualFormPanel,
 .manualEquityPanel,
+.manualDailyPanel,
 .manualPositionsPanel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -359,8 +375,11 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .timelinePanel,
+.confirmationStatsPanel,
+.exportPanel,
 .manualFormPanel,
 .manualEquityPanel,
+.manualDailyPanel,
 .manualPositionsPanel {
   min-width: 0;
   overflow: hidden;
@@ -375,15 +394,21 @@ main {
 .tabPanel > .openPositionsPanel,
 .tabPanel > .closedTradesPanel,
 .tabPanel > .invalidSignalsPanel,
+.tabPanel > .exportPanel,
 .tabPanel > .timelinePanel,
 .tabPanel > .analyticsGrid,
 .tabPanel > .manualPortfolioGrid,
+.tabPanel > .manualDailyPanel,
 .tabPanel > .manualPositionsPanel,
 .analyticsGrid > .performancePanel {
   margin-top: 0;
 }
 
 .tabPanel > .closedTradesPanel,
+.tabPanel > .confirmationStatsPanel,
+.tabPanel > .exportPanel,
+.tabPanel > .exportPanel + .invalidSignalsPanel,
+.tabPanel > .manualDailyPanel,
 .tabPanel > .manualPositionsPanel,
 .tabPanel > .timelinePanel {
   margin-top: 16px;
@@ -472,6 +497,10 @@ main {
 .tableWrap {
   max-height: 358px;
   overflow: auto;
+}
+
+.compactTable {
+  max-height: 260px;
 }
 
 table {
@@ -620,6 +649,36 @@ td strong {
   color: var(--sell);
 }
 
+.mutedText {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.confirmTimeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.confirmBadge {
+  align-items: center;
+  background: color-mix(in srgb, var(--buy) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--buy) 34%, var(--line));
+  border-radius: 999px;
+  color: var(--buy);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 760;
+  gap: 5px;
+  padding: 3px 8px;
+}
+
+.confirmBadge small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
 .empty {
   color: var(--muted);
   padding: 18px;
@@ -692,6 +751,7 @@ td strong {
   .equityPanel,
   .manualEquityPanel,
   .manualFormPanel,
+  .manualDailyPanel,
   .closedTradesPanel {
     grid-column: 1 / -1;
   }
@@ -709,7 +769,8 @@ td strong {
   .positionControls,
   .panelActions,
   .portfolioSummary,
-  .portfolioActions {
+  .portfolioActions,
+  .exportActions {
     justify-content: flex-start;
   }
 

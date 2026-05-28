@@ -107,6 +107,30 @@ class PerformanceTest(unittest.TestCase):
         self.assertEqual(trade["confirmations"][0]["strategy"], "HMA")
         self.assertEqual(trade["confirmations"][0]["action"], "confirm_buy")
 
+    def test_confirmation_stats_compare_confirmed_and_unconfirmed_closed_trades(self):
+        result = build_performance(
+            [
+                signal(1, "MSB", "buy", 10, "STxanhdo"),
+                signal(
+                    2,
+                    "MSB",
+                    "confirm_buy",
+                    11,
+                    "HMA",
+                    payload={"base_strategy": "STxanhdo"},
+                ),
+                signal(3, "MSB", "sell", 12, "STxanhdo"),
+                signal(4, "FPT", "buy", 100, "STxanhdo"),
+                signal(5, "FPT", "sell", 95, "STxanhdo"),
+            ]
+        )
+
+        stats = {row["status"]: row for row in result["confirmation_stats"]}
+        self.assertEqual(stats["confirmed"]["closed_trades"], 1)
+        self.assertAlmostEqual(stats["confirmed"]["avg_return_pct"], 20)
+        self.assertEqual(stats["unconfirmed"]["closed_trades"], 1)
+        self.assertAlmostEqual(stats["unconfirmed"]["avg_return_pct"], -5)
+
     def test_uses_source_time_for_trade_timing_when_available(self):
         result = build_performance(
             [

@@ -8,7 +8,9 @@ const els = {
   closedTradesTable: document.querySelector("#closedTradesTable"),
   invalidSignalsTable: document.querySelector("#invalidSignalsTable"),
   performanceTable: document.querySelector("#performanceTable"),
+  confirmationStatsTable: document.querySelector("#confirmationStatsTable"),
   manualPortfolioTable: document.querySelector("#manualPortfolioTable"),
+  manualDailyPerformanceTable: document.querySelector("#manualDailyPerformanceTable"),
   manualPositionForm: document.querySelector("#manualPositionForm"),
   manualTicker: document.querySelector("#manualTicker"),
   manualWeight: document.querySelector("#manualWeight"),
@@ -36,6 +38,7 @@ const els = {
   openPositionsTotalReturn: document.querySelector("#openPositionsTotalReturn"),
   openPositionTickerFilter: document.querySelector("#openPositionTickerFilter"),
   openPositionStrategyFilter: document.querySelector("#openPositionStrategyFilter"),
+  openPositionConfirmFilter: document.querySelector("#openPositionConfirmFilter"),
   openPositionSort: document.querySelector("#openPositionSort"),
   performanceTickerFilter: document.querySelector("#performanceTickerFilter"),
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
@@ -52,7 +55,7 @@ const els = {
   manualEquityCanvas: document.querySelector("#manualEquityChart"),
 };
 
-const DEFAULT_OPEN_POSITION_WEIGHT_PCT = 5;
+const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
 
 const translations = {
   en: {
@@ -95,9 +98,32 @@ const translations = {
     openPl: "Open P/L",
     current: "Current",
     currentPl: "Current P/L",
-    openUnrealizedPl: "Unrealized P/L (5% each)",
+    openUnrealizedPl: "Unrealized P/L",
     allocationWeight: "Weight",
     portfolioPl: "P/L",
+    confirm: "Confirm",
+    confirmAll: "All confirms",
+    confirmedOnly: "Confirmed",
+    unconfirmedOnly: "Unconfirmed",
+    confirmedStatus: "Confirmed",
+    unconfirmedStatus: "Unconfirmed",
+    noConfirmations: "No confirms",
+    dailyPerformance: "Daily Performance",
+    savedDailyPerformance: "Saved Daily Performance",
+    date: "Date",
+    equityValue: "Equity",
+    savedAt: "Saved At",
+    noDailyPerformance: "No saved daily performance",
+    confirmationStats: "Confirmation Stats",
+    confirmVsNoConfirm: "Confirm vs No Confirm",
+    avgReturn: "Avg Return",
+    totalReturn: "Total Return",
+    exportBackup: "Export / Backup",
+    downloadData: "Download Data",
+    exportSignals: "Signals CSV",
+    exportManualPortfolio: "Manual CSV",
+    exportDailyPerformance: "Daily CSV",
+    backupDatabase: "Backup DB",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
     entryPrice: "Entry",
@@ -186,6 +212,29 @@ const translations = {
     currentPl: "Lai/lo hien tai",
     allocationWeight: "Ty trong",
     portfolioPl: "Lai/lo",
+    confirm: "Xac nhan",
+    confirmAll: "Tat ca xac nhan",
+    confirmedOnly: "Da xac nhan",
+    unconfirmedOnly: "Chua xac nhan",
+    confirmedStatus: "Da xac nhan",
+    unconfirmedStatus: "Chua xac nhan",
+    noConfirmations: "Chua co xac nhan",
+    dailyPerformance: "Hieu suat ngay",
+    savedDailyPerformance: "Hieu suat ngay da luu",
+    date: "Ngay",
+    equityValue: "Von",
+    savedAt: "Luc luu",
+    noDailyPerformance: "Chua co hieu suat ngay da luu",
+    confirmationStats: "Thong ke xac nhan",
+    confirmVsNoConfirm: "Co xac nhan vs chua xac nhan",
+    avgReturn: "Lai/lo TB",
+    totalReturn: "Tong lai/lo",
+    exportBackup: "Xuat / Sao luu",
+    downloadData: "Tai du lieu",
+    exportSignals: "Tin hieu CSV",
+    exportManualPortfolio: "Danh muc CSV",
+    exportDailyPerformance: "Hieu suat ngay CSV",
+    backupDatabase: "Sao luu DB",
     baseStrategyNotOpen: "Chien luoc goc chua mo",
     webhookLabel: "Webhook TradingView",
     refresh: "Làm mới",
@@ -320,6 +369,7 @@ const state = {
   openTrades: [],
   closedTrades: [],
   closedTradeFilter: null,
+  defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
 };
 
@@ -340,7 +390,7 @@ function numberValue(value) {
 function allocatedReturnPct(returnPct) {
   const value = Number(returnPct);
   return Number.isFinite(value)
-    ? (value * DEFAULT_OPEN_POSITION_WEIGHT_PCT) / 100
+    ? (value * state.defaultSignalWeightPct) / 100
     : null;
 }
 
@@ -440,7 +490,8 @@ async function fetchJson(url) {
 async function refresh() {
   const query = "";
   const performanceQuery = buildPerformanceQuery();
-  const [summary, signalsPayload, performancePayload, invalidPayload, manualPayload] = await Promise.all([
+  const [settingsPayload, summary, signalsPayload, performancePayload, invalidPayload, manualPayload] = await Promise.all([
+    fetchJson("/api/settings"),
     fetchJson("/api/summary"),
     fetchJson(`/api/signals${query}`),
     fetchJson(`/api/performance${performanceQuery}`),
@@ -448,6 +499,7 @@ async function refresh() {
     fetchJson("/api/manual-portfolio"),
   ]);
 
+  state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
   renderSummary(summary);
   renderSignals();
@@ -467,6 +519,7 @@ async function refresh() {
     ...(invalidPayload.invalid_signals || []),
   ]);
   renderPerformance(sortPerformance(performancePayload.strategies || []));
+  renderConfirmationStats(performancePayload.confirmation_stats || []);
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
 
@@ -496,6 +549,7 @@ function renderManualPortfolio(payload) {
   els.manualOpenCount.textContent = summary.open_count ?? 0;
   els.manualClosedCount.textContent = summary.closed_count ?? 0;
   renderManualDailyPerformanceStatus(payload.daily_performance || []);
+  renderManualDailyPerformanceTable(payload.daily_performance || []);
   drawManualEquityCurve(payload.equity_curve || []);
 
   if (!positions.length) {
@@ -560,6 +614,27 @@ function renderManualDailyPerformanceStatus(dailyPerformance) {
     <span>${escapeHtml(t("dailyPerformanceLatest"))}: <strong>${escapeHtml(formatDateOnly(latest.trade_date || latest.recorded_at))}</strong></span>
     <span>${escapeHtml(t("returnPct"))}: ${formatSignedPercent(latest.portfolio_return_pct)}</span>
   `;
+}
+
+function renderManualDailyPerformanceTable(dailyPerformance) {
+  const rows = [...dailyPerformance].reverse();
+  if (!rows.length) {
+    els.manualDailyPerformanceTable.innerHTML = `<tr><td class="empty" colspan="7">${t("noDailyPerformance")}</td></tr>`;
+    return;
+  }
+  els.manualDailyPerformanceTable.innerHTML = rows
+    .map((row) => `
+      <tr>
+        <td>${formatDateOnly(row.trade_date)}</td>
+        <td>${formatSignedPercent(row.portfolio_return_pct)}</td>
+        <td>${formatPrice(row.equity_value)}</td>
+        <td>${formatPercent(row.total_weight_pct)}</td>
+        <td>${row.open_count ?? 0}</td>
+        <td>${row.closed_count ?? 0}</td>
+        <td>${formatDate(row.recorded_at)}</td>
+      </tr>
+    `)
+    .join("");
 }
 
 async function addManualPosition(event) {
@@ -695,11 +770,16 @@ function sortPerformance(strategies) {
 function filterOpenPositions(openTrades) {
   const tickerFilter = els.openPositionTickerFilter.value.trim().toUpperCase();
   const strategyFilter = els.openPositionStrategyFilter.value.trim().toLowerCase();
+  const confirmFilter = els.openPositionConfirmFilter.value;
   return openTrades.filter((trade) => {
     const tickerMatches = !tickerFilter || String(trade.ticker || "").includes(tickerFilter);
     const strategyMatches =
       !strategyFilter || String(trade.strategy || "").toLowerCase().includes(strategyFilter);
-    return tickerMatches && strategyMatches;
+    const confirmMatches =
+      confirmFilter === "all" ||
+      (confirmFilter === "confirmed" && trade.has_confirm_buy) ||
+      (confirmFilter === "unconfirmed" && !trade.has_confirm_buy);
+    return tickerMatches && strategyMatches && confirmMatches;
   });
 }
 
@@ -741,7 +821,7 @@ function renderPerformance(strategies) {
       <tr class="clickableRow" data-performance-ticker="${escapeHtml(strategy.ticker)}" data-performance-strategy="${escapeHtml(strategy.strategy)}">
         <td><strong>${escapeHtml(strategy.ticker)}</strong></td>
         <td><strong>${escapeHtml(strategy.strategy)}</strong></td>
-        <td>${formatPercent(DEFAULT_OPEN_POSITION_WEIGHT_PCT)}</td>
+        <td>${formatPercent(state.defaultSignalWeightPct)}</td>
         <td>${strategy.closed_trades}</td>
         <td>${strategy.open_trades}</td>
         <td>${formatPercent(strategy.win_rate_pct)}</td>
@@ -759,11 +839,33 @@ function renderPerformance(strategies) {
   });
 }
 
+function renderConfirmationStats(stats) {
+  if (!stats.length) {
+    els.confirmationStatsTable.innerHTML = `<tr><td class="empty" colspan="6">${t("noTrades")}</td></tr>`;
+    return;
+  }
+  els.confirmationStatsTable.innerHTML = stats
+    .map((row) => {
+      const label = row.status === "confirmed" ? t("confirmedStatus") : t("unconfirmedStatus");
+      return `
+        <tr>
+          <td><strong>${escapeHtml(label)}</strong></td>
+          <td>${row.closed_trades ?? 0}</td>
+          <td>${formatPercent(row.win_rate_pct)}</td>
+          <td>${formatSignedPercent(row.avg_return_pct)}</td>
+          <td>${formatSignedPercent(row.total_return_pct)}</td>
+          <td>${formatSignedPercent(allocatedReturnPct(row.total_return_pct))}</td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
 function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="7">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="8">${t("noOpenPositions")}</td></tr>`;
     return;
   }
 
@@ -778,6 +880,7 @@ function renderOpenPositions() {
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
+        <td>${renderConfirmations(trade.confirmations || [])}</td>
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
       </tr>
@@ -788,6 +891,24 @@ function renderOpenPositions() {
   els.openPositionsTable.querySelectorAll("[data-ticker]").forEach((row) => {
     row.addEventListener("click", () => renderChart(row.dataset.ticker));
   });
+}
+
+function renderConfirmations(confirmations) {
+  if (!confirmations.length) {
+    return `<span class="mutedText">${escapeHtml(t("noConfirmations"))}</span>`;
+  }
+  return `
+    <div class="confirmTimeline">
+      ${confirmations
+        .map((confirmation) => `
+          <span class="confirmBadge" title="${escapeHtml(formatDate(confirmation.time))}">
+            ${escapeHtml(confirmation.strategy || confirmation.action || "-")}
+            <small>${escapeHtml(formatPrice(confirmation.price))} · ${escapeHtml(formatDateOnly(confirmation.time))}</small>
+          </span>
+        `)
+        .join("")}
+    </div>
+  `;
 }
 
 function renderOpenPositionsTotalReturn(openTrades) {
@@ -820,7 +941,7 @@ function renderClosedTrades(closedTrades) {
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
-        <td>${formatPercent(DEFAULT_OPEN_POSITION_WEIGHT_PCT)}</td>
+        <td>${formatPercent(state.defaultSignalWeightPct)}</td>
         <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
         <td>${formatDuration(trade.holding_seconds)}</td>
         <td>${formatDate(trade.exit_time)}</td>
@@ -1520,6 +1641,7 @@ els.watchlistOnly.addEventListener("change", toggleWatchlistOnly);
 els.addTickerToWatchlist.addEventListener("click", addSelectedTickerToWatchlist);
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
 els.openPositionStrategyFilter.addEventListener("input", renderOpenPositions);
+els.openPositionConfirmFilter.addEventListener("change", renderOpenPositions);
 els.openPositionSort.addEventListener("change", renderOpenPositions);
 els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);
 els.performanceTickerFilter.addEventListener("input", refresh);

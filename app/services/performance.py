@@ -96,6 +96,7 @@ def build_performance(signals: list[dict[str, Any]]) -> dict[str, Any]:
         "strategies": strategy_rows,
         "closed_trades": trades,
         "open_trades": open_trades,
+        "confirmation_stats": _confirmation_stats(trades),
         "ignored_signals": ignored_signals,
     }
 
@@ -169,6 +170,51 @@ def _empty_strategy(ticker: str, strategy: str) -> dict[str, Any]:
         "open_return_avg_pct": None,
         "current_return_pct": None,
     }
+
+
+def _confirmation_stats(closed_trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups = {
+        "confirmed": {
+            "status": "confirmed",
+            "label": "With confirm",
+            "closed_trades": 0,
+            "wins": 0,
+            "return_sum_pct": 0.0,
+            "return_factor": 1.0,
+        },
+        "unconfirmed": {
+            "status": "unconfirmed",
+            "label": "Without confirm",
+            "closed_trades": 0,
+            "wins": 0,
+            "return_sum_pct": 0.0,
+            "return_factor": 1.0,
+        },
+    }
+    for trade in closed_trades:
+        key = "confirmed" if trade.get("has_confirm_buy") else "unconfirmed"
+        row = groups[key]
+        return_pct = _safe_float(trade.get("return_pct")) or 0
+        row["closed_trades"] += 1
+        row["wins"] += 1 if return_pct > 0 else 0
+        row["return_sum_pct"] += return_pct
+        row["return_factor"] *= 1 + return_pct / 100
+
+    stats = []
+    for key in ("confirmed", "unconfirmed"):
+        row = groups[key]
+        closed = row["closed_trades"]
+        stats.append(
+            {
+                "status": row["status"],
+                "label": row["label"],
+                "closed_trades": closed,
+                "win_rate_pct": (row["wins"] / closed * 100) if closed else None,
+                "avg_return_pct": (row["return_sum_pct"] / closed) if closed else None,
+                "total_return_pct": (row["return_factor"] - 1) * 100 if closed else None,
+            }
+        )
+    return stats
 
 
 def _trade_record(
