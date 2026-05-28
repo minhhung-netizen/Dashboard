@@ -22,6 +22,15 @@ class WebhookPayloadParsingTest(unittest.TestCase):
         self.assertEqual(data["ticker"]["symbol"], "HOSE:GVR")
         self.assertEqual(data["action"], "buy")
 
+    def test_repairs_misquoted_json_with_adjusted_ticker(self):
+        data = parse_forgiving_json(
+            '"{"ticker":={"adjustment":"dividends","symbol":"HOSE:VRE"},'
+            '"action":"sell","price":"31400"}"'
+        )
+
+        self.assertEqual(data["ticker"]["symbol"], "HOSE:VRE")
+        self.assertEqual(data["action"], "sell")
+
 
 if __name__ == "__main__":
     unittest.main()

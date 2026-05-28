@@ -10,14 +10,18 @@ def parse_forgiving_json(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped:
         attempts.append(stripped)
+    unwrapped = _unwrap_misquoted_json(stripped)
+    if unwrapped != stripped:
+        attempts.append(unwrapped)
     if stripped.startswith("="):
         attempts.append(stripped[1:].strip())
 
-    repaired = re.sub(r'("[^"]+"\s*):\s*=', r"\1:", stripped)
-    if repaired != stripped:
-        attempts.append(repaired)
-    if repaired.startswith("="):
-        attempts.append(repaired[1:].strip())
+    for base in (stripped, unwrapped):
+        repaired = re.sub(r'("[^"]+"\s*):\s*=', r"\1:", base)
+        if repaired != base:
+            attempts.append(repaired)
+        if repaired.startswith("="):
+            attempts.append(repaired[1:].strip())
 
     seen: set[str] = set()
     for candidate in attempts:
@@ -32,3 +36,12 @@ def parse_forgiving_json(text: str) -> dict[str, Any]:
             raise ValueError("Webhook body must be a JSON object")
         return data
     raise ValueError("Invalid webhook JSON")
+
+
+def _unwrap_misquoted_json(value: str) -> str:
+    candidate = value.strip()
+    if candidate.startswith('"') and candidate[1:].lstrip().startswith("{"):
+        candidate = candidate[1:].lstrip()
+    if candidate.endswith('"') and candidate.rstrip('"').rstrip().endswith("}"):
+        candidate = candidate[:-1].rstrip()
+    return candidate
