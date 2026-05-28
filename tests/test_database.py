@@ -199,6 +199,9 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(second["id"], rows[0]["id"])
             self.assertAlmostEqual(rows[0]["portfolio_return_pct"], 3)
             self.assertAlmostEqual(rows[0]["equity_value"], 103)
+            self.assertTrue(store.delete_manual_daily_performance("2026-05-25"))
+            self.assertFalse(store.delete_manual_daily_performance("2026-05-25"))
+            self.assertEqual(store.list_manual_daily_performance(), [])
 
 
 if __name__ == "__main__":

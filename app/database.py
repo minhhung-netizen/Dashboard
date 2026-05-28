@@ -451,6 +451,14 @@ class SignalStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def delete_manual_daily_performance(self, trade_date: str) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM manual_daily_performance WHERE trade_date = ?",
+                (trade_date,),
+            )
+            return cursor.rowcount > 0
+
     def _insert_manual_snapshot(
         self,
         conn: sqlite3.Connection,

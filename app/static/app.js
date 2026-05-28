@@ -114,6 +114,8 @@ const translations = {
     equityValue: "Equity",
     savedAt: "Saved At",
     noDailyPerformance: "No saved daily performance",
+    deleteDailyPerformanceConfirm: "Delete this saved daily performance record?",
+    deleteDailyPerformanceFailed: "Could not delete saved daily performance",
     confirmationStats: "Trend Stats",
     confirmVsNoConfirm: "Trend vs No Trend",
     avgReturn: "Avg Return",
@@ -452,6 +454,8 @@ Object.assign(translations.vi, {
   equityValue: "Vốn",
   savedAt: "Lúc lưu",
   noDailyPerformance: "Chưa có hiệu suất ngày đã lưu",
+  deleteDailyPerformanceConfirm: "Xóa bản ghi hiệu suất ngày này?",
+  deleteDailyPerformanceFailed: "Không thể xóa hiệu suất ngày đã lưu",
   confirmationStats: "Thống kê xu hướng",
   confirmVsNoConfirm: "Có xu hướng vs chưa có",
   avgReturn: "Lãi/lỗ TB",
@@ -806,7 +810,7 @@ function renderManualDailyPerformanceStatus(dailyPerformance) {
 function renderManualDailyPerformanceTable(dailyPerformance) {
   const rows = [...dailyPerformance].reverse();
   if (!rows.length) {
-    els.manualDailyPerformanceTable.innerHTML = `<tr><td class="empty" colspan="7">${t("noDailyPerformance")}</td></tr>`;
+    els.manualDailyPerformanceTable.innerHTML = `<tr><td class="empty" colspan="8">${t("noDailyPerformance")}</td></tr>`;
     return;
   }
   els.manualDailyPerformanceTable.innerHTML = rows
@@ -819,9 +823,20 @@ function renderManualDailyPerformanceTable(dailyPerformance) {
         <td>${row.open_count ?? 0}</td>
         <td>${row.closed_count ?? 0}</td>
         <td>${formatDate(row.recorded_at)}</td>
+        <td>
+          <button class="deleteButton" type="button" data-daily-performance-delete="${escapeHtml(row.trade_date)}">${escapeHtml(t("delete"))}</button>
+        </td>
       </tr>
     `)
     .join("");
+
+  els.manualDailyPerformanceTable
+    .querySelectorAll("[data-daily-performance-delete]")
+    .forEach((button) => {
+      button.addEventListener("click", () =>
+        deleteManualDailyPerformance(button.dataset.dailyPerformanceDelete)
+      );
+    });
 }
 
 async function addManualPosition(event) {
@@ -902,6 +917,21 @@ async function recordManualDailyPerformance() {
   });
   if (!response.ok) {
     window.alert(t("manualSaveFailed"));
+    return;
+  }
+  await refresh();
+}
+
+async function deleteManualDailyPerformance(tradeDate) {
+  if (!window.confirm(t("deleteDailyPerformanceConfirm"))) {
+    return;
+  }
+  const response = await fetch(
+    `/api/manual-portfolio/daily-performance/${encodeURIComponent(tradeDate)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    window.alert(t("deleteDailyPerformanceFailed"));
     return;
   }
   await refresh();

@@ -398,6 +398,13 @@ def record_manual_daily_performance_endpoint() -> dict[str, Any]:
     return {"status": "recorded", "daily_performance": daily_performance}
 
 
+@app.delete("/api/manual-portfolio/daily-performance/{trade_date}")
+def delete_manual_daily_performance(trade_date: str) -> dict[str, Any]:
+    if not store.delete_manual_daily_performance(trade_date):
+        raise HTTPException(status_code=404, detail="Manual daily performance not found")
+    return {"status": "deleted", "trade_date": trade_date}
+
+
 @app.post("/api/open-positions/refresh-prices")
 async def refresh_open_position_prices_endpoint() -> dict[str, Any]:
     updated = await refresh_open_position_prices(include_manual=False)
