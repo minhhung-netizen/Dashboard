@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -17,11 +18,11 @@ from app.config import PROJECT_ROOT
 EXCHANGE_PREFIXES = {"HOSE", "HNX", "UPCOM", "VNINDEX", "INDEX"}
 
 
-def normalize_ticker(raw_ticker: str | None) -> tuple[str, str | None]:
+def normalize_ticker(raw_ticker: Any) -> tuple[str, str | None]:
     if not raw_ticker:
         raise ValueError("ticker is required")
 
-    value = raw_ticker.strip().upper()
+    value = _ticker_value(raw_ticker).strip().upper()
     exchange: str | None = None
 
     if ":" in value:
@@ -34,6 +35,27 @@ def normalize_ticker(raw_ticker: str | None) -> tuple[str, str | None]:
     if not value:
         raise ValueError("ticker is required")
     return value, exchange
+
+
+def _ticker_value(raw_ticker: Any) -> str:
+    if isinstance(raw_ticker, dict):
+        for key in ("symbol", "ticker", "tickerid"):
+            value = raw_ticker.get(key)
+            if value:
+                return str(value)
+        raise ValueError("ticker is required")
+
+    value = str(raw_ticker).strip()
+    if value.startswith("="):
+        value = value[1:].strip()
+    if value.startswith("{"):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        if isinstance(parsed, dict):
+            return _ticker_value(parsed)
+    return value
 
 
 def coerce_float(value: Any) -> float | None:

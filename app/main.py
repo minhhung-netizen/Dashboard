@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import PROJECT_ROOT, get_settings
 from app.database import SignalStore, utc_now_iso
@@ -29,6 +29,7 @@ from app.services.manual_portfolio import (
     is_after_daily_cutoff,
 )
 from app.services.performance import build_performance
+from app.services.webhook_payload import parse_forgiving_json
 
 
 settings = get_settings()
@@ -69,7 +70,7 @@ app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), nam
 class WebhookPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    ticker: str = Field(..., examples=["HOSE:VPB"])
+    ticker: str | dict[str, Any] = Field(..., examples=["HOSE:VPB"])
     action: str = Field(..., examples=["buy"])
     price: str | float | int | None = None
     timeframe: str | None = None
@@ -134,11 +135,12 @@ def dashboard_settings() -> dict[str, Any]:
 
 
 @app.post("/webhook")
-def receive_webhook(
-    payload: WebhookPayload,
+async def receive_webhook(
+    request: Request,
     background_tasks: BackgroundTasks,
     secret: str | None = Query(default=None),
 ) -> dict[str, Any]:
+    payload = await parse_webhook_payload(request)
     if settings.webhook_secret and settings.webhook_secret not in {secret, payload.secret}:
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
@@ -205,6 +207,21 @@ def receive_webhook(
     )
     background_tasks.add_task(enrich_signal, signal["id"], ticker)
     return {"status": "accepted", "signal": signal}
+
+
+async def parse_webhook_payload(request: Request) -> WebhookPayload:
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=422, detail="Webhook body is required")
+    text = body.decode("utf-8", errors="replace").strip()
+    try:
+        data = parse_forgiving_json(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        return WebhookPayload.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
 
 def confirmation_base_strategy(payload: WebhookPayload) -> str | None:

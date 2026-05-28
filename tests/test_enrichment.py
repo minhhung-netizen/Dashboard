@@ -15,6 +15,18 @@ class EnrichmentHelpersTest(unittest.TestCase):
     def test_normalize_ticker_keeps_plain_symbol(self):
         self.assertEqual(normalize_ticker(" vpb "), ("VPB", None))
 
+    def test_normalize_ticker_accepts_tradingview_adjusted_symbol_object(self):
+        self.assertEqual(
+            normalize_ticker({"adjustment": "dividends", "symbol": "HOSE:HHS"}),
+            ("HHS", "HOSE"),
+        )
+
+    def test_normalize_ticker_accepts_tradingview_adjusted_symbol_string(self):
+        self.assertEqual(
+            normalize_ticker('={"adjustment":"dividends","symbol":"HOSE:HHS"}'),
+            ("HHS", "HOSE"),
+        )
+
     def test_normalize_action_aliases(self):
         self.assertEqual(normalize_action("long"), "buy")
         self.assertEqual(normalize_action("exit"), "sell")
