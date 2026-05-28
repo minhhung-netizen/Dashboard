@@ -209,7 +209,7 @@ class SignalStoreTest(unittest.TestCase):
             event = store.insert_dividend_event(
                 ticker="vpb",
                 ex_date="2026-06-10",
-                cash_amount=1000,
+                cash_amount=1,
                 stock_ratio_pct=10,
                 issue_ratio_pct=20,
                 issue_price=10,

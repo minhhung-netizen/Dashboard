@@ -442,7 +442,7 @@ def delete_dividend_event(event_id: int) -> dict[str, Any]:
 def normalize_money_unit(value: float | None) -> float | None:
     if value is None:
         return None
-    return value / 1000 if abs(value) >= 100 else value
+    return value / 1000
 
 
 @app.post("/api/manual-portfolio")
