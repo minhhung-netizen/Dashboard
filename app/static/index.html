@@ -120,10 +120,10 @@
               <button id="openPositionRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
               <input id="openPositionTickerFilter" aria-label="Open position ticker filter" placeholder="Ticker" />
               <input id="openPositionStrategyFilter" aria-label="Open position strategy filter" placeholder="Strategy" />
-              <select id="openPositionConfirmFilter" aria-label="Open position confirmation filter">
-                <option value="all" data-i18n="confirmAll">All confirms</option>
-                <option value="confirmed" data-i18n="confirmedOnly">Confirmed</option>
-                <option value="unconfirmed" data-i18n="unconfirmedOnly">Unconfirmed</option>
+              <select id="openPositionConfirmFilter" aria-label="Open position strong trend filter">
+                <option value="all" data-i18n="confirmAll">All trend states</option>
+                <option value="confirmed" data-i18n="confirmedOnly">Strong trend</option>
+                <option value="unconfirmed" data-i18n="unconfirmedOnly">No strong trend</option>
               </select>
               <select id="openPositionSort" aria-label="Open position sort">
                 <option value="return_desc" data-i18n="sortReturnDesc">Return desc</option>
@@ -146,7 +146,7 @@
                   <th data-i18n="entryPrice">Entry</th>
                   <th data-i18n="currentPrice">Current Price</th>
                   <th data-i18n="returnPct">Return</th>
-                  <th data-i18n="confirm">Confirm</th>
+                  <th data-i18n="confirm">Strong Trend</th>
                   <th data-i18n="holdingDays">Days Held</th>
                   <th data-i18n="entryTime">Entry Time</th>
                 </tr>
@@ -342,8 +342,8 @@
         <section class="confirmationStatsPanel">
           <div class="panelHead">
             <div>
-              <p class="eyebrow" data-i18n="confirmationStats">Confirmation Stats</p>
-              <h2 data-i18n="confirmVsNoConfirm">Confirm vs No Confirm</h2>
+              <p class="eyebrow" data-i18n="confirmationStats">Strong Trend Stats</p>
+              <h2 data-i18n="confirmVsNoConfirm">Strong Trend vs No Strong Trend</h2>
             </div>
           </div>
           <div class="tableWrap compactTable">
