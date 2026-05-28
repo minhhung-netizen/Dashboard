@@ -296,7 +296,6 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .timelinePanel,
-.confirmationStatsPanel,
 .exportPanel,
 .manualFormPanel,
 .manualEquityPanel,
@@ -375,7 +374,6 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .timelinePanel,
-.confirmationStatsPanel,
 .exportPanel,
 .manualFormPanel,
 .manualEquityPanel,
@@ -405,7 +403,6 @@ main {
 }
 
 .tabPanel > .closedTradesPanel,
-.tabPanel > .confirmationStatsPanel,
 .tabPanel > .exportPanel,
 .tabPanel > .exportPanel + .invalidSignalsPanel,
 .tabPanel > .manualDailyPanel,

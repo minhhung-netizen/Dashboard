@@ -8,7 +8,6 @@ const els = {
   closedTradesTable: document.querySelector("#closedTradesTable"),
   invalidSignalsTable: document.querySelector("#invalidSignalsTable"),
   performanceTable: document.querySelector("#performanceTable"),
-  confirmationStatsTable: document.querySelector("#confirmationStatsTable"),
   manualPortfolioTable: document.querySelector("#manualPortfolioTable"),
   manualDailyPerformanceTable: document.querySelector("#manualDailyPerformanceTable"),
   manualPositionForm: document.querySelector("#manualPositionForm"),
@@ -709,7 +708,6 @@ async function refresh() {
     ...(invalidPayload.invalid_signals || []),
   ]);
   renderPerformance(sortPerformance(performancePayload.strategies || []));
-  renderConfirmationStats(performancePayload.confirmation_stats || []);
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
 
@@ -1027,28 +1025,6 @@ function renderPerformance(strategies) {
       applyClosedTradeFilter(row.dataset.performanceTicker, row.dataset.performanceStrategy);
     });
   });
-}
-
-function renderConfirmationStats(stats) {
-  if (!stats.length) {
-    els.confirmationStatsTable.innerHTML = `<tr><td class="empty" colspan="6">${t("noTrades")}</td></tr>`;
-    return;
-  }
-  els.confirmationStatsTable.innerHTML = stats
-    .map((row) => {
-      const label = row.status === "confirmed" ? t("confirmedStatus") : t("unconfirmedStatus");
-      return `
-        <tr>
-          <td><strong>${escapeHtml(label)}</strong></td>
-          <td>${row.closed_trades ?? 0}</td>
-          <td>${formatPercent(row.win_rate_pct)}</td>
-          <td>${formatSignedPercent(row.avg_return_pct)}</td>
-          <td>${formatSignedPercent(row.total_return_pct)}</td>
-          <td>${formatSignedPercent(allocatedReturnPct(row.total_return_pct))}</td>
-        </tr>
-      `;
-    })
-    .join("");
 }
 
 function renderOpenPositions() {
