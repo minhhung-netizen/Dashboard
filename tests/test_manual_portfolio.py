@@ -25,10 +25,10 @@ class ManualPortfolioTest(unittest.TestCase):
                     "closed_at": None,
                     "note": None,
                     "created_at": "2026-05-18T00:00:00+00:00",
-                    "updated_at": "2026-05-24T08:05:00+00:00",
+                    "updated_at": "2026-05-24T11:05:00+00:00",
                     "snapshots": [
                         {"price": 10, "recorded_at": "2026-05-18T00:00:00+00:00"},
-                        {"price": 11, "recorded_at": "2026-05-24T08:05:00+00:00"},
+                        {"price": 11, "recorded_at": "2026-05-24T11:05:00+00:00"},
                     ],
                 },
                 {
@@ -44,10 +44,10 @@ class ManualPortfolioTest(unittest.TestCase):
                     "closed_at": None,
                     "note": None,
                     "created_at": "2026-05-18T00:00:00+00:00",
-                    "updated_at": "2026-05-24T08:05:00+00:00",
+                    "updated_at": "2026-05-24T11:05:00+00:00",
                     "snapshots": [
                         {"price": 20, "recorded_at": "2026-05-18T00:00:00+00:00"},
-                        {"price": 19, "recorded_at": "2026-05-24T08:05:00+00:00"},
+                        {"price": 19, "recorded_at": "2026-05-24T11:05:00+00:00"},
                     ],
                 },
             ]
@@ -58,7 +58,7 @@ class ManualPortfolioTest(unittest.TestCase):
         self.assertAlmostEqual(result["positions"][0]["return_pct"], 10)
         self.assertAlmostEqual(result["equity_curve"][-1]["value"], 104)
 
-    def test_equity_curve_uses_only_daily_snapshots_after_3pm_vietnam_time(self):
+    def test_equity_curve_uses_only_daily_snapshots_after_6pm_vietnam_time(self):
         result = build_manual_portfolio(
             [
                 {
@@ -74,17 +74,17 @@ class ManualPortfolioTest(unittest.TestCase):
                     "closed_at": None,
                     "note": None,
                     "created_at": "2026-05-18T00:00:00+00:00",
-                    "updated_at": "2026-05-25T08:10:00+00:00",
+                    "updated_at": "2026-05-25T11:10:00+00:00",
                     "snapshots": [
-                        {"price": 11, "recorded_at": "2026-05-25T07:59:00+00:00"},
-                        {"price": 12, "recorded_at": "2026-05-25T08:10:00+00:00"},
+                        {"price": 11, "recorded_at": "2026-05-25T10:59:00+00:00"},
+                        {"price": 12, "recorded_at": "2026-05-25T11:10:00+00:00"},
                     ],
                 },
             ]
         )
 
         self.assertEqual(len(result["equity_curve"]), 2)
-        self.assertEqual(result["equity_curve"][-1]["time"], "2026-05-25T08:10:00+00:00")
+        self.assertEqual(result["equity_curve"][-1]["time"], "2026-05-25T11:10:00+00:00")
         self.assertAlmostEqual(result["equity_curve"][-1]["value"], 120)
 
     def test_stored_daily_performance_drives_equity_curve_when_available(self):
@@ -132,14 +132,14 @@ class ManualPortfolioTest(unittest.TestCase):
 
         record = build_daily_performance_record(
             positions,
-            recorded_at="2026-05-25T15:05:00+07:00",
+            recorded_at="2026-05-25T18:05:00+07:00",
         )
 
         self.assertEqual(record["trade_date"], "2026-05-25")
         self.assertAlmostEqual(record["portfolio_return_pct"], 20)
         self.assertAlmostEqual(record["equity_value"], 120)
-        self.assertTrue(is_after_daily_cutoff("2026-05-25T15:05:00+07:00"))
-        self.assertFalse(is_after_daily_cutoff("2026-05-25T14:59:00+07:00"))
+        self.assertTrue(is_after_daily_cutoff("2026-05-25T18:05:00+07:00"))
+        self.assertFalse(is_after_daily_cutoff("2026-05-25T17:59:00+07:00"))
 
     def test_manual_position_uses_adjusted_entry_after_dividend_ex_date(self):
         result = build_manual_portfolio(

@@ -8,7 +8,7 @@ from app.services.dividends import dividend_adjustment
 
 
 MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
-EQUITY_CURVE_DAILY_CUTOFF = time(15, 0)
+EQUITY_CURVE_DAILY_CUTOFF = time(18, 0)
 
 
 def build_manual_portfolio(

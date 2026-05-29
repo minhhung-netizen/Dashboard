@@ -578,6 +578,7 @@ async def price_refresh_loop() -> None:
         try:
             if is_market_open(sessions=settings.market_sessions):
                 await refresh_open_position_prices()
+            record_manual_daily_performance_if_due()
         except asyncio.CancelledError:
             raise
         except BaseException:
@@ -647,6 +648,8 @@ def refresh_manual_ticker_price(ticker: str) -> int:
 
 def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:
     if not is_after_daily_cutoff(recorded_at):
+        return None
+    if not store.list_manual_positions():
         return None
     return record_manual_daily_performance(recorded_at=recorded_at)
 
