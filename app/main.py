@@ -49,15 +49,16 @@ last_auto_manual_price_refresh_date: str | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(price_refresh_loop())
+    tasks = [
+        asyncio.create_task(price_refresh_loop()),
+        asyncio.create_task(manual_portfolio_automation_loop()),
+    ]
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app = FastAPI(title="TradingView VN Dashboard", version="0.1.0", lifespan=lifespan)
@@ -582,13 +583,23 @@ async def price_refresh_loop() -> None:
         try:
             if is_market_open(sessions=settings.market_sessions):
                 await refresh_open_position_prices()
-            await refresh_manual_portfolio_prices_if_due()
-            record_manual_daily_performance_if_due()
         except asyncio.CancelledError:
             raise
         except BaseException:
             logger.exception("Scheduled price refresh failed")
         await asyncio.sleep(interval_seconds)
+
+
+async def manual_portfolio_automation_loop() -> None:
+    while True:
+        try:
+            await refresh_manual_portfolio_prices_if_due(force=True)
+            record_manual_daily_performance_if_due()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Manual portfolio automation failed")
+        await asyncio.sleep(60)
 
 
 async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
@@ -631,15 +642,19 @@ async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
     return updated_signals
 
 
-async def refresh_manual_portfolio_prices() -> int:
+async def refresh_manual_portfolio_prices(*, force: bool = True) -> int:
     updated = 0
     for ticker in store.list_open_manual_tickers():
-        updated += await asyncio.to_thread(refresh_manual_ticker_price, ticker)
+        updated += await asyncio.to_thread(refresh_manual_ticker_price, ticker, force=force)
     record_manual_daily_performance_if_due()
     return updated
 
 
-async def refresh_manual_portfolio_prices_if_due(recorded_at: str | None = None) -> int | None:
+async def refresh_manual_portfolio_prices_if_due(
+    recorded_at: str | None = None,
+    *,
+    force: bool = True,
+) -> int | None:
     global last_auto_manual_price_refresh_date
     if not is_after_manual_price_refresh_time(recorded_at):
         return None
@@ -648,13 +663,14 @@ async def refresh_manual_portfolio_prices_if_due(recorded_at: str | None = None)
         return None
     if not store.list_open_manual_tickers():
         return None
-    updated = await refresh_manual_portfolio_prices()
-    last_auto_manual_price_refresh_date = trade_date
+    updated = await refresh_manual_portfolio_prices(force=force)
+    if updated > 0:
+        last_auto_manual_price_refresh_date = trade_date
     return updated
 
 
-def refresh_manual_ticker_price(ticker: str) -> int:
-    enrichment = enricher.enrich(ticker)
+def refresh_manual_ticker_price(ticker: str, *, force: bool = True) -> int:
+    enrichment = enricher.enrich(ticker, force=force)
     price = latest_history_close(enrichment)
     if price is None or price <= 0:
         return 0

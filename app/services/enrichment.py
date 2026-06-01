@@ -114,10 +114,11 @@ class VnstockEnricher:
         self._lock = threading.Lock()
         self._last_request_at = 0.0
 
-    def enrich(self, ticker: str) -> dict[str, Any]:
-        cached = self._get_cached(ticker)
-        if cached is not None:
-            return cached
+    def enrich(self, ticker: str, *, force: bool = False) -> dict[str, Any]:
+        if not force:
+            cached = self._get_cached(ticker)
+            if cached is not None:
+                return cached
         try:
             enrichment = self._enrich_with_vnstock(ticker)
         except BaseException as exc:  # vnstock may raise non-Exception exits internally.
