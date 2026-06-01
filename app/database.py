@@ -135,6 +135,7 @@ class SignalStore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._ensure_dividend_event_columns(conn)
+            conn.execute("UPDATE signals SET price = price / 1000 WHERE price >= 1000")
 
     def _ensure_dividend_event_columns(self, conn: sqlite3.Connection) -> None:
         columns = {

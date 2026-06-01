@@ -725,18 +725,18 @@ async function fetchJson(url) {
   return response.json();
 }
 
+function settledPayload(result, fallback, label) {
+  if (result.status === "fulfilled") {
+    return result.value;
+  }
+  console.error(`Failed to load ${label}`, result.reason);
+  return fallback;
+}
+
 async function refresh() {
   const query = "";
   const performanceQuery = buildPerformanceQuery();
-  const [
-    settingsPayload,
-    summary,
-    signalsPayload,
-    performancePayload,
-    invalidPayload,
-    manualPayload,
-    dividendPayload,
-  ] = await Promise.all([
+  const results = await Promise.allSettled([
     fetchJson("/api/settings"),
     fetchJson("/api/summary"),
     fetchJson(`/api/signals${query}`),
@@ -745,6 +745,35 @@ async function refresh() {
     fetchJson("/api/manual-portfolio"),
     fetchJson("/api/dividend-events"),
   ]);
+
+  const settingsPayload = settledPayload(
+    results[0],
+    { default_signal_weight_pct: state.defaultSignalWeightPct },
+    "settings"
+  );
+  const summary = settledPayload(
+    results[1],
+    { total: 0, buy_count: 0, sell_count: 0, tickers: 0, latest_received_at: null },
+    "summary"
+  );
+  const signalsPayload = settledPayload(results[2], { signals: state.signals }, "signals");
+  const performancePayload = settledPayload(
+    results[3],
+    {
+      open_trades: state.openTrades,
+      closed_trades: state.closedTrades,
+      strategies: [],
+      ignored_signals: [],
+    },
+    "performance"
+  );
+  const invalidPayload = settledPayload(results[4], { invalid_signals: [] }, "invalid signals");
+  const manualPayload = settledPayload(results[5], state.manualPortfolio, "manual portfolio");
+  const dividendPayload = settledPayload(
+    results[6],
+    { dividend_events: state.dividendEvents },
+    "dividend events"
+  );
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);

@@ -187,6 +187,30 @@ class PerformanceTest(unittest.TestCase):
 
         self.assertEqual(result["closed_trades"][0]["holding_seconds"], 7200)
 
+    def test_holding_seconds_supports_mixed_naive_and_timezone_source_times(self):
+        result = build_performance(
+            [
+                signal(
+                    1,
+                    "MSN",
+                    "buy",
+                    75.4,
+                    "STxanhdo",
+                    source_time="2026-03-17 09:00:00",
+                ),
+                signal(
+                    2,
+                    "MSN",
+                    "sell",
+                    74.4,
+                    "STxanhdo",
+                    source_time="2026-03-17T11:00:00+07:00",
+                ),
+            ]
+        )
+
+        self.assertEqual(result["closed_trades"][0]["holding_seconds"], 7200)
+
     def test_dividend_event_adjusts_entry_price_after_ex_date(self):
         result = build_performance(
             [

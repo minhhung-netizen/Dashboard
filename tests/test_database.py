@@ -31,6 +31,27 @@ class SignalStoreTest(unittest.TestCase):
 
             self.assertFalse(store.delete_signal(999))
 
+    def test_init_normalizes_existing_vnd_signal_prices(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "signals.db"
+            store = SignalStore(db_path)
+            signal = store.insert_signal(
+                ticker="MSN",
+                exchange="HOSE",
+                action="sell",
+                price=74400,
+                timeframe="2H",
+                strategy="STxanhdo",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+
+            self.assertEqual(signal["price"], 74400)
+            migrated = SignalStore(db_path).get_signal(signal["id"])
+            self.assertEqual(migrated["price"], 74.4)
+
     def test_find_duplicate_signal_uses_source_time_when_present(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

@@ -4,6 +4,7 @@ from app.services.enrichment import (
     VnstockEnricher,
     coerce_float,
     normalize_action,
+    normalize_stock_price,
     normalize_ticker,
 )
 
@@ -36,6 +37,10 @@ class EnrichmentHelpersTest(unittest.TestCase):
     def test_coerce_float_accepts_tradingview_strings(self):
         self.assertEqual(coerce_float("19,500"), 19500.0)
         self.assertIsNone(coerce_float(""))
+
+    def test_normalize_stock_price_converts_vnd_to_thousand_unit(self):
+        self.assertEqual(normalize_stock_price("74400"), 74.4)
+        self.assertEqual(normalize_stock_price("13.95"), 13.95)
 
     def test_enricher_handles_non_exception_vnstock_failures(self):
         class ExplodingEnricher(VnstockEnricher):

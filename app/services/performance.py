@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from math import prod
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.services.dividends import dividend_adjustment
 
 
 DEFAULT_STRATEGY = "Unspecified"
+MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 @dataclass
@@ -366,19 +368,25 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
     value = value.strip()
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return _market_datetime(datetime.fromisoformat(value.replace("Z", "+00:00")))
     except ValueError:
         pass
     try:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        return _market_datetime(datetime.strptime(value, "%Y-%m-%d %H:%M:%S"))
     except ValueError:
         pass
     for fmt in ("%m/%d/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M:%S %p"):
         try:
-            return datetime.strptime(value, fmt)
+            return _market_datetime(datetime.strptime(value, fmt))
         except ValueError:
             continue
     return None
+
+
+def _market_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=MARKET_TZ)
+    return value.astimezone(MARKET_TZ)
 
 
 def _signal_time(signal: dict[str, Any]) -> str:

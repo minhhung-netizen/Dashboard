@@ -19,6 +19,7 @@ from app.database import SignalStore, utc_now_iso
 from app.services.enrichment import (
     VnstockEnricher,
     coerce_float,
+    normalize_stock_price,
     normalize_action,
     normalize_ticker,
 )
@@ -200,7 +201,7 @@ async def receive_webhook(
         ticker=ticker,
         exchange=exchange,
         action=action,
-        price=coerce_float(payload.price),
+        price=normalize_stock_price(payload.price),
         timeframe=payload.timeframe,
         strategy=payload.strategy,
         note=payload.note,

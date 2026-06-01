@@ -67,6 +67,13 @@ def coerce_float(value: Any) -> float | None:
         return None
 
 
+def normalize_stock_price(value: Any) -> float | None:
+    price = coerce_float(value)
+    if price is None:
+        return None
+    return price / 1000 if abs(price) >= 1000 else price
+
+
 def normalize_action(raw_action: str | None) -> str:
     if not raw_action:
         raise ValueError("action is required")
