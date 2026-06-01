@@ -5,6 +5,8 @@ from app.services.manual_portfolio import (
     build_daily_performance_record,
     build_manual_portfolio,
     is_after_daily_cutoff,
+    is_after_manual_price_refresh_time,
+    market_date_iso,
 )
 
 
@@ -140,6 +142,9 @@ class ManualPortfolioTest(unittest.TestCase):
         self.assertAlmostEqual(record["equity_value"], 120)
         self.assertTrue(is_after_daily_cutoff("2026-05-25T18:05:00+07:00"))
         self.assertFalse(is_after_daily_cutoff("2026-05-25T17:59:00+07:00"))
+        self.assertTrue(is_after_manual_price_refresh_time("2026-05-25T16:05:00+07:00"))
+        self.assertFalse(is_after_manual_price_refresh_time("2026-05-25T15:59:00+07:00"))
+        self.assertEqual(market_date_iso("2026-05-25T16:05:00+07:00"), "2026-05-25")
 
     def test_manual_position_uses_adjusted_entry_after_dividend_ex_date(self):
         result = build_manual_portfolio(

@@ -8,6 +8,7 @@ from app.services.dividends import dividend_adjustment
 
 
 MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+MANUAL_PRICE_REFRESH_TIME = time(16, 0)
 EQUITY_CURVE_DAILY_CUTOFF = time(18, 0)
 
 
@@ -78,6 +79,20 @@ def is_after_daily_cutoff(recorded_at: str | None = None) -> bool:
     if recorded_dt is None:
         recorded_dt = datetime.now(MARKET_TZ)
     return recorded_dt.time() >= EQUITY_CURVE_DAILY_CUTOFF
+
+
+def is_after_manual_price_refresh_time(recorded_at: str | None = None) -> bool:
+    recorded_dt = _parse_market_datetime(recorded_at)
+    if recorded_dt is None:
+        recorded_dt = datetime.now(MARKET_TZ)
+    return recorded_dt.time() >= MANUAL_PRICE_REFRESH_TIME
+
+
+def market_date_iso(recorded_at: str | None = None) -> str:
+    recorded_dt = _parse_market_datetime(recorded_at)
+    if recorded_dt is None:
+        recorded_dt = datetime.now(MARKET_TZ)
+    return recorded_dt.date().isoformat()
 
 
 def _position_row(

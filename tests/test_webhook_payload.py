@@ -31,6 +31,15 @@ class WebhookPayloadParsingTest(unittest.TestCase):
         self.assertEqual(data["ticker"]["symbol"], "HOSE:VRE")
         self.assertEqual(data["action"], "sell")
 
+    def test_repairs_json_string_wrapped_payload(self):
+        data = parse_forgiving_json(
+            '"{\\"ticker\\":={\\"adjustment\\":\\"dividends\\",'
+            '\\"symbol\\":\\"HOSE:SBT\\"},\\"action\\":\\"sell\\"}"'
+        )
+
+        self.assertEqual(data["ticker"]["symbol"], "HOSE:SBT")
+        self.assertEqual(data["action"], "sell")
+
 
 if __name__ == "__main__":
     unittest.main()

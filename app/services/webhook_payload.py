@@ -24,13 +24,26 @@ def parse_forgiving_json(text: str) -> dict[str, Any]:
             attempts.append(repaired[1:].strip())
 
     seen: set[str] = set()
-    for candidate in attempts:
+    index = 0
+    while index < len(attempts):
+        candidate = attempts[index]
+        index += 1
         if not candidate or candidate in seen:
             continue
         seen.add(candidate)
         try:
             data = json.loads(candidate)
         except json.JSONDecodeError:
+            continue
+        if isinstance(data, str):
+            nested = data.strip()
+            nested_unwrapped = _unwrap_misquoted_json(nested)
+            for value in (nested, nested_unwrapped):
+                if value and value not in seen:
+                    attempts.append(value)
+                repaired = re.sub(r'("[^"]+"\s*):\s*=', r"\1:", value)
+                if repaired and repaired not in seen:
+                    attempts.append(repaired)
             continue
         if not isinstance(data, dict):
             raise ValueError("Webhook body must be a JSON object")

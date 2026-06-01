@@ -27,6 +27,8 @@ from app.services.manual_portfolio import (
     build_daily_performance_record,
     build_manual_portfolio,
     is_after_daily_cutoff,
+    is_after_manual_price_refresh_time,
+    market_date_iso,
 )
 from app.services.performance import build_performance
 from app.services.webhook_payload import parse_forgiving_json
@@ -41,6 +43,7 @@ enricher = VnstockEnricher(
     include_metrics=settings.vnstock_include_metrics,
 )
 logger = logging.getLogger(__name__)
+last_auto_manual_price_refresh_date: str | None = None
 
 
 @asynccontextmanager
@@ -578,6 +581,7 @@ async def price_refresh_loop() -> None:
         try:
             if is_market_open(sessions=settings.market_sessions):
                 await refresh_open_position_prices()
+            await refresh_manual_portfolio_prices_if_due()
             record_manual_daily_performance_if_due()
         except asyncio.CancelledError:
             raise
@@ -631,6 +635,20 @@ async def refresh_manual_portfolio_prices() -> int:
     for ticker in store.list_open_manual_tickers():
         updated += await asyncio.to_thread(refresh_manual_ticker_price, ticker)
     record_manual_daily_performance_if_due()
+    return updated
+
+
+async def refresh_manual_portfolio_prices_if_due(recorded_at: str | None = None) -> int | None:
+    global last_auto_manual_price_refresh_date
+    if not is_after_manual_price_refresh_time(recorded_at):
+        return None
+    trade_date = market_date_iso(recorded_at)
+    if last_auto_manual_price_refresh_date == trade_date:
+        return None
+    if not store.list_open_manual_tickers():
+        return None
+    updated = await refresh_manual_portfolio_prices()
+    last_auto_manual_price_refresh_date = trade_date
     return updated
 
 
