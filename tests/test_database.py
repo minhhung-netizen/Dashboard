@@ -52,6 +52,43 @@ class SignalStoreTest(unittest.TestCase):
             migrated = SignalStore(db_path).get_signal(signal["id"])
             self.assertEqual(migrated["price"], 74.4)
 
+    def test_init_normalizes_existing_malformed_confirm_actions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "signals.db"
+            store = SignalStore(db_path)
+            buy_signal = store.insert_signal(
+                ticker="FPT",
+                exchange="HOSE",
+                action="confi m_buy",
+                price=74.8,
+                timeframe="2H",
+                strategy="HMA",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+            sell_signal = store.insert_signal(
+                ticker="FPT",
+                exchange="HOSE",
+                action="confim_sell",
+                price=74.8,
+                timeframe="2H",
+                strategy="HMA",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+
+            migrated_store = SignalStore(db_path)
+
+            self.assertEqual(migrated_store.get_signal(buy_signal["id"])["action"], "confirm_buy")
+            self.assertEqual(
+                migrated_store.get_signal(sell_signal["id"])["action"],
+                "confirm_sell",
+            )
+
     def test_find_duplicate_signal_uses_source_time_when_present(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

@@ -33,6 +33,10 @@ class EnrichmentHelpersTest(unittest.TestCase):
         self.assertEqual(normalize_action("exit"), "sell")
         self.assertEqual(normalize_action("confirm-buy"), "confirm_buy")
         self.assertEqual(normalize_action("confirmation_sell"), "confirm_sell")
+        self.assertEqual(normalize_action("confi m_buy"), "confirm_buy")
+        self.assertEqual(normalize_action("confim_buy"), "confirm_buy")
+        self.assertEqual(normalize_action("confi m_sell"), "confirm_sell")
+        self.assertEqual(normalize_action("confim_sell"), "confirm_sell")
 
     def test_coerce_float_accepts_tradingview_strings(self):
         self.assertEqual(coerce_float("19,500"), 19500.0)

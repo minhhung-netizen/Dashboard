@@ -136,6 +136,7 @@ class SignalStore:
             conn.executescript(SCHEMA)
             self._ensure_dividend_event_columns(conn)
             conn.execute("UPDATE signals SET price = price / 1000 WHERE price >= 1000")
+            self._normalize_signal_actions(conn)
 
     def _ensure_dividend_event_columns(self, conn: sqlite3.Connection) -> None:
         columns = {
@@ -146,6 +147,53 @@ class SignalStore:
             conn.execute("ALTER TABLE dividend_events ADD COLUMN issue_ratio_pct REAL")
         if "issue_price" not in columns:
             conn.execute("ALTER TABLE dividend_events ADD COLUMN issue_price REAL")
+
+    def _normalize_signal_actions(self, conn: sqlite3.Connection) -> None:
+        action_expr = """
+            lower(
+                replace(
+                    replace(
+                        replace(
+                            replace(
+                                replace(action, ' ', ''),
+                                char(9),
+                                ''
+                            ),
+                            char(10),
+                            ''
+                        ),
+                        '-',
+                        ''
+                    ),
+                    '_',
+                    ''
+                )
+            )
+        """
+        conn.execute(
+            f"""
+            UPDATE signals
+            SET action = 'confirm_buy'
+            WHERE {action_expr} IN (
+                'confirmbuy',
+                'confirmationbuy',
+                'confimbuy',
+                'confibuy'
+            )
+            """
+        )
+        conn.execute(
+            f"""
+            UPDATE signals
+            SET action = 'confirm_sell'
+            WHERE {action_expr} IN (
+                'confirmsell',
+                'confirmationsell',
+                'confimsell',
+                'confisell'
+            )
+            """
+        )
 
     def insert_signal(
         self,

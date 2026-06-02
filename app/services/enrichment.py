@@ -78,6 +78,7 @@ def normalize_action(raw_action: str | None) -> str:
     if not raw_action:
         raise ValueError("action is required")
     action = raw_action.strip().lower()
+    compact_action = "".join(ch for ch in action if ch.isalnum())
     aliases = {
         "long": "buy",
         "entry": "buy",
@@ -88,11 +89,17 @@ def normalize_action(raw_action: str | None) -> str:
         "confirmbuy": "confirm_buy",
         "confirm-buy": "confirm_buy",
         "confirmation_buy": "confirm_buy",
+        "confirmationbuy": "confirm_buy",
+        "confimbuy": "confirm_buy",
+        "confibuy": "confirm_buy",
         "confirmsell": "confirm_sell",
         "confirm-sell": "confirm_sell",
         "confirmation_sell": "confirm_sell",
+        "confirmationsell": "confirm_sell",
+        "confimsell": "confirm_sell",
+        "confisell": "confirm_sell",
     }
-    return aliases.get(action, action)
+    return aliases.get(action, aliases.get(compact_action, action))
 
 
 class VnstockEnricher:
