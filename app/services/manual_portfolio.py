@@ -147,9 +147,9 @@ def _summary(
     closed_positions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     total_weight = sum(row["weight_pct"] for row in open_positions)
-    weighted_return = _weighted_return(open_positions)
-    cost_value = sum(row["cost_value"] or 0 for row in open_positions)
-    market_value = sum(row["market_value"] or 0 for row in open_positions)
+    weighted_return = _weighted_return(rows)
+    cost_value = sum(row["cost_value"] or 0 for row in rows)
+    market_value = sum(row["market_value"] or 0 for row in rows)
     return {
         "total_positions": len(rows),
         "open_count": len(open_positions),
@@ -159,8 +159,8 @@ def _summary(
         "cost_value": cost_value or None,
         "market_value": market_value or None,
         "pnl_value": market_value - cost_value if cost_value or market_value else None,
-        "winners": sum(1 for row in open_positions if (row["return_pct"] or 0) > 0),
-        "losers": sum(1 for row in open_positions if (row["return_pct"] or 0) < 0),
+        "winners": sum(1 for row in rows if (row["return_pct"] or 0) > 0),
+        "losers": sum(1 for row in rows if (row["return_pct"] or 0) < 0),
     }
 
 

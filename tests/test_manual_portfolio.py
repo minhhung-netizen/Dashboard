@@ -60,6 +60,96 @@ class ManualPortfolioTest(unittest.TestCase):
         self.assertAlmostEqual(result["positions"][0]["return_pct"], 10)
         self.assertAlmostEqual(result["equity_curve"][-1]["value"], 104)
 
+    def test_summary_return_includes_closed_positions(self):
+        result = build_manual_portfolio(
+            [
+                {
+                    "id": 1,
+                    "ticker": "VPB",
+                    "weight_pct": 5,
+                    "entry_price": 10,
+                    "current_price": 11,
+                    "quantity": 100,
+                    "entry_date": "2026-05-18",
+                    "status": "open",
+                    "exit_price": None,
+                    "closed_at": None,
+                    "note": None,
+                    "created_at": "2026-05-18T00:00:00+07:00",
+                    "updated_at": "2026-05-24T00:00:00+07:00",
+                    "snapshots": [],
+                },
+                {
+                    "id": 2,
+                    "ticker": "FPT",
+                    "weight_pct": 5,
+                    "entry_price": 20,
+                    "current_price": 20,
+                    "quantity": 100,
+                    "entry_date": "2026-05-18",
+                    "status": "closed",
+                    "exit_price": 24,
+                    "closed_at": "2026-05-24T15:00:00+07:00",
+                    "note": None,
+                    "created_at": "2026-05-18T00:00:00+07:00",
+                    "updated_at": "2026-05-24T15:00:00+07:00",
+                    "snapshots": [],
+                },
+            ]
+        )
+
+        self.assertEqual(result["summary"]["open_count"], 1)
+        self.assertEqual(result["summary"]["closed_count"], 1)
+        self.assertAlmostEqual(result["summary"]["total_weight_pct"], 5)
+        self.assertAlmostEqual(result["summary"]["portfolio_return_pct"], 15)
+        self.assertAlmostEqual(result["summary"]["cost_value"], 3000)
+        self.assertAlmostEqual(result["summary"]["market_value"], 3500)
+        self.assertAlmostEqual(result["summary"]["pnl_value"], 500)
+
+    def test_daily_performance_record_includes_closed_positions(self):
+        record = build_daily_performance_record(
+            [
+                {
+                    "id": 1,
+                    "ticker": "VPB",
+                    "weight_pct": 5,
+                    "entry_price": 10,
+                    "current_price": 11,
+                    "quantity": None,
+                    "entry_date": "2026-05-18",
+                    "status": "open",
+                    "exit_price": None,
+                    "closed_at": None,
+                    "note": None,
+                    "created_at": "2026-05-18T00:00:00+07:00",
+                    "updated_at": "2026-05-24T00:00:00+07:00",
+                    "snapshots": [],
+                },
+                {
+                    "id": 2,
+                    "ticker": "FPT",
+                    "weight_pct": 5,
+                    "entry_price": 20,
+                    "current_price": 20,
+                    "quantity": None,
+                    "entry_date": "2026-05-18",
+                    "status": "closed",
+                    "exit_price": 24,
+                    "closed_at": "2026-05-24T15:00:00+07:00",
+                    "note": None,
+                    "created_at": "2026-05-18T00:00:00+07:00",
+                    "updated_at": "2026-05-24T15:00:00+07:00",
+                    "snapshots": [],
+                },
+            ],
+            recorded_at="2026-05-24T18:05:00+07:00",
+        )
+
+        self.assertAlmostEqual(record["portfolio_return_pct"], 15)
+        self.assertAlmostEqual(record["equity_value"], 115)
+        self.assertEqual(record["closed_count"], 1)
+        self.assertAlmostEqual(record["total_weight_pct"], 5)
+
     def test_equity_curve_uses_only_daily_snapshots_after_6pm_vietnam_time(self):
         result = build_manual_portfolio(
             [
