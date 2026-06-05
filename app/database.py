@@ -30,6 +30,9 @@ ON signals (ticker, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_action_received_at
 ON signals (action, received_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_signals_duplicate_lookup
+ON signals (ticker, action, timeframe, strategy, source_time, received_at DESC);
+
 CREATE TABLE IF NOT EXISTS invalid_signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT,

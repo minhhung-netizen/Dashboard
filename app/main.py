@@ -31,7 +31,7 @@ from app.services.manual_portfolio import (
     is_after_manual_price_refresh_time,
     market_date_iso,
 )
-from app.services.performance import build_performance
+from app.services.performance import DEFAULT_STRATEGY, build_performance
 from app.services.webhook_payload import parse_forgiving_json
 
 
@@ -45,11 +45,15 @@ enricher = VnstockEnricher(
 )
 logger = logging.getLogger(__name__)
 last_auto_manual_price_refresh_date: str | None = None
+enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global enrichment_queue
+    enrichment_queue = asyncio.Queue(maxsize=1000)
     tasks = [
+        asyncio.create_task(signal_enrichment_worker()),
         asyncio.create_task(price_refresh_loop()),
         asyncio.create_task(manual_portfolio_automation_loop()),
     ]
@@ -59,6 +63,7 @@ async def lifespan(app: FastAPI):
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        enrichment_queue = None
 
 
 app = FastAPI(title="TradingView VN Dashboard", version="0.1.0", lifespan=lifespan)
@@ -142,7 +147,6 @@ def dashboard_settings() -> dict[str, Any]:
 @app.post("/webhook")
 async def receive_webhook(
     request: Request,
-    background_tasks: BackgroundTasks,
     secret: str | None = Query(default=None),
 ) -> dict[str, Any]:
     payload = await parse_webhook_payload(request)
@@ -210,7 +214,7 @@ async def receive_webhook(
         payload=payload.model_dump(),
         enrichment={"status": "pending", "ticker": ticker, "history": [], "metrics": {}},
     )
-    background_tasks.add_task(enrich_signal, signal["id"], ticker)
+    enqueue_signal_enrichment(signal["id"], ticker)
     return {"status": "accepted", "signal": signal}
 
 
@@ -245,12 +249,17 @@ def has_open_strategy(ticker: str, strategy: str) -> bool:
     target_strategy = strategy.strip().lower()
     if not target_strategy:
         return False
-    performance_data = build_performance(store.list_all_signals(ticker=ticker))
-    return any(
-        trade["ticker"] == ticker
-        and (trade.get("strategy") or "").strip().lower() == target_strategy
-        for trade in performance_data["open_trades"]
-    )
+    is_open = False
+    for signal in store.list_all_signals(ticker=ticker):
+        signal_strategy = (signal.get("strategy") or DEFAULT_STRATEGY).strip().lower()
+        if signal_strategy != target_strategy:
+            continue
+        action = (signal.get("action") or "").strip().lower()
+        if action == "buy":
+            is_open = True
+        elif action == "sell":
+            is_open = False
+    return is_open
 
 
 @app.get("/api/signals")
@@ -575,6 +584,37 @@ def enrich_signal(signal_id: int, ticker: str) -> None:
     enrichment = enricher.enrich(ticker)
     enrichment["refreshed_at"] = utc_now_iso()
     store.update_signal_enrichment(signal_id, enrichment)
+
+
+def enqueue_signal_enrichment(signal_id: int, ticker: str) -> None:
+    if enrichment_queue is None:
+        asyncio.create_task(enrich_signal_async(signal_id, ticker))
+        return
+    try:
+        enrichment_queue.put_nowait((signal_id, ticker))
+    except asyncio.QueueFull:
+        logger.warning("Skipping signal enrichment because queue is full: %s", ticker)
+
+
+async def enrich_signal_async(signal_id: int, ticker: str) -> None:
+    try:
+        await asyncio.to_thread(enrich_signal, signal_id, ticker)
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        logger.exception("Signal enrichment failed for %s", ticker)
+
+
+async def signal_enrichment_worker() -> None:
+    while True:
+        if enrichment_queue is None:
+            await asyncio.sleep(1)
+            continue
+        signal_id, ticker = await enrichment_queue.get()
+        try:
+            await enrich_signal_async(signal_id, ticker)
+        finally:
+            enrichment_queue.task_done()
 
 
 async def price_refresh_loop() -> None:
