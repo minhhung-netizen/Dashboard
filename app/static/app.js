@@ -97,6 +97,7 @@ const translations = {
     price: "Price",
     timeframe: "Timeframe",
     strategy: "Strategy",
+    action: "Action",
     strategyPerformance: "Strategy Performance",
     buyToSellResults: "Buy to Sell Results",
     closed: "Closed",
@@ -231,6 +232,10 @@ const translations = {
     deleteTitle: "Delete signal",
     deleteConfirm: "Delete this signal?",
     deleteFailed: "Could not delete signal",
+    reopenPosition: "Reopen",
+    reopenPositionTitle: "Reopen position",
+    reopenPositionConfirm: "Delete the closing sell signal and reopen this position?",
+    reopenPositionFailed: "Could not reopen position",
     performanceTickerPlaceholder: "Ticker",
     performanceStrategyPlaceholder: "Strategy",
     openPositionTickerPlaceholder: "Ticker",
@@ -266,6 +271,7 @@ const translations = {
     price: "Giá",
     timeframe: "Khung TG",
     strategy: "Chiến lược",
+    action: "Thao tác",
     strategyPerformance: "Hiệu suất chiến lược",
     buyToSellResults: "Kết quả Mua đến Bán",
     closed: "Đã đóng",
@@ -417,6 +423,10 @@ const translations = {
     deleteTitle: "Xóa tín hiệu",
     deleteConfirm: "Xóa tín hiệu này?",
     deleteFailed: "Không thể xóa tín hiệu",
+    reopenPosition: "Mở lại",
+    reopenPositionTitle: "Mở lại vị thế",
+    reopenPositionConfirm: "Xóa tín hiệu Sell đã đóng lệnh và đưa vị thế này trở lại đang nắm?",
+    reopenPositionFailed: "Không thể mở lại vị thế",
     performanceTickerPlaceholder: "Mã",
     performanceStrategyPlaceholder: "Chiến lược",
     openPositionTickerPlaceholder: "Mã",
@@ -1310,7 +1320,7 @@ function renderClosedTrades(closedTrades) {
   );
 
   if (!sorted.length) {
-    els.closedTradesTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noClosedTrades")}</td></tr>`;
+    els.closedTradesTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noClosedTrades")}</td></tr>`;
     return;
   }
 
@@ -1326,12 +1336,25 @@ function renderClosedTrades(closedTrades) {
         <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
         <td>${formatDuration(trade.holding_seconds)}</td>
         <td>${formatDate(trade.exit_time)}</td>
+        <td>
+          ${trade.exit_signal_id ? `
+            <button class="restoreButton" type="button" data-reopen-exit-id="${escapeHtml(trade.exit_signal_id)}" title="${escapeHtml(t("reopenPositionTitle"))}">
+              ${escapeHtml(t("reopenPosition"))}
+            </button>
+          ` : "-"}
+        </td>
       </tr>
     `)
     .join("");
 
   els.closedTradesTable.querySelectorAll("[data-ticker]").forEach((row) => {
     row.addEventListener("click", () => renderChart(row.dataset.ticker));
+  });
+  els.closedTradesTable.querySelectorAll("[data-reopen-exit-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await reopenClosedTrade(button.dataset.reopenExitId);
+    });
   });
 }
 
@@ -1637,6 +1660,20 @@ async function deleteSignal(signalId) {
   });
   if (!response.ok) {
     window.alert(t("deleteFailed"));
+    return;
+  }
+  await refresh();
+}
+
+async function reopenClosedTrade(exitSignalId) {
+  if (!window.confirm(t("reopenPositionConfirm"))) {
+    return;
+  }
+  const response = await fetch(`/api/signals/${encodeURIComponent(exitSignalId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    window.alert(t("reopenPositionFailed"));
     return;
   }
   await refresh();

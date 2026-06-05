@@ -245,6 +245,20 @@ button:hover {
   color: var(--sell);
 }
 
+.restoreButton {
+  background: color-mix(in srgb, var(--buy) 10%, transparent);
+  border-color: color-mix(in srgb, var(--buy) 36%, var(--line));
+  color: var(--buy);
+  height: 30px;
+  padding: 0 10px;
+}
+
+.restoreButton:hover {
+  background: color-mix(in srgb, var(--buy) 18%, transparent);
+  border-color: color-mix(in srgb, var(--buy) 52%, var(--line));
+  color: var(--buy);
+}
+
 main {
   padding: 20px clamp(18px, 3.5vw, 40px) 38px;
 }
