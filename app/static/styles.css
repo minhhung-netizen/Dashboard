@@ -651,6 +651,49 @@ td strong {
   background: #7c3aed;
 }
 
+.side.long_start,
+.side.dca_long {
+  background: var(--buy);
+}
+
+.side.short_start,
+.side.dca_short {
+  background: var(--sell);
+}
+
+.side.close_long,
+.side.close_short {
+  background: var(--muted);
+}
+
+.side.mark {
+  background: var(--accent);
+}
+
+.derivativeSide {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 780;
+  justify-content: center;
+  min-width: 58px;
+  padding: 3px 8px;
+  text-transform: uppercase;
+}
+
+.derivativeSide.long {
+  background: color-mix(in srgb, var(--buy) 10%, transparent);
+  border-color: color-mix(in srgb, var(--buy) 36%, var(--line));
+  color: var(--buy);
+}
+
+.derivativeSide.short {
+  background: color-mix(in srgb, var(--sell) 10%, transparent);
+  border-color: color-mix(in srgb, var(--sell) 36%, var(--line));
+  color: var(--sell);
+}
+
 .statusBadge {
   border: 1px solid var(--line);
   color: var(--muted);

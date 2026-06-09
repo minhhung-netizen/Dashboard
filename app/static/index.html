@@ -31,6 +31,7 @@
       <nav class="tabs" aria-label="Dashboard sections">
         <button class="tabButton active" type="button" data-tab-target="overview" data-i18n="tabOverview">Overview</button>
         <button class="tabButton" type="button" data-tab-target="positions" data-i18n="tabPositions">Positions</button>
+        <button class="tabButton" type="button" data-tab-target="derivatives" data-i18n="tabDerivatives">VN30 Derivatives</button>
         <button class="tabButton" type="button" data-tab-target="manualPortfolio" data-i18n="tabManualPortfolio">Manual Portfolio</button>
         <button class="tabButton" type="button" data-tab-target="performance" data-i18n="tabPerformance">Performance</button>
         <button class="tabButton" type="button" data-tab-target="dividends" data-i18n="tabDividends">Dividends</button>
@@ -186,6 +187,111 @@
                 </tr>
               </thead>
               <tbody id="closedTradesTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="derivatives">
+        <section class="metrics" aria-label="Derivative summary">
+          <article>
+            <span data-i18n="derivativeOpenPositions">Open Positions</span>
+            <strong id="derivativeOpenCount">0</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeOpenPnl">Open P/L</span>
+            <strong id="derivativeOpenPnl">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeClosedTrades">Closed Trades</span>
+            <strong id="derivativeClosedCount">0</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeRealizedPnl">Realized P/L</span>
+            <strong id="derivativeRealizedPnl">-</strong>
+          </article>
+        </section>
+
+        <section class="openPositionsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="vn30Derivatives">VN30 Derivatives</p>
+              <h2 data-i18n="derivativeCurrentPositions">Current Long / Short Positions</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Symbol</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="side">Side</th>
+                  <th data-i18n="averagePrice">Average</th>
+                  <th data-i18n="currentPrice">Current</th>
+                  <th data-i18n="contracts">Contracts</th>
+                  <th data-i18n="layers">Layers</th>
+                  <th data-i18n="pnlPoints">P/L Points</th>
+                  <th data-i18n="pnlVnd">P/L VND</th>
+                  <th>TP</th>
+                  <th>SL</th>
+                </tr>
+              </thead>
+              <tbody id="derivativeOpenPositionsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="closedTradesPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="derivativeClosedTrades">Closed Trades</p>
+              <h2 data-i18n="derivativeTradeHistory">Derivative Trade History</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Symbol</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="side">Side</th>
+                  <th data-i18n="averagePrice">Average</th>
+                  <th data-i18n="exitPrice">Exit</th>
+                  <th data-i18n="contracts">Contracts</th>
+                  <th data-i18n="layers">Layers</th>
+                  <th data-i18n="reason">Reason</th>
+                  <th data-i18n="pnlPoints">P/L Points</th>
+                  <th data-i18n="pnlVnd">P/L VND</th>
+                  <th data-i18n="exitTime">Exit Time</th>
+                </tr>
+              </thead>
+              <tbody id="derivativeClosedTradesTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="invalidSignalsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="derivativeEvents">Derivative Events</p>
+              <h2 data-i18n="derivativeWebhookHistory">Webhook Event History</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="time">Time</th>
+                  <th data-i18n="ticker">Symbol</th>
+                  <th data-i18n="action">Action</th>
+                  <th data-i18n="price">Price</th>
+                  <th data-i18n="contracts">Contracts</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="reason">Reason</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="derivativeEventsTable"></tbody>
             </table>
           </div>
         </section>
@@ -395,6 +501,7 @@
               <a class="smallButton linkButton" href="/api/export/manual-portfolio.csv" data-i18n="exportManualPortfolio">Manual CSV</a>
               <a class="smallButton linkButton" href="/api/export/manual-daily-performance.csv" data-i18n="exportDailyPerformance">Daily CSV</a>
               <a class="smallButton linkButton" href="/api/export/dividend-events.csv" data-i18n="exportDividends">Dividends CSV</a>
+              <a class="smallButton linkButton" href="/api/export/derivative-signals.csv" data-i18n="exportDerivatives">Derivatives CSV</a>
               <a class="smallButton linkButton" href="/api/export/database" data-i18n="backupDatabase">Backup DB</a>
             </div>
           </div>

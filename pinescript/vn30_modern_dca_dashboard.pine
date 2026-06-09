@@ -1,0 +1,268 @@
+//@version=5
+strategy(
+     "VN30 Modern DCA - EMA Delay + DCA + EMA250 Filter + HTF Zone TP",
+     overlay=true,
+     pyramiding=20,
+     initial_capital=100000000
+ )
+
+// =====================================================
+// 1. INPUTS
+// =====================================================
+grpSignal = "SIGNAL - EMA HIGH/LOW DELAY"
+emaLen    = input.int(50, "EMA Length", minval=1, group=grpSignal)
+delayBars = input.int(10, "Delay Bars After Signal", minval=1, group=grpSignal)
+useFullCandle = input.bool(true, "Require Full Candle Above/Below EMA", group=grpSignal)
+
+grpFilter = "FILTER - EMA250 HTF"
+useEma250Filter = input.bool(true, "Use EMA250 Trend Filter", group=grpFilter)
+ema250Tf = input.timeframe("", "EMA250 Filter Timeframe", group=grpFilter)
+
+grpStartFilter = "FILTER - START ENTRY DISTANCE TO EMA250"
+useStartDistFilter = input.bool(true, "Use Max Distance From EMA250 For First Entry", group=grpStartFilter)
+maxStartDistPoints = input.float(20.0, "Max Distance From EMA250 Points", minval=0.0, group=grpStartFilter)
+
+grpDCA = "STRATEGY - DCA & VN30 POINTS"
+maxLayers  = input.int(5, "Max DCA Layers", minval=1, group=grpDCA)
+dcaStep    = input.float(15.0, "DCA Step / Min Distance From Last Entry", minval=0.0, group=grpDCA)
+baseQty = input.float(1.0, "Base Quantity", minval=0.0, step=1.0, group=grpDCA)
+dcaStepsText = input.string("1,2,3,4,5", "DCA Step Quantity Multipliers", group=grpDCA)
+
+grpExit = "EXIT - TP / SL"
+tpMode = input.string("Zone TP", "Take Profit Mode", options=["Fixed Points", "Zone TP"], group=grpExit)
+tpPoints = input.float(10.0, "Fixed Take Profit Points", minval=0.0, group=grpExit)
+slPoints = input.float(50.0, "Stop Loss Points", minval=0.0, group=grpExit)
+tpZoneTf = input.timeframe("", "TP Zone Timeframe", group=grpExit)
+tpZoneLookback = input.int(50, "TP Zone Lookback Bars", minval=2, group=grpExit)
+tpZoneOffset   = input.float(2.0, "TP Offset From Zone Points", minval=0.0, group=grpExit)
+useFallbackFixedTP = input.bool(true, "Use Fixed TP If Zone TP Invalid", group=grpExit)
+
+grpDashboard = "DASHBOARD WEBHOOK"
+enableDashboardAlert = input.bool(true, "Send order fills to Dashboard", group=grpDashboard)
+webhookSecret = input.string("change-me", "Webhook Secret", group=grpDashboard)
+dashboardStrategy = input.string("VN30 Modern DCA", "Strategy Name", group=grpDashboard)
+contractMultiplier = input.float(100000, "VND per VN30 point", minval=1, group=grpDashboard)
+sendPositionUpdates = input.bool(false, "Send open-position price updates", group=grpDashboard)
+positionUpdateBars = input.int(1, "Update every N closed bars", minval=1, group=grpDashboard)
+
+// =====================================================
+// 2. DASHBOARD PAYLOAD
+// =====================================================
+f_json_escape(_text) =>
+    escaped = str.replace_all(str.tostring(_text), "\\", "\\\\")
+    escaped := str.replace_all(escaped, "\"", "\\\"")
+    escaped := str.replace_all(escaped, "\n", " ")
+    escaped
+
+f_optional_number(_value) =>
+    na(_value) ? "" : str.tostring(_value, format.mintick)
+
+f_dashboard_payload(_action, _qty, _reason, _tp, _sl) =>
+    dashboardTicker = (syminfo.prefix != "" ? syminfo.prefix + ":" : "") + syminfo.ticker
+    "{" +
+      "\"asset_type\":\"derivative\"," +
+      "\"market\":\"VN30F\"," +
+      "\"ticker\":\"" + f_json_escape(dashboardTicker) + "\"," +
+      "\"action\":\"" + f_json_escape(_action) + "\"," +
+      "\"price\":\"" + str.tostring(close, format.mintick) + "\"," +
+      "\"quantity\":\"" + str.tostring(_qty) + "\"," +
+      "\"contract_multiplier\":\"" + str.tostring(contractMultiplier) + "\"," +
+      "\"timeframe\":\"" + f_json_escape(timeframe.period) + "\"," +
+      "\"strategy\":\"" + f_json_escape(dashboardStrategy) + "\"," +
+      "\"time\":\"" + str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ssXXX", syminfo.timezone) + "\"," +
+      "\"reason\":\"" + f_json_escape(_reason) + "\"," +
+      "\"take_profit\":\"" + f_optional_number(_tp) + "\"," +
+      "\"stop_loss\":\"" + f_optional_number(_sl) + "\"," +
+      "\"secret\":\"" + f_json_escape(webhookSecret) + "\"" +
+      "}"
+
+f_order_message(_action, _qty, _reason, _tp, _sl) =>
+    enableDashboardAlert ? f_dashboard_payload(_action, _qty, _reason, _tp, _sl) : ""
+
+// =====================================================
+// 3. QUANTITY MULTIPLIER BY DCA LAYER
+// =====================================================
+f_getStepMult(_stepIndex) =>
+    parts = str.split(dcaStepsText, ",")
+    arrSize = array.size(parts)
+    float result = 1.0
+    if arrSize > 0
+        safeIndex = math.min(_stepIndex, arrSize - 1)
+        rawText = array.get(parts, safeIndex)
+        cleanText = str.trim(rawText)
+        parsed = str.tonumber(cleanText)
+        result := na(parsed) ? 1.0 : parsed
+    result
+
+// =====================================================
+// 4. SIGNALS
+// =====================================================
+emaHigh = ta.ema(high, emaLen)
+emaLow  = ta.ema(low, emaLen)
+
+shortSetupRaw = useFullCandle ? low > emaHigh : close > emaHigh
+longSetupRaw = useFullCandle ? high < emaLow : close < emaLow
+shortSetup = shortSetupRaw and not shortSetupRaw[1]
+longSetup  = longSetupRaw and not longSetupRaw[1]
+shortSignalRaw = ta.barssince(shortSetup) == delayBars
+longSignalRaw  = ta.barssince(longSetup) == delayBars
+
+tfUsed = ema250Tf == "" ? timeframe.period : ema250Tf
+ema250Htf = request.security(syminfo.tickerid, tfUsed, ta.ema(close, 250), barmerge.gaps_off, barmerge.lookahead_off)
+closeHtf = request.security(syminfo.tickerid, tfUsed, close, barmerge.gaps_off, barmerge.lookahead_off)
+
+longFilterOK  = not useEma250Filter or closeHtf > ema250Htf
+shortFilterOK = not useEma250Filter or closeHtf < ema250Htf
+longSignal  = longSignalRaw and longFilterOK
+shortSignal = shortSignalRaw and shortFilterOK
+
+startDistToEma250 = math.abs(close - ema250Htf)
+startDistanceOK = not useStartDistFilter or startDistToEma250 <= maxStartDistPoints
+longStartSignal  = longSignal and startDistanceOK
+shortStartSignal = shortSignal and startDistanceOK
+
+// =====================================================
+// 5. POSITION STATE
+// =====================================================
+avgP    = strategy.position_avg_price
+hasPos  = strategy.position_size != 0
+isLong  = strategy.position_size > 0
+isShort = strategy.position_size < 0
+
+// =====================================================
+// 6. TAKE PROFIT / STOP LOSS
+// =====================================================
+tpTfUsed = tpZoneTf == "" ? timeframe.period : tpZoneTf
+nearestHighZone = request.security(syminfo.tickerid, tpTfUsed, ta.highest(high[1], tpZoneLookback), barmerge.gaps_off, barmerge.lookahead_off)
+nearestLowZone = request.security(syminfo.tickerid, tpTfUsed, ta.lowest(low[1], tpZoneLookback), barmerge.gaps_off, barmerge.lookahead_off)
+
+longZoneTP = nearestHighZone - tpZoneOffset
+shortZoneTP = nearestLowZone + tpZoneOffset
+longFixedTP  = avgP + tpPoints
+shortFixedTP = avgP - tpPoints
+longZoneTPValid  = longZoneTP > avgP
+shortZoneTPValid = shortZoneTP < avgP
+
+float finalTP = na
+if isLong
+    finalTP := tpMode == "Zone TP" ? (longZoneTPValid ? longZoneTP : useFallbackFixedTP ? longFixedTP : na) : longFixedTP
+if isShort
+    finalTP := tpMode == "Zone TP" ? (shortZoneTPValid ? shortZoneTP : useFallbackFixedTP ? shortFixedTP : na) : shortFixedTP
+
+slVal = isLong ? avgP - slPoints : isShort ? avgP + slPoints : na
+
+// =====================================================
+// 7. FIRST ENTRY
+// =====================================================
+firstOrderMult = f_getStepMult(0)
+firstOrderQty  = baseQty * firstOrderMult
+
+if longStartSignal and not hasPos
+    strategy.entry(
+         "L1",
+         strategy.long,
+         qty=firstOrderQty,
+         comment="Long Start",
+         alert_message=f_order_message("long_start", firstOrderQty, "Long Start", na, na)
+     )
+
+if shortStartSignal and not hasPos
+    strategy.entry(
+         "S1",
+         strategy.short,
+         qty=firstOrderQty,
+         comment="Short Start",
+         alert_message=f_order_message("short_start", firstOrderQty, "Short Start", na, na)
+     )
+
+// =====================================================
+// 8. DCA
+// =====================================================
+if isLong and strategy.opentrades < maxLayers
+    lastIdx   = strategy.opentrades - 1
+    lastPrice = strategy.opentrades.entry_price(lastIdx)
+    longDcaPriceOK = close <= lastPrice - dcaStep
+    longDcaSignal  = longSignal and longDcaPriceOK
+    if longDcaSignal
+        nextLayerIndex = strategy.opentrades
+        dcaQty = baseQty * f_getStepMult(nextLayerIndex)
+        dcaId = "DCA_L_" + str.tostring(strategy.opentrades + 1)
+        strategy.entry(
+             dcaId,
+             strategy.long,
+             qty=dcaQty,
+             comment="DCA Long",
+             alert_message=f_order_message("dca_long", dcaQty, "DCA Long", finalTP, slVal)
+         )
+
+if isShort and strategy.opentrades < maxLayers
+    lastIdx   = strategy.opentrades - 1
+    lastPrice = strategy.opentrades.entry_price(lastIdx)
+    shortDcaPriceOK = close >= lastPrice + dcaStep
+    shortDcaSignal  = shortSignal and shortDcaPriceOK
+    if shortDcaSignal
+        nextLayerIndex = strategy.opentrades
+        dcaQty = baseQty * f_getStepMult(nextLayerIndex)
+        dcaId = "DCA_S_" + str.tostring(strategy.opentrades + 1)
+        strategy.entry(
+             dcaId,
+             strategy.short,
+             qty=dcaQty,
+             comment="DCA Short",
+             alert_message=f_order_message("dca_short", dcaQty, "DCA Short", finalTP, slVal)
+         )
+
+// =====================================================
+// 9. EXIT
+// =====================================================
+if hasPos
+    closeAction = isLong ? "close_long" : "close_short"
+    openQty = math.abs(strategy.position_size)
+    strategy.exit(
+         "Exit",
+         limit=finalTP,
+         stop=slVal,
+         comment_profit="TP",
+         comment_loss="SL",
+         alert_profit=f_order_message(closeAction, openQty, "TP", finalTP, slVal),
+         alert_loss=f_order_message(closeAction, openQty, "SL", finalTP, slVal)
+     )
+
+if isLong and shortSignal
+    strategy.close_all(
+         comment="Opposite Short Signal",
+         alert_message=f_order_message("close_long", math.abs(strategy.position_size), "Opposite Short Signal", finalTP, slVal)
+     )
+
+if isShort and longSignal
+    strategy.close_all(
+         comment="Opposite Long Signal",
+         alert_message=f_order_message("close_short", math.abs(strategy.position_size), "Opposite Long Signal", finalTP, slVal)
+     )
+
+if enableDashboardAlert and sendPositionUpdates and hasPos and barstate.isconfirmed and bar_index % positionUpdateBars == 0
+    alert(
+         f_dashboard_payload("mark", math.abs(strategy.position_size), "Position Update", finalTP, slVal),
+         alert.freq_once_per_bar_close
+     )
+
+// =====================================================
+// 10. VISUALS
+// =====================================================
+plot(emaHigh, "EMA High", color=color.orange, linewidth=2)
+plot(emaLow, "EMA Low", color=color.aqua, linewidth=2)
+plot(useEma250Filter ? ema250Htf : na, "EMA250 HTF Filter", color=color.fuchsia, linewidth=2)
+plot(hasPos ? avgP : na, "Average Price", color=color.yellow, style=plot.style_linebr, linewidth=2)
+plot(tpMode == "Zone TP" ? nearestHighZone : na, "HTF Nearest High Zone", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(tpMode == "Zone TP" ? nearestLowZone : na, "HTF Nearest Low Zone", color=color.new(color.lime, 30), style=plot.style_linebr)
+plot(hasPos ? finalTP : na, "Active Take Profit", color=color.green, style=plot.style_linebr, linewidth=2)
+plot(hasPos ? slVal : na, "Active Stop Loss", color=color.red, style=plot.style_linebr, linewidth=2)
+
+plotshape(shortSetup, "Short Setup", shape.circle, location.abovebar, color=color.orange, size=size.tiny, text="S wait")
+plotshape(longSetup, "Long Setup", shape.circle, location.belowbar, color=color.aqua, size=size.tiny, text="L wait")
+plotshape(longSignalRaw, "Long Raw Signal", shape.triangleup, location.belowbar, color=color.gray, size=size.tiny, text="L raw")
+plotshape(shortSignalRaw, "Short Raw Signal", shape.triangledown, location.abovebar, color=color.gray, size=size.tiny, text="S raw")
+plotshape(longStartSignal, "Long Start Signal", shape.triangleup, location.belowbar, color=color.lime, size=size.small, text="LONG")
+plotshape(shortStartSignal, "Short Start Signal", shape.triangledown, location.abovebar, color=color.red, size=size.small, text="SHORT")
+plotshape(longSignal and not startDistanceOK and not hasPos, "Long Blocked By EMA250 Distance", shape.xcross, location.belowbar, color=color.red, size=size.tiny, text="L far")
+plotshape(shortSignal and not startDistanceOK and not hasPos, "Short Blocked By EMA250 Distance", shape.xcross, location.abovebar, color=color.red, size=size.tiny, text="S far")

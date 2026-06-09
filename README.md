@@ -73,6 +73,58 @@ http://127.0.0.1:8000/api/performance?strategy=manual-test
 
 The dashboard also includes ticker and strategy filters plus sort controls in the Strategy Performance panel.
 
+## VN30 Derivatives Tracking
+
+VN30 futures events are stored and calculated separately from stock signals. The
+dashboard supports:
+
+- `long_start` and `short_start` to open a position.
+- `dca_long` and `dca_short` to add contracts and recalculate average price.
+- `close_long` and `close_short` to close the full position.
+- P/L in VN30 points and VND using `DERIVATIVE_CONTRACT_MULTIPLIER`.
+
+Derivative payloads must include `"asset_type":"derivative"` so they are routed
+away from the stock performance engine.
+
+The integrated Pine Script is available at:
+
+```text
+pinescript/vn30_modern_dca_dashboard.pine
+```
+
+In TradingView, create one strategy alert:
+
+- Condition: the VN30 Modern DCA strategy.
+- Trigger: Order fills only. Select "Order fills and alert() function calls"
+  when the optional open-position price updates are enabled.
+- Webhook URL: `https://your-dashboard-domain/webhook`
+- Message: `{{strategy.order.alert_message}}`
+
+Example derivative webhook:
+
+```json
+{
+  "asset_type": "derivative",
+  "market": "VN30F",
+  "ticker": "HNX:VN30F1M",
+  "action": "long_start",
+  "price": "1320.5",
+  "quantity": "1",
+  "contract_multiplier": "100000",
+  "timeframe": "5",
+  "strategy": "VN30 Modern DCA",
+  "time": "2026-06-09T09:00:00+07:00",
+  "reason": "Long Start",
+  "secret": "change-me"
+}
+```
+
+Inspect the separated derivative data at:
+
+```text
+http://127.0.0.1:8000/api/derivatives
+```
+
 ## Open Positions And Chart Markers
 
 The dashboard includes an Open Positions table for active `buy` signals that have not yet received a matching `sell`.

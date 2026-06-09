@@ -144,6 +144,37 @@ class SignalStoreTest(unittest.TestCase):
 
             self.assertIsNotNone(duplicate)
 
+    def test_derivative_signal_lifecycle_and_duplicate_lookup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            signal = store.insert_derivative_signal(
+                symbol="VN30F1M",
+                exchange="HNX",
+                action="long_start",
+                price=1300,
+                quantity=2,
+                contract_multiplier=100000,
+                timeframe="5",
+                strategy="VN30 Modern DCA",
+                reason=None,
+                source_time="2026-06-09T09:00:00+07:00",
+                payload={"asset_type": "derivative"},
+            )
+
+            duplicate = store.find_duplicate_derivative_signal(
+                symbol="VN30F1M",
+                action="long_start",
+                timeframe="5",
+                strategy="VN30 Modern DCA",
+                source_time="2026-06-09T09:00:00+07:00",
+                window_minutes=5,
+            )
+
+            self.assertEqual(store.list_all_derivative_signals()[0]["id"], signal["id"])
+            self.assertEqual(duplicate["id"], signal["id"])
+            self.assertTrue(store.delete_derivative_signal(signal["id"]))
+            self.assertEqual(store.list_all_derivative_signals(), [])
+
     def test_record_and_list_invalid_signal(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

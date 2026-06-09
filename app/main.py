@@ -23,6 +23,10 @@ from app.services.enrichment import (
     normalize_action,
     normalize_ticker,
 )
+from app.services.derivatives import (
+    build_derivative_performance,
+    normalize_derivative_action,
+)
 from app.services.market_hours import is_market_open
 from app.services.manual_portfolio import (
     build_daily_performance_record,
@@ -92,6 +96,13 @@ class WebhookPayload(BaseModel):
     confirm_for: str | None = None
     requires_open_strategy: str | None = None
     signal_type: str | None = None
+    asset_type: str | None = None
+    market: str | None = None
+    quantity: str | float | int | None = None
+    contract_multiplier: str | float | int | None = None
+    reason: str | None = None
+    take_profit: str | float | int | None = None
+    stop_loss: str | float | int | None = None
 
 
 class ManualPositionPayload(BaseModel):
@@ -141,7 +152,10 @@ def health() -> dict[str, str]:
 
 @app.get("/api/settings")
 def dashboard_settings() -> dict[str, Any]:
-    return {"default_signal_weight_pct": settings.default_signal_weight_pct}
+    return {
+        "default_signal_weight_pct": settings.default_signal_weight_pct,
+        "derivative_contract_multiplier": settings.derivative_contract_multiplier,
+    }
 
 
 @app.post("/webhook")
@@ -152,6 +166,9 @@ async def receive_webhook(
     payload = await parse_webhook_payload(request)
     if settings.webhook_secret and settings.webhook_secret not in {secret, payload.secret}:
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    if is_derivative_payload(payload):
+        return receive_derivative_webhook(payload)
 
     try:
         ticker, exchange = normalize_ticker(payload.ticker)
@@ -216,6 +233,56 @@ async def receive_webhook(
     )
     enqueue_signal_enrichment(signal["id"], ticker)
     return {"status": "accepted", "signal": signal}
+
+
+def is_derivative_payload(payload: WebhookPayload) -> bool:
+    asset_type = (payload.asset_type or payload.market or "").strip().lower()
+    return asset_type in {"derivative", "derivatives", "future", "futures", "vn30f"}
+
+
+def receive_derivative_webhook(payload: WebhookPayload) -> dict[str, Any]:
+    try:
+        symbol, exchange = normalize_ticker(payload.ticker)
+        action = normalize_derivative_action(payload.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    price = coerce_float(payload.price)
+    quantity = coerce_float(payload.quantity) or 1
+    contract_multiplier = (
+        coerce_float(payload.contract_multiplier)
+        or settings.derivative_contract_multiplier
+    )
+    if price is None or price <= 0:
+        raise HTTPException(status_code=422, detail="Derivative price must be greater than 0")
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="Derivative quantity must be greater than 0")
+
+    duplicate = store.find_duplicate_derivative_signal(
+        symbol=symbol,
+        action=action,
+        timeframe=payload.timeframe,
+        strategy=payload.strategy,
+        source_time=payload.time,
+        window_minutes=settings.duplicate_window_minutes,
+    )
+    if duplicate:
+        return {"status": "duplicate", "derivative_signal": duplicate}
+
+    signal = store.insert_derivative_signal(
+        symbol=symbol,
+        exchange=exchange,
+        action=action,
+        price=price,
+        quantity=quantity,
+        contract_multiplier=contract_multiplier,
+        timeframe=payload.timeframe,
+        strategy=payload.strategy,
+        reason=payload.reason or payload.note,
+        source_time=payload.time,
+        payload=payload.model_dump(),
+    )
+    return {"status": "accepted", "derivative_signal": signal}
 
 
 async def parse_webhook_payload(request: Request) -> WebhookPayload:
@@ -367,6 +434,29 @@ def export_dividend_events_csv() -> Response:
     )
 
 
+@app.get("/api/export/derivative-signals.csv")
+def export_derivative_signals_csv() -> Response:
+    rows = store.list_all_derivative_signals()
+    return csv_response(
+        "derivative-signals.csv",
+        [
+            "id",
+            "symbol",
+            "exchange",
+            "action",
+            "price",
+            "quantity",
+            "contract_multiplier",
+            "timeframe",
+            "strategy",
+            "reason",
+            "source_time",
+            "received_at",
+        ],
+        rows,
+    )
+
+
 @app.get("/api/export/database")
 def export_database() -> FileResponse:
     if not settings.database_path.exists():
@@ -387,6 +477,18 @@ def performance(ticker: str | None = None, strategy: str | None = None) -> dict[
             or strategy_filter in confirmation_payload_strategy(signal)
         ]
     return build_performance(signals, store.list_dividend_events())
+
+
+@app.get("/api/derivatives")
+def derivatives() -> dict[str, Any]:
+    return build_derivative_performance(store.list_all_derivative_signals())
+
+
+@app.delete("/api/derivatives/signals/{signal_id}")
+def delete_derivative_signal(signal_id: int) -> dict[str, Any]:
+    if not store.delete_derivative_signal(signal_id):
+        raise HTTPException(status_code=404, detail="Derivative signal not found")
+    return {"status": "deleted", "signal_id": signal_id}
 
 
 def confirmation_payload_strategy(signal: dict[str, Any]) -> str:

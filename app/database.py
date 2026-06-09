@@ -48,6 +48,30 @@ CREATE TABLE IF NOT EXISTS invalid_signals (
 CREATE INDEX IF NOT EXISTS idx_invalid_signals_received_at
 ON invalid_signals (received_at DESC);
 
+CREATE TABLE IF NOT EXISTS derivative_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    exchange TEXT,
+    action TEXT NOT NULL,
+    price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    contract_multiplier REAL NOT NULL,
+    timeframe TEXT,
+    strategy TEXT,
+    reason TEXT,
+    source_time TEXT,
+    received_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_derivative_signals_symbol_received_at
+ON derivative_signals (symbol, received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_derivative_signals_duplicate_lookup
+ON derivative_signals (
+    symbol, action, timeframe, strategy, source_time, received_at DESC
+);
+
 CREATE TABLE IF NOT EXISTS manual_positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT NOT NULL,
@@ -257,6 +281,114 @@ class SignalStore:
         with self.connect() as conn:
             cursor = conn.execute("DELETE FROM signals WHERE id = ?", (signal_id,))
             return cursor.rowcount > 0
+
+    def insert_derivative_signal(
+        self,
+        *,
+        symbol: str,
+        exchange: str | None,
+        action: str,
+        price: float,
+        quantity: float,
+        contract_multiplier: float,
+        timeframe: str | None,
+        strategy: str | None,
+        reason: str | None,
+        source_time: str | None,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        received_at = utc_now_iso()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO derivative_signals (
+                    symbol, exchange, action, price, quantity,
+                    contract_multiplier, timeframe, strategy, reason,
+                    source_time, received_at, payload_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    symbol.upper(),
+                    exchange,
+                    action,
+                    price,
+                    quantity,
+                    contract_multiplier,
+                    timeframe,
+                    strategy,
+                    reason,
+                    source_time,
+                    received_at,
+                    json.dumps(payload, ensure_ascii=True),
+                ),
+            )
+            signal_id = cursor.lastrowid
+        return self.get_derivative_signal(signal_id)
+
+    def get_derivative_signal(self, signal_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM derivative_signals WHERE id = ?",
+                (signal_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Derivative signal {signal_id} was not found")
+        return row_to_derivative_signal(row)
+
+    def list_all_derivative_signals(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM derivative_signals
+                ORDER BY received_at ASC, id ASC
+                """
+            ).fetchall()
+        return [row_to_derivative_signal(row) for row in rows]
+
+    def delete_derivative_signal(self, signal_id: int) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM derivative_signals WHERE id = ?",
+                (signal_id,),
+            )
+            return cursor.rowcount > 0
+
+    def find_duplicate_derivative_signal(
+        self,
+        *,
+        symbol: str,
+        action: str,
+        timeframe: str | None,
+        strategy: str | None,
+        source_time: str | None,
+        window_minutes: int,
+    ) -> dict[str, Any] | None:
+        params: list[Any] = [symbol.upper(), action, timeframe or "", strategy or ""]
+        if source_time:
+            source_clause = "AND source_time = ?"
+            params.append(source_time)
+        else:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+            source_clause = "AND source_time IS NULL AND received_at >= ?"
+            params.append(cutoff.isoformat())
+        with self.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT *
+                FROM derivative_signals
+                WHERE symbol = ?
+                  AND action = ?
+                  AND COALESCE(timeframe, '') = ?
+                  AND COALESCE(strategy, '') = ?
+                  {source_clause}
+                ORDER BY received_at DESC
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+        return row_to_derivative_signal(row) if row else None
 
     def insert_manual_position(
         self,
@@ -792,6 +924,12 @@ def row_to_signal(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_invalid_signal(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["payload"] = json.loads(data.pop("payload_json") or "{}")
+    return data
+
+
+def row_to_derivative_signal(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     data["payload"] = json.loads(data.pop("payload_json") or "{}")
     return data

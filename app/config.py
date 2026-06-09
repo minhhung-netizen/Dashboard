@@ -20,6 +20,7 @@ class Settings:
     vnstock_lookback_days: int = 90
     vnstock_include_metrics: bool = False
     default_signal_weight_pct: float = 5.0
+    derivative_contract_multiplier: float = 100000.0
 
 
 def _resolve_path(value: str) -> Path:
@@ -43,6 +44,9 @@ def get_settings() -> Settings:
     vnstock_lookback_days = int(os.getenv("VNSTOCK_LOOKBACK_DAYS", "90"))
     vnstock_include_metrics = _env_bool("VNSTOCK_INCLUDE_METRICS", default=False)
     default_signal_weight_pct = float(os.getenv("DEFAULT_SIGNAL_WEIGHT_PCT", "5"))
+    derivative_contract_multiplier = float(
+        os.getenv("DERIVATIVE_CONTRACT_MULTIPLIER", "100000")
+    )
     return Settings(
         database_path=database_path,
         webhook_secret=secret,
@@ -54,6 +58,7 @@ def get_settings() -> Settings:
         vnstock_lookback_days=max(30, vnstock_lookback_days),
         vnstock_include_metrics=vnstock_include_metrics,
         default_signal_weight_pct=max(0.01, default_signal_weight_pct),
+        derivative_contract_multiplier=max(0.01, derivative_contract_multiplier),
     )
 
 

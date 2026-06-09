@@ -61,6 +61,13 @@ const els = {
   dividendIssuePrice: document.querySelector("#dividendIssuePrice"),
   dividendNote: document.querySelector("#dividendNote"),
   dividendEventsTable: document.querySelector("#dividendEventsTable"),
+  derivativeOpenCount: document.querySelector("#derivativeOpenCount"),
+  derivativeOpenPnl: document.querySelector("#derivativeOpenPnl"),
+  derivativeClosedCount: document.querySelector("#derivativeClosedCount"),
+  derivativeRealizedPnl: document.querySelector("#derivativeRealizedPnl"),
+  derivativeOpenPositionsTable: document.querySelector("#derivativeOpenPositionsTable"),
+  derivativeClosedTradesTable: document.querySelector("#derivativeClosedTradesTable"),
+  derivativeEventsTable: document.querySelector("#derivativeEventsTable"),
 };
 
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
@@ -78,6 +85,7 @@ const translations = {
     filteredTrades: "Showing trades for",
     tabOverview: "Overview",
     tabPositions: "Positions",
+    tabDerivatives: "VN30 Derivatives",
     tabManualPortfolio: "Manual Portfolio",
     tabPerformance: "Performance",
     tabDividends: "Dividends",
@@ -137,6 +145,7 @@ const translations = {
     exportManualPortfolio: "Manual CSV",
     exportDailyPerformance: "Daily CSV",
     exportDividends: "Dividends CSV",
+    exportDerivatives: "Derivatives CSV",
     backupDatabase: "Backup DB",
     dividendCalendar: "Dividend Calendar",
     dividendRules: "Ex-rights Adjustments",
@@ -240,6 +249,25 @@ const translations = {
     performanceStrategyPlaceholder: "Strategy",
     openPositionTickerPlaceholder: "Ticker",
     openPositionStrategyPlaceholder: "Strategy",
+    vn30Derivatives: "VN30 Derivatives",
+    derivativeOpenPositions: "Open Positions",
+    derivativeOpenPnl: "Open P/L",
+    derivativeClosedTrades: "Closed Trades",
+    derivativeRealizedPnl: "Realized P/L",
+    derivativeCurrentPositions: "Current Long / Short Positions",
+    derivativeTradeHistory: "Derivative Trade History",
+    derivativeEvents: "Derivative Events",
+    derivativeWebhookHistory: "Webhook Event History",
+    averagePrice: "Average Price",
+    contracts: "Contracts",
+    layers: "Layers",
+    pnlPoints: "P/L Points",
+    pnlVnd: "P/L VND",
+    noDerivativePositions: "No open derivative positions",
+    noDerivativeTrades: "No closed derivative trades",
+    noDerivativeEvents: "No derivative events",
+    deleteDerivativeConfirm: "Delete this derivative event?",
+    deleteDerivativeFailed: "Could not delete derivative event",
   },
   vi: {
     webhookLabel: "Webhook TradingView",
@@ -603,6 +631,27 @@ Object.assign(translations.vi, {
   performanceStrategyPlaceholder: "Chiến lược",
   openPositionTickerPlaceholder: "Mã",
   openPositionStrategyPlaceholder: "Chiến lược",
+  tabDerivatives: "Phái sinh VN30",
+  exportDerivatives: "Phái sinh CSV",
+  vn30Derivatives: "Phái sinh VN30",
+  derivativeOpenPositions: "Vị thế đang mở",
+  derivativeOpenPnl: "Lãi/lỗ tạm tính",
+  derivativeClosedTrades: "Lệnh đã đóng",
+  derivativeRealizedPnl: "Lãi/lỗ đã chốt",
+  derivativeCurrentPositions: "Vị thế Long / Short hiện tại",
+  derivativeTradeHistory: "Lịch sử giao dịch phái sinh",
+  derivativeEvents: "Sự kiện phái sinh",
+  derivativeWebhookHistory: "Lịch sử webhook phái sinh",
+  averagePrice: "Giá vốn",
+  contracts: "Hợp đồng",
+  layers: "Số lớp",
+  pnlPoints: "Lãi/lỗ điểm",
+  pnlVnd: "Lãi/lỗ VND",
+  noDerivativePositions: "Không có vị thế phái sinh đang mở",
+  noDerivativeTrades: "Chưa có lệnh phái sinh đã đóng",
+  noDerivativeEvents: "Chưa có sự kiện phái sinh",
+  deleteDerivativeConfirm: "Xóa sự kiện phái sinh này?",
+  deleteDerivativeFailed: "Không thể xóa sự kiện phái sinh",
 });
 
 const state = {
@@ -619,6 +668,7 @@ const state = {
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
   dividendEvents: [],
+  derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
 };
 
 function cssVar(name) {
@@ -754,6 +804,7 @@ async function refresh() {
     fetchJson("/api/invalid-signals"),
     fetchJson("/api/manual-portfolio"),
     fetchJson("/api/dividend-events"),
+    fetchJson("/api/derivatives"),
   ]);
 
   const settingsPayload = settledPayload(
@@ -784,6 +835,11 @@ async function refresh() {
     { dividend_events: state.dividendEvents },
     "dividend events"
   );
+  const derivativePayload = settledPayload(
+    results[7],
+    state.derivatives,
+    "derivatives"
+  );
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
@@ -809,6 +865,8 @@ async function refresh() {
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
   renderDividendEvents();
+  state.derivatives = derivativePayload;
+  renderDerivatives(derivativePayload);
 
   const firstTicker = state.selectedTicker || state.signals[0]?.ticker || "";
   if (firstTicker) {
@@ -1029,6 +1087,106 @@ async function deleteManualDailyPerformance(tradeDate) {
   );
   if (!response.ok) {
     window.alert(t("deleteDailyPerformanceFailed"));
+    return;
+  }
+  await refresh();
+}
+
+function renderDerivatives(payload) {
+  const summary = payload.summary || {};
+  const openPositions = payload.open_positions || [];
+  const closedTrades = payload.closed_trades || [];
+  const events = payload.events || [];
+
+  els.derivativeOpenCount.textContent = summary.open_count ?? 0;
+  els.derivativeOpenPnl.innerHTML = formatSignedVnd(summary.open_pnl_vnd);
+  els.derivativeClosedCount.textContent = summary.closed_count ?? 0;
+  els.derivativeRealizedPnl.innerHTML = formatSignedVnd(summary.realized_pnl_vnd);
+
+  if (!openPositions.length) {
+    els.derivativeOpenPositionsTable.innerHTML =
+      `<tr><td class="empty" colspan="11">${t("noDerivativePositions")}</td></tr>`;
+  } else {
+    els.derivativeOpenPositionsTable.innerHTML = openPositions
+      .map((position) => `
+        <tr>
+          <td><strong>${escapeHtml(position.symbol)}</strong></td>
+          <td><strong>${escapeHtml(position.strategy)}</strong></td>
+          <td><span class="derivativeSide ${escapeHtml(position.side)}">${escapeHtml(position.side)}</span></td>
+          <td>${formatPrice(position.average_price)}</td>
+          <td>${formatPrice(position.current_price)}</td>
+          <td>${formatPrice(position.quantity)}</td>
+          <td>${position.layer_count ?? 0}</td>
+          <td>${formatSignedNumber(position.pnl_points)}</td>
+          <td>${formatSignedVnd(position.pnl_vnd)}</td>
+          <td>${formatPrice(position.take_profit)}</td>
+          <td>${formatPrice(position.stop_loss)}</td>
+        </tr>
+      `)
+      .join("");
+  }
+
+  if (!closedTrades.length) {
+    els.derivativeClosedTradesTable.innerHTML =
+      `<tr><td class="empty" colspan="11">${t("noDerivativeTrades")}</td></tr>`;
+  } else {
+    els.derivativeClosedTradesTable.innerHTML = closedTrades
+      .map((trade) => `
+        <tr>
+          <td><strong>${escapeHtml(trade.symbol)}</strong></td>
+          <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+          <td><span class="derivativeSide ${escapeHtml(trade.side)}">${escapeHtml(trade.side)}</span></td>
+          <td>${formatPrice(trade.average_price)}</td>
+          <td>${formatPrice(trade.exit_price)}</td>
+          <td>${formatPrice(trade.quantity)}</td>
+          <td>${trade.layer_count ?? 0}</td>
+          <td>${escapeHtml(trade.exit_reason || "-")}</td>
+          <td>${formatSignedNumber(trade.pnl_points)}</td>
+          <td>${formatSignedVnd(trade.pnl_vnd)}</td>
+          <td>${formatDate(trade.exit_time)}</td>
+        </tr>
+      `)
+      .join("");
+  }
+
+  if (!events.length) {
+    els.derivativeEventsTable.innerHTML =
+      `<tr><td class="empty" colspan="8">${t("noDerivativeEvents")}</td></tr>`;
+    return;
+  }
+  els.derivativeEventsTable.innerHTML = events
+    .map((event) => `
+      <tr>
+        <td>${formatDate(event.source_time || event.received_at)}</td>
+        <td><strong>${escapeHtml(event.symbol)}</strong></td>
+        <td><span class="side ${escapeHtml(event.action)}">${escapeHtml(event.action)}</span></td>
+        <td>${formatPrice(event.price)}</td>
+        <td>${formatPrice(event.quantity)}</td>
+        <td>${escapeHtml(event.strategy || "-")}</td>
+        <td>${escapeHtml(event.reason || "-")}</td>
+        <td>
+          <button class="deleteButton" type="button" data-derivative-delete-id="${event.id}">
+            ${escapeHtml(t("delete"))}
+          </button>
+        </td>
+      </tr>
+    `)
+    .join("");
+
+  els.derivativeEventsTable.querySelectorAll("[data-derivative-delete-id]").forEach((button) => {
+    button.addEventListener("click", () => deleteDerivativeEvent(button.dataset.derivativeDeleteId));
+  });
+}
+
+async function deleteDerivativeEvent(signalId) {
+  if (!window.confirm(t("deleteDerivativeConfirm"))) {
+    return;
+  }
+  const response = await fetch(`/api/derivatives/signals/${encodeURIComponent(signalId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    window.alert(t("deleteDerivativeFailed"));
     return;
   }
   await refresh();
@@ -2024,6 +2182,22 @@ function formatSignedPercent(value) {
   const className = number >= 0 ? "positive" : "negative";
   const sign = number > 0 ? "+" : "";
   return `<span class="${className}">${sign}${number.toFixed(2)}%</span>`;
+}
+
+function formatSignedNumber(value) {
+  if (value === null || value === undefined) return "-";
+  const number = Number(value);
+  const className = number >= 0 ? "positive" : "negative";
+  const sign = number > 0 ? "+" : "";
+  return `<span class="${className}">${sign}${number.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>`;
+}
+
+function formatSignedVnd(value) {
+  if (value === null || value === undefined) return "-";
+  const number = Number(value);
+  const className = number >= 0 ? "positive" : "negative";
+  const sign = number > 0 ? "+" : "";
+  return `<span class="${className}">${sign}${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ</span>`;
 }
 
 function escapeHtml(value) {
