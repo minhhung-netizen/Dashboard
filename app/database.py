@@ -72,6 +72,12 @@ ON derivative_signals (
     symbol, action, timeframe, strategy, source_time, received_at DESC
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS manual_positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT NOT NULL,
@@ -389,6 +395,29 @@ class SignalStore:
                 params,
             ).fetchone()
         return row_to_derivative_signal(row) if row else None
+
+    def get_app_setting(self, key: str, default: str | None = None) -> str | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+        return row["value"] if row else default
+
+    def set_app_setting(self, key: str, value: str) -> str:
+        now = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key, value, now),
+            )
+        return value
 
     def insert_manual_position(
         self,

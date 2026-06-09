@@ -210,6 +210,22 @@
             <span data-i18n="derivativeRealizedPnl">Realized P/L</span>
             <strong id="derivativeRealizedPnl">-</strong>
           </article>
+          <article>
+            <span data-i18n="derivativeInitialCapital">Initial Capital</span>
+            <strong id="derivativeInitialCapital">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeCurrentEquity">Current Equity</span>
+            <strong id="derivativeCurrentEquity">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeMaxDrawdown">Maximum Drawdown</span>
+            <strong id="derivativeMaxDrawdown">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeMaxDrawdownPct">Maximum Drawdown %</span>
+            <strong id="derivativeMaxDrawdownPct">-</strong>
+          </article>
         </section>
 
         <section class="openPositionsPanel">
@@ -218,6 +234,19 @@
               <p class="eyebrow" data-i18n="vn30Derivatives">VN30 Derivatives</p>
               <h2 data-i18n="derivativeCurrentPositions">Current Long / Short Positions</h2>
             </div>
+            <form id="derivativeCapitalForm" class="derivativeCapitalForm">
+              <input
+                id="derivativeCapitalInput"
+                type="number"
+                min="1"
+                step="1000000"
+                required
+                data-i18n-placeholder="derivativeCapitalPlaceholder"
+                aria-label="Derivative initial capital"
+                placeholder="Initial capital"
+              />
+              <button class="smallButton" type="submit" data-i18n="saveCapital">Save capital</button>
+            </form>
           </div>
           <div class="tableWrap">
             <table>

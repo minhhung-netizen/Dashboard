@@ -449,6 +449,16 @@ main {
   justify-content: flex-end;
 }
 
+.derivativeCapitalForm {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.derivativeCapitalForm input {
+  max-width: 210px;
+}
+
 .performanceControls input,
 .positionControls input {
   max-width: 150px;
@@ -855,6 +865,7 @@ td strong {
   .actions,
   .performanceControls,
   .positionControls,
+  .derivativeCapitalForm,
   .panelActions,
   .portfolioSummary,
   .portfolioActions,
@@ -873,6 +884,7 @@ td strong {
   .actions,
   .performanceControls,
   .positionControls,
+  .derivativeCapitalForm,
   .panelActions {
     display: grid;
     grid-template-columns: 1fr;
@@ -883,7 +895,8 @@ td strong {
   .performanceControls input,
   .performanceControls select,
   .positionControls input,
-  .positionControls select {
+  .positionControls select,
+  .derivativeCapitalForm input {
     max-width: none;
     width: 100%;
   }

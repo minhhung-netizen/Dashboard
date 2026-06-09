@@ -92,6 +92,24 @@ class DerivativePerformanceTest(unittest.TestCase):
         self.assertEqual(position["pnl_vnd"], 1200000)
         self.assertEqual([row["action"] for row in result["events"]], ["long_start"])
 
+    def test_calculates_maximum_drawdown_from_closed_trade_equity(self):
+        result = build_derivative_performance(
+            [
+                event(1, "long_start", 100, 1),
+                event(2, "close_long", 90, 1),
+                event(3, "long_start", 100, 1),
+                event(4, "close_long", 120, 1),
+            ],
+            initial_capital=10000000,
+        )
+
+        summary = result["summary"]
+        self.assertEqual(summary["initial_capital"], 10000000)
+        self.assertEqual(summary["realized_pnl_vnd"], 1000000)
+        self.assertEqual(summary["current_equity"], 11000000)
+        self.assertEqual(summary["max_drawdown_vnd"], 1000000)
+        self.assertEqual(summary["max_drawdown_pct"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()

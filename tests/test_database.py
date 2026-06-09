@@ -175,6 +175,19 @@ class SignalStoreTest(unittest.TestCase):
             self.assertTrue(store.delete_derivative_signal(signal["id"]))
             self.assertEqual(store.list_all_derivative_signals(), [])
 
+    def test_app_setting_is_persisted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "signals.db"
+            store = SignalStore(db_path)
+
+            store.set_app_setting("derivative_initial_capital", "250000000")
+
+            reloaded = SignalStore(db_path)
+            self.assertEqual(
+                reloaded.get_app_setting("derivative_initial_capital"),
+                "250000000",
+            )
+
     def test_record_and_list_invalid_signal(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

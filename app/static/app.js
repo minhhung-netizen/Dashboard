@@ -65,6 +65,12 @@ const els = {
   derivativeOpenPnl: document.querySelector("#derivativeOpenPnl"),
   derivativeClosedCount: document.querySelector("#derivativeClosedCount"),
   derivativeRealizedPnl: document.querySelector("#derivativeRealizedPnl"),
+  derivativeInitialCapital: document.querySelector("#derivativeInitialCapital"),
+  derivativeCurrentEquity: document.querySelector("#derivativeCurrentEquity"),
+  derivativeMaxDrawdown: document.querySelector("#derivativeMaxDrawdown"),
+  derivativeMaxDrawdownPct: document.querySelector("#derivativeMaxDrawdownPct"),
+  derivativeCapitalForm: document.querySelector("#derivativeCapitalForm"),
+  derivativeCapitalInput: document.querySelector("#derivativeCapitalInput"),
   derivativeOpenPositionsTable: document.querySelector("#derivativeOpenPositionsTable"),
   derivativeClosedTradesTable: document.querySelector("#derivativeClosedTradesTable"),
   derivativeEventsTable: document.querySelector("#derivativeEventsTable"),
@@ -254,6 +260,13 @@ const translations = {
     derivativeOpenPnl: "Open P/L",
     derivativeClosedTrades: "Closed Trades",
     derivativeRealizedPnl: "Realized P/L",
+    derivativeInitialCapital: "Initial Capital",
+    derivativeCurrentEquity: "Current Equity",
+    derivativeMaxDrawdown: "Maximum Drawdown",
+    derivativeMaxDrawdownPct: "Maximum Drawdown %",
+    derivativeCapitalPlaceholder: "Initial capital (VND)",
+    saveCapital: "Save capital",
+    derivativeCapitalSaveFailed: "Could not save derivative capital",
     derivativeCurrentPositions: "Current Long / Short Positions",
     derivativeTradeHistory: "Derivative Trade History",
     derivativeEvents: "Derivative Events",
@@ -638,6 +651,13 @@ Object.assign(translations.vi, {
   derivativeOpenPnl: "Lãi/lỗ tạm tính",
   derivativeClosedTrades: "Lệnh đã đóng",
   derivativeRealizedPnl: "Lãi/lỗ đã chốt",
+  derivativeInitialCapital: "Vốn ban đầu",
+  derivativeCurrentEquity: "Vốn hiện tại",
+  derivativeMaxDrawdown: "Sụt giảm tối đa",
+  derivativeMaxDrawdownPct: "Sụt giảm tối đa %",
+  derivativeCapitalPlaceholder: "Vốn ban đầu (VND)",
+  saveCapital: "Lưu vốn",
+  derivativeCapitalSaveFailed: "Không thể lưu vốn phái sinh",
   derivativeCurrentPositions: "Vị thế Long / Short hiện tại",
   derivativeTradeHistory: "Lịch sử giao dịch phái sinh",
   derivativeEvents: "Sự kiện phái sinh",
@@ -715,6 +735,9 @@ function applyTranslations() {
   document.documentElement.lang = state.language;
   document.querySelectorAll("[data-i18n]").forEach((element) => {
     element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.placeholder = t(element.dataset.i18nPlaceholder);
   });
   els.refresh.title = t("refresh");
   els.openPositionTickerFilter.placeholder = t("openPositionTickerPlaceholder");
@@ -1102,6 +1125,13 @@ function renderDerivatives(payload) {
   els.derivativeOpenPnl.innerHTML = formatSignedVnd(summary.open_pnl_vnd);
   els.derivativeClosedCount.textContent = summary.closed_count ?? 0;
   els.derivativeRealizedPnl.innerHTML = formatSignedVnd(summary.realized_pnl_vnd);
+  els.derivativeInitialCapital.textContent = formatVnd(summary.initial_capital);
+  els.derivativeCurrentEquity.textContent = formatVnd(summary.current_equity);
+  els.derivativeMaxDrawdown.innerHTML = formatDrawdownVnd(summary.max_drawdown_vnd);
+  els.derivativeMaxDrawdownPct.innerHTML = formatDrawdownPercent(summary.max_drawdown_pct);
+  if (document.activeElement !== els.derivativeCapitalInput) {
+    els.derivativeCapitalInput.value = rawNumber(summary.initial_capital);
+  }
 
   if (!openPositions.length) {
     els.derivativeOpenPositionsTable.innerHTML =
@@ -1187,6 +1217,25 @@ async function deleteDerivativeEvent(signalId) {
   });
   if (!response.ok) {
     window.alert(t("deleteDerivativeFailed"));
+    return;
+  }
+  await refresh();
+}
+
+async function saveDerivativeCapital(event) {
+  event.preventDefault();
+  const initialCapital = parsePriceInput(els.derivativeCapitalInput.value);
+  if (!Number.isFinite(initialCapital) || initialCapital <= 0) {
+    window.alert(t("derivativeCapitalSaveFailed"));
+    return;
+  }
+  const response = await fetch("/api/settings/derivative-capital", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initial_capital: initialCapital }),
+  });
+  if (!response.ok) {
+    window.alert(t("derivativeCapitalSaveFailed"));
     return;
   }
   await refresh();
@@ -2200,6 +2249,25 @@ function formatSignedVnd(value) {
   return `<span class="${className}">${sign}${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ</span>`;
 }
 
+function formatVnd(value) {
+  if (value === null || value === undefined) return "-";
+  return `${Number(value).toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ`;
+}
+
+function formatDrawdownVnd(value) {
+  if (value === null || value === undefined) return "-";
+  const number = Number(value);
+  if (number === 0) return "0 đ";
+  return `<span class="negative">-${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ</span>`;
+}
+
+function formatDrawdownPercent(value) {
+  if (value === null || value === undefined) return "-";
+  const number = Number(value);
+  if (number === 0) return "0.00%";
+  return `<span class="negative">-${number.toFixed(2)}%</span>`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -2244,6 +2312,7 @@ els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);
 els.manualRecordDailyPerformance.addEventListener("click", recordManualDailyPerformance);
 els.dividendEventForm.addEventListener("submit", addDividendEvent);
+els.derivativeCapitalForm.addEventListener("submit", saveDerivativeCapital);
 window.addEventListener("resize", () => {
   if (state.selectedTicker) renderChart(state.selectedTicker);
   if (state.activeTab === "manualPortfolio") {

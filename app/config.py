@@ -21,6 +21,7 @@ class Settings:
     vnstock_include_metrics: bool = False
     default_signal_weight_pct: float = 5.0
     derivative_contract_multiplier: float = 100000.0
+    derivative_initial_capital: float = 100000000.0
 
 
 def _resolve_path(value: str) -> Path:
@@ -47,6 +48,9 @@ def get_settings() -> Settings:
     derivative_contract_multiplier = float(
         os.getenv("DERIVATIVE_CONTRACT_MULTIPLIER", "100000")
     )
+    derivative_initial_capital = float(
+        os.getenv("DERIVATIVE_INITIAL_CAPITAL", "100000000")
+    )
     return Settings(
         database_path=database_path,
         webhook_secret=secret,
@@ -59,6 +63,7 @@ def get_settings() -> Settings:
         vnstock_include_metrics=vnstock_include_metrics,
         default_signal_weight_pct=max(0.01, default_signal_weight_pct),
         derivative_contract_multiplier=max(0.01, derivative_contract_multiplier),
+        derivative_initial_capital=max(0.01, derivative_initial_capital),
     )
 
 

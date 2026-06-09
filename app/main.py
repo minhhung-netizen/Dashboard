@@ -140,6 +140,10 @@ class DividendEventPayload(BaseModel):
     note: str | None = None
 
 
+class DerivativeCapitalPayload(BaseModel):
+    initial_capital: float = Field(..., gt=0, examples=[100000000])
+
+
 @app.get("/")
 def dashboard() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "app" / "static" / "index.html")
@@ -155,7 +159,14 @@ def dashboard_settings() -> dict[str, Any]:
     return {
         "default_signal_weight_pct": settings.default_signal_weight_pct,
         "derivative_contract_multiplier": settings.derivative_contract_multiplier,
+        "derivative_initial_capital": derivative_initial_capital(),
     }
+
+
+@app.patch("/api/settings/derivative-capital")
+def update_derivative_capital(payload: DerivativeCapitalPayload) -> dict[str, float]:
+    store.set_app_setting("derivative_initial_capital", str(payload.initial_capital))
+    return {"derivative_initial_capital": payload.initial_capital}
 
 
 @app.post("/webhook")
@@ -481,7 +492,22 @@ def performance(ticker: str | None = None, strategy: str | None = None) -> dict[
 
 @app.get("/api/derivatives")
 def derivatives() -> dict[str, Any]:
-    return build_derivative_performance(store.list_all_derivative_signals())
+    return build_derivative_performance(
+        store.list_all_derivative_signals(),
+        initial_capital=derivative_initial_capital(),
+    )
+
+
+def derivative_initial_capital() -> float:
+    stored = store.get_app_setting(
+        "derivative_initial_capital",
+        str(settings.derivative_initial_capital),
+    )
+    try:
+        capital = float(stored or settings.derivative_initial_capital)
+    except (TypeError, ValueError):
+        capital = settings.derivative_initial_capital
+    return max(0.01, capital)
 
 
 @app.delete("/api/derivatives/signals/{signal_id}")

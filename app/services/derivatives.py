@@ -68,7 +68,10 @@ def normalize_derivative_action(raw_action: str | None) -> str:
     return normalized
 
 
-def build_derivative_performance(events: list[dict[str, Any]]) -> dict[str, Any]:
+def build_derivative_performance(
+    events: list[dict[str, Any]],
+    initial_capital: float = 0,
+) -> dict[str, Any]:
     ordered = sorted(events, key=lambda item: (_event_sort_time(item), item["id"]))
     visible_events = [event for event in ordered if event["action"] != "mark"]
     positions: dict[tuple[str, str], DerivativePosition] = {}
@@ -154,7 +157,7 @@ def build_derivative_performance(events: list[dict[str, Any]]) -> dict[str, Any]
         for position in positions.values()
     ]
     return {
-        "summary": _summary(open_positions, closed_trades),
+        "summary": _summary(open_positions, closed_trades, initial_capital),
         "open_positions": sorted(open_positions, key=lambda row: (row["symbol"], row["strategy"])),
         "closed_trades": sorted(
             closed_trades,
@@ -204,18 +207,40 @@ def _trade_record(
 
 
 def _summary(
-    open_positions: list[dict[str, Any]], closed_trades: list[dict[str, Any]]
+    open_positions: list[dict[str, Any]],
+    closed_trades: list[dict[str, Any]],
+    initial_capital: float,
 ) -> dict[str, Any]:
     wins = sum(1 for trade in closed_trades if trade["pnl_points"] > 0)
+    realized_pnl_vnd = sum(row["pnl_vnd"] for row in closed_trades)
+    open_pnl_vnd = sum(row["pnl_vnd"] for row in open_positions)
+    equity = initial_capital
+    peak_equity = initial_capital
+    max_drawdown_vnd = 0.0
+    max_drawdown_pct = 0.0
+    for trade in closed_trades:
+        equity += trade["pnl_vnd"]
+        peak_equity = max(peak_equity, equity)
+        drawdown_vnd = max(0.0, peak_equity - equity)
+        drawdown_pct = drawdown_vnd / peak_equity * 100 if peak_equity > 0 else 0.0
+        if drawdown_vnd > max_drawdown_vnd:
+            max_drawdown_vnd = drawdown_vnd
+        if drawdown_pct > max_drawdown_pct:
+            max_drawdown_pct = drawdown_pct
     return {
         "open_count": len(open_positions),
         "closed_count": len(closed_trades),
         "wins": wins,
         "win_rate_pct": wins / len(closed_trades) * 100 if closed_trades else None,
         "open_pnl_points": sum(row["pnl_points"] for row in open_positions),
-        "open_pnl_vnd": sum(row["pnl_vnd"] for row in open_positions),
+        "open_pnl_vnd": open_pnl_vnd,
         "realized_pnl_points": sum(row["pnl_points"] for row in closed_trades),
-        "realized_pnl_vnd": sum(row["pnl_vnd"] for row in closed_trades),
+        "realized_pnl_vnd": realized_pnl_vnd,
+        "initial_capital": initial_capital,
+        "realized_equity": initial_capital + realized_pnl_vnd,
+        "current_equity": initial_capital + realized_pnl_vnd + open_pnl_vnd,
+        "max_drawdown_vnd": max_drawdown_vnd,
+        "max_drawdown_pct": max_drawdown_pct if initial_capital > 0 else None,
     }
 
 

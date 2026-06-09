@@ -81,6 +81,8 @@ dashboard supports:
 - `long_start` and `short_start` to open a position.
 - `dca_long` and `dca_short` to add contracts and recalculate average price.
 - `close_long` and `close_short` to close the full position.
+- Enter and persist derivative initial capital from the VN30 derivatives tab.
+- Track current equity and maximum drawdown from the realized closed-trade equity curve.
 - P/L in VN30 points and VND using `DERIVATIVE_CONTRACT_MULTIPLIER`.
 
 Derivative payloads must include `"asset_type":"derivative"` so they are routed
