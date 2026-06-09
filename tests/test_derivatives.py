@@ -90,6 +90,7 @@ class DerivativePerformanceTest(unittest.TestCase):
         self.assertEqual(position["current_price"], 1312)
         self.assertEqual(position["pnl_points"], 12)
         self.assertEqual(position["pnl_vnd"], 1200000)
+        self.assertEqual([row["action"] for row in result["events"]], ["long_start"])
 
 
 if __name__ == "__main__":

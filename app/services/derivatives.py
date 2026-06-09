@@ -70,6 +70,7 @@ def normalize_derivative_action(raw_action: str | None) -> str:
 
 def build_derivative_performance(events: list[dict[str, Any]]) -> dict[str, Any]:
     ordered = sorted(events, key=lambda item: (_event_sort_time(item), item["id"]))
+    visible_events = [event for event in ordered if event["action"] != "mark"]
     positions: dict[tuple[str, str], DerivativePosition] = {}
     latest_prices: dict[str, float] = {}
     closed_trades: list[dict[str, Any]] = []
@@ -160,7 +161,7 @@ def build_derivative_performance(events: list[dict[str, Any]]) -> dict[str, Any]
             key=lambda row: (_parse_timestamp(row.get("exit_time")), row["exit_signal_id"]),
             reverse=True,
         ),
-        "events": sorted(ordered, key=lambda row: row["id"], reverse=True),
+        "events": sorted(visible_events, key=lambda row: row["id"], reverse=True),
         "ignored_events": ignored_events,
     }
 

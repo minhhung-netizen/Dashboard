@@ -1,4 +1,5 @@
 //@version=5
+//@strategy_alert_message {{strategy.order.alert_message}}
 strategy(
      "VN30 Modern DCA - EMA Delay + DCA + EMA250 Filter + HTF Zone TP",
      overlay=true,
@@ -10,31 +11,31 @@ strategy(
 // 1. INPUTS
 // =====================================================
 grpSignal = "SIGNAL - EMA HIGH/LOW DELAY"
-emaLen    = input.int(50, "EMA Length", minval=1, group=grpSignal)
-delayBars = input.int(10, "Delay Bars After Signal", minval=1, group=grpSignal)
+emaLen    = input.int(8, "EMA Length", minval=1, group=grpSignal)
+delayBars = input.int(11, "Delay Bars After Signal", minval=1, group=grpSignal)
 useFullCandle = input.bool(true, "Require Full Candle Above/Below EMA", group=grpSignal)
 
 grpFilter = "FILTER - EMA250 HTF"
 useEma250Filter = input.bool(true, "Use EMA250 Trend Filter", group=grpFilter)
-ema250Tf = input.timeframe("", "EMA250 Filter Timeframe", group=grpFilter)
+ema250Tf = input.timeframe("30", "EMA250 Filter Timeframe", group=grpFilter)
 
 grpStartFilter = "FILTER - START ENTRY DISTANCE TO EMA250"
 useStartDistFilter = input.bool(true, "Use Max Distance From EMA250 For First Entry", group=grpStartFilter)
-maxStartDistPoints = input.float(20.0, "Max Distance From EMA250 Points", minval=0.0, group=grpStartFilter)
+maxStartDistPoints = input.float(150.0, "Max Distance From EMA250 Points", minval=0.0, group=grpStartFilter)
 
 grpDCA = "STRATEGY - DCA & VN30 POINTS"
-maxLayers  = input.int(5, "Max DCA Layers", minval=1, group=grpDCA)
+maxLayers  = input.int(10, "Max DCA Layers", minval=1, group=grpDCA)
 dcaStep    = input.float(15.0, "DCA Step / Min Distance From Last Entry", minval=0.0, group=grpDCA)
 baseQty = input.float(1.0, "Base Quantity", minval=0.0, step=1.0, group=grpDCA)
-dcaStepsText = input.string("1,2,3,4,5", "DCA Step Quantity Multipliers", group=grpDCA)
+dcaStepsText = input.string("1,1,2,3,5,8,13,21", "DCA Step Quantity Multipliers", group=grpDCA)
 
 grpExit = "EXIT - TP / SL"
 tpMode = input.string("Zone TP", "Take Profit Mode", options=["Fixed Points", "Zone TP"], group=grpExit)
-tpPoints = input.float(10.0, "Fixed Take Profit Points", minval=0.0, group=grpExit)
-slPoints = input.float(50.0, "Stop Loss Points", minval=0.0, group=grpExit)
-tpZoneTf = input.timeframe("", "TP Zone Timeframe", group=grpExit)
-tpZoneLookback = input.int(50, "TP Zone Lookback Bars", minval=2, group=grpExit)
-tpZoneOffset   = input.float(2.0, "TP Offset From Zone Points", minval=0.0, group=grpExit)
+tpPoints = input.float(80.0, "Fixed Take Profit Points", minval=0.0, group=grpExit)
+slPoints = input.float(200.0, "Stop Loss Points", minval=0.0, group=grpExit)
+tpZoneTf = input.timeframe("30", "TP Zone Timeframe", group=grpExit)
+tpZoneLookback = input.int(300, "TP Zone Lookback Bars", minval=2, group=grpExit)
+tpZoneOffset   = input.float(10.0, "TP Offset From Zone Points", minval=0.0, group=grpExit)
 useFallbackFixedTP = input.bool(true, "Use Fixed TP If Zone TP Invalid", group=grpExit)
 
 grpDashboard = "DASHBOARD WEBHOOK"
@@ -48,41 +49,45 @@ positionUpdateBars = input.int(1, "Update every N closed bars", minval=1, group=
 // =====================================================
 // 2. DASHBOARD PAYLOAD
 // =====================================================
-f_json_escape(_text) =>
+f_json_escape(string _text) =>
     escaped = str.replace_all(str.tostring(_text), "\\", "\\\\")
     escaped := str.replace_all(escaped, "\"", "\\\"")
     escaped := str.replace_all(escaped, "\n", " ")
     escaped
 
-f_optional_number(_value) =>
+f_optional_number(float _value) =>
     na(_value) ? "" : str.tostring(_value, format.mintick)
 
-f_dashboard_payload(_action, _qty, _reason, _tp, _sl) =>
+f_dashboard_payload(string _action, string _eventPriceText, float _qty, string _reason, float _tp, float _sl) =>
     dashboardTicker = (syminfo.prefix != "" ? syminfo.prefix + ":" : "") + syminfo.ticker
-    "{" +
-      "\"asset_type\":\"derivative\"," +
-      "\"market\":\"VN30F\"," +
-      "\"ticker\":\"" + f_json_escape(dashboardTicker) + "\"," +
-      "\"action\":\"" + f_json_escape(_action) + "\"," +
-      "\"price\":\"" + str.tostring(close, format.mintick) + "\"," +
-      "\"quantity\":\"" + str.tostring(_qty) + "\"," +
-      "\"contract_multiplier\":\"" + str.tostring(contractMultiplier) + "\"," +
-      "\"timeframe\":\"" + f_json_escape(timeframe.period) + "\"," +
-      "\"strategy\":\"" + f_json_escape(dashboardStrategy) + "\"," +
-      "\"time\":\"" + str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ssXXX", syminfo.timezone) + "\"," +
-      "\"reason\":\"" + f_json_escape(_reason) + "\"," +
-      "\"take_profit\":\"" + f_optional_number(_tp) + "\"," +
-      "\"stop_loss\":\"" + f_optional_number(_sl) + "\"," +
-      "\"secret\":\"" + f_json_escape(webhookSecret) + "\"" +
-      "}"
+    payload = "{"
+    payload += "\"asset_type\":\"derivative\","
+    payload += "\"market\":\"VN30F\","
+    payload += "\"ticker\":\"" + f_json_escape(dashboardTicker) + "\","
+    payload += "\"action\":\"" + f_json_escape(_action) + "\","
+    payload += "\"price\":\"" + _eventPriceText + "\","
+    payload += "\"quantity\":\"" + str.tostring(_qty) + "\","
+    payload += "\"contract_multiplier\":\"" + str.tostring(contractMultiplier) + "\","
+    payload += "\"timeframe\":\"" + f_json_escape(timeframe.period) + "\","
+    payload += "\"strategy\":\"" + f_json_escape(dashboardStrategy) + "\","
+    payload += "\"time\":\"" + str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ssXXX", syminfo.timezone) + "\","
+    payload += "\"reason\":\"" + f_json_escape(_reason) + "\","
+    payload += "\"take_profit\":\"" + f_optional_number(_tp) + "\","
+    payload += "\"stop_loss\":\"" + f_optional_number(_sl) + "\","
+    payload += "\"secret\":\"" + f_json_escape(webhookSecret) + "\""
+    payload += "}"
+    payload
 
-f_order_message(_action, _qty, _reason, _tp, _sl) =>
-    enableDashboardAlert ? f_dashboard_payload(_action, _qty, _reason, _tp, _sl) : ""
+f_order_message(string _action, float _qty, string _reason, float _tp, float _sl) =>
+    orderMessage = ""
+    if enableDashboardAlert
+        orderMessage := f_dashboard_payload(_action, "{{strategy.order.price}}", _qty, _reason, _tp, _sl)
+    orderMessage
 
 // =====================================================
 // 3. QUANTITY MULTIPLIER BY DCA LAYER
 // =====================================================
-f_getStepMult(_stepIndex) =>
+f_getStepMult(int _stepIndex) =>
     parts = str.split(dcaStepsText, ",")
     arrSize = array.size(parts)
     float result = 1.0
@@ -242,7 +247,7 @@ if isShort and longSignal
 
 if enableDashboardAlert and sendPositionUpdates and hasPos and barstate.isconfirmed and bar_index % positionUpdateBars == 0
     alert(
-         f_dashboard_payload("mark", math.abs(strategy.position_size), "Position Update", finalTP, slVal),
+         f_dashboard_payload("mark", str.tostring(close, format.mintick), math.abs(strategy.position_size), "Position Update", finalTP, slVal),
          alert.freq_once_per_bar_close
      )
 
