@@ -82,7 +82,10 @@ dashboard supports:
 - `dca_long` and `dca_short` to add contracts and recalculate average price.
 - `close_long` and `close_short` to close the full position.
 - Enter and persist derivative initial capital from the VN30 derivatives tab.
-- Track current equity and maximum drawdown from the realized closed-trade equity curve.
+- Track current equity and maximum drawdown from closed trades and hidden price marks.
+- Derivative performance includes total P/L, total return, winning-trade rate,
+  profit factor, and an equity/drawdown chart. Hidden `mark` events contribute
+  to historical equity drawdown without appearing in the event table.
 - P/L in VN30 points and VND using `DERIVATIVE_CONTRACT_MULTIPLIER`.
 
 Derivative payloads must include `"asset_type":"derivative"` so they are routed

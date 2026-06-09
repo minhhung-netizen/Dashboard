@@ -156,8 +156,11 @@ def build_derivative_performance(
         )
         for position in positions.values()
     ]
+    equity_curve = _equity_curve(ordered, initial_capital)
+    summary = _summary(open_positions, closed_trades, initial_capital, equity_curve)
     return {
-        "summary": _summary(open_positions, closed_trades, initial_capital),
+        "summary": summary,
+        "equity_curve": equity_curve,
         "open_positions": sorted(open_positions, key=lambda row: (row["symbol"], row["strategy"])),
         "closed_trades": sorted(
             closed_trades,
@@ -210,37 +213,118 @@ def _summary(
     open_positions: list[dict[str, Any]],
     closed_trades: list[dict[str, Any]],
     initial_capital: float,
+    equity_curve: list[dict[str, Any]],
 ) -> dict[str, Any]:
     wins = sum(1 for trade in closed_trades if trade["pnl_points"] > 0)
+    losses = sum(1 for trade in closed_trades if trade["pnl_points"] < 0)
     realized_pnl_vnd = sum(row["pnl_vnd"] for row in closed_trades)
     open_pnl_vnd = sum(row["pnl_vnd"] for row in open_positions)
-    equity = initial_capital
-    peak_equity = initial_capital
-    max_drawdown_vnd = 0.0
-    max_drawdown_pct = 0.0
-    for trade in closed_trades:
-        equity += trade["pnl_vnd"]
-        peak_equity = max(peak_equity, equity)
-        drawdown_vnd = max(0.0, peak_equity - equity)
-        drawdown_pct = drawdown_vnd / peak_equity * 100 if peak_equity > 0 else 0.0
-        if drawdown_vnd > max_drawdown_vnd:
-            max_drawdown_vnd = drawdown_vnd
-        if drawdown_pct > max_drawdown_pct:
-            max_drawdown_pct = drawdown_pct
-    return {
+    gross_profit_vnd = sum(max(0.0, row["pnl_vnd"]) for row in closed_trades)
+    gross_loss_vnd = abs(sum(min(0.0, row["pnl_vnd"]) for row in closed_trades))
+    max_drawdown_vnd = max((row["drawdown_vnd"] for row in equity_curve), default=0.0)
+    max_drawdown_pct = max((row["drawdown_pct"] for row in equity_curve), default=0.0)
+    total_pnl_vnd = realized_pnl_vnd + open_pnl_vnd
+    summary = {
         "open_count": len(open_positions),
         "closed_count": len(closed_trades),
         "wins": wins,
+        "losses": losses,
         "win_rate_pct": wins / len(closed_trades) * 100 if closed_trades else None,
         "open_pnl_points": sum(row["pnl_points"] for row in open_positions),
         "open_pnl_vnd": open_pnl_vnd,
         "realized_pnl_points": sum(row["pnl_points"] for row in closed_trades),
         "realized_pnl_vnd": realized_pnl_vnd,
+        "total_pnl_vnd": total_pnl_vnd,
+        "total_return_pct": total_pnl_vnd / initial_capital * 100 if initial_capital > 0 else None,
+        "gross_profit_vnd": gross_profit_vnd,
+        "gross_loss_vnd": gross_loss_vnd,
+        "profit_factor": gross_profit_vnd / gross_loss_vnd if gross_loss_vnd > 0 else None,
         "initial_capital": initial_capital,
         "realized_equity": initial_capital + realized_pnl_vnd,
-        "current_equity": initial_capital + realized_pnl_vnd + open_pnl_vnd,
+        "current_equity": initial_capital + total_pnl_vnd,
         "max_drawdown_vnd": max_drawdown_vnd,
         "max_drawdown_pct": max_drawdown_pct if initial_capital > 0 else None,
+    }
+    return summary
+
+
+def _equity_curve(events: list[dict[str, Any]], initial_capital: float) -> list[dict[str, Any]]:
+    positions: dict[tuple[str, str], dict[str, Any]] = {}
+    realized_pnl = 0.0
+    peak_equity = initial_capital
+    curve = [_equity_point(None, "Start", initial_capital, peak_equity)]
+
+    for event in events:
+        symbol = event["symbol"]
+        strategy = (event.get("strategy") or "Unspecified").strip() or "Unspecified"
+        key = (symbol, strategy)
+        action = event["action"]
+        price = _safe_float(event.get("price"))
+        quantity = _safe_float(event.get("quantity")) or 0
+        multiplier = _safe_float(event.get("contract_multiplier")) or 100000
+        position = positions.get(key)
+        changed = False
+
+        if action in {"long_start", "short_start"} and position is None:
+            if price is not None and price > 0 and quantity > 0:
+                positions[key] = {
+                    "side": "long" if action == "long_start" else "short",
+                    "quantity": quantity,
+                    "total_cost": price * quantity,
+                    "mark_price": price,
+                    "multiplier": multiplier,
+                }
+                changed = True
+        elif action in {"dca_long", "dca_short"} and position is not None:
+            expected_side = "long" if action == "dca_long" else "short"
+            if position["side"] == expected_side and price is not None and price > 0 and quantity > 0:
+                position["total_cost"] += price * quantity
+                position["quantity"] += quantity
+                position["mark_price"] = price
+                changed = True
+        elif action in {"close_long", "close_short"} and position is not None:
+            expected_side = "long" if action == "close_long" else "short"
+            if position["side"] == expected_side and price is not None and price > 0:
+                realized_pnl += _position_pnl(position, price)
+                positions.pop(key, None)
+                changed = True
+        elif action == "mark" and position is not None and price is not None and price > 0:
+            position["mark_price"] = price
+            changed = True
+
+        if not changed:
+            continue
+        open_pnl = sum(_position_pnl(row, row["mark_price"]) for row in positions.values())
+        equity = initial_capital + realized_pnl + open_pnl
+        peak_equity = max(peak_equity, equity)
+        curve.append(_equity_point(_event_time(event), action, equity, peak_equity))
+    return curve
+
+
+def _position_pnl(position: dict[str, Any], mark_price: float) -> float:
+    average_price = position["total_cost"] / position["quantity"]
+    direction = 1 if position["side"] == "long" else -1
+    return (
+        (mark_price - average_price)
+        * direction
+        * position["quantity"]
+        * position["multiplier"]
+    )
+
+
+def _equity_point(
+    time: str | None,
+    label: str,
+    equity: float,
+    peak_equity: float,
+) -> dict[str, Any]:
+    drawdown_vnd = max(0.0, peak_equity - equity)
+    return {
+        "time": time,
+        "label": label,
+        "equity": equity,
+        "drawdown_vnd": drawdown_vnd,
+        "drawdown_pct": drawdown_vnd / peak_equity * 100 if peak_equity > 0 else 0.0,
     }
 
 

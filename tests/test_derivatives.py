@@ -109,6 +109,40 @@ class DerivativePerformanceTest(unittest.TestCase):
         self.assertEqual(summary["current_equity"], 11000000)
         self.assertEqual(summary["max_drawdown_vnd"], 1000000)
         self.assertEqual(summary["max_drawdown_pct"], 10)
+        self.assertEqual(summary["total_return_pct"], 10)
+        self.assertEqual(summary["profit_factor"], 2)
+        self.assertEqual(summary["win_rate_pct"], 50)
+        self.assertEqual(result["equity_curve"][-1]["equity"], 11000000)
+
+    def test_open_position_loss_is_included_in_equity_drawdown(self):
+        result = build_derivative_performance(
+            [
+                event(1, "long_start", 100, 1),
+                event(2, "mark", 80, 1),
+            ],
+            initial_capital=10000000,
+        )
+
+        summary = result["summary"]
+        self.assertEqual(summary["current_equity"], 8000000)
+        self.assertEqual(summary["max_drawdown_vnd"], 2000000)
+        self.assertEqual(summary["max_drawdown_pct"], 20)
+
+    def test_hidden_mark_history_preserves_intratrade_equity_drawdown(self):
+        result = build_derivative_performance(
+            [
+                event(1, "long_start", 100, 1),
+                event(2, "mark", 70, 1),
+                event(3, "close_long", 110, 1),
+            ],
+            initial_capital=10000000,
+        )
+
+        summary = result["summary"]
+        self.assertEqual(summary["current_equity"], 11000000)
+        self.assertEqual(summary["max_drawdown_vnd"], 3000000)
+        self.assertEqual(summary["max_drawdown_pct"], 30)
+        self.assertNotIn("mark", [row["action"] for row in result["events"]])
 
 
 if __name__ == "__main__":

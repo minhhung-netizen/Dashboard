@@ -69,6 +69,11 @@ const els = {
   derivativeCurrentEquity: document.querySelector("#derivativeCurrentEquity"),
   derivativeMaxDrawdown: document.querySelector("#derivativeMaxDrawdown"),
   derivativeMaxDrawdownPct: document.querySelector("#derivativeMaxDrawdownPct"),
+  derivativeTotalPnl: document.querySelector("#derivativeTotalPnl"),
+  derivativeTotalReturn: document.querySelector("#derivativeTotalReturn"),
+  derivativeWinningTrades: document.querySelector("#derivativeWinningTrades"),
+  derivativeProfitFactor: document.querySelector("#derivativeProfitFactor"),
+  derivativeEquityCanvas: document.querySelector("#derivativeEquityChart"),
   derivativeCapitalForm: document.querySelector("#derivativeCapitalForm"),
   derivativeCapitalInput: document.querySelector("#derivativeCapitalInput"),
   derivativeOpenPositionsTable: document.querySelector("#derivativeOpenPositionsTable"),
@@ -262,8 +267,14 @@ const translations = {
     derivativeRealizedPnl: "Realized P/L",
     derivativeInitialCapital: "Initial Capital",
     derivativeCurrentEquity: "Current Equity",
-    derivativeMaxDrawdown: "Maximum Drawdown",
-    derivativeMaxDrawdownPct: "Maximum Drawdown %",
+    derivativeMaxDrawdown: "Maximum Equity Drawdown",
+    derivativeMaxDrawdownPct: "Maximum Equity Drawdown %",
+    derivativeTotalPnl: "Total P/L",
+    derivativeTotalReturn: "Total Return",
+    derivativeWinningTrades: "Winning Trades",
+    derivativeProfitFactor: "Profit Factor",
+    derivativePerformance: "Derivative Performance",
+    derivativeEquityCurve: "Equity and Maximum Drawdown",
     derivativeCapitalPlaceholder: "Initial capital (VND)",
     saveCapital: "Save capital",
     derivativeCapitalSaveFailed: "Could not save derivative capital",
@@ -653,8 +664,14 @@ Object.assign(translations.vi, {
   derivativeRealizedPnl: "Lãi/lỗ đã chốt",
   derivativeInitialCapital: "Vốn ban đầu",
   derivativeCurrentEquity: "Vốn hiện tại",
-  derivativeMaxDrawdown: "Sụt giảm tối đa",
-  derivativeMaxDrawdownPct: "Sụt giảm tối đa %",
+  derivativeMaxDrawdown: "Mức giảm vốn chủ sở hữu lớn nhất",
+  derivativeMaxDrawdownPct: "Mức giảm vốn chủ sở hữu lớn nhất %",
+  derivativeTotalPnl: "Tổng lãi/lỗ",
+  derivativeTotalReturn: "Tỷ suất tổng",
+  derivativeWinningTrades: "Giao dịch lãi",
+  derivativeProfitFactor: "Hệ số lợi nhuận",
+  derivativePerformance: "Hiệu suất phái sinh",
+  derivativeEquityCurve: "Vốn chủ sở hữu và mức sụt giảm tối đa",
   derivativeCapitalPlaceholder: "Vốn ban đầu (VND)",
   saveCapital: "Lưu vốn",
   derivativeCapitalSaveFailed: "Không thể lưu vốn phái sinh",
@@ -766,6 +783,9 @@ function applyTheme() {
   if (state.activeTab === "manualPortfolio") {
     drawManualEquityCurve(state.manualPortfolio.equity_curve || []);
   }
+  if (state.activeTab === "derivatives") {
+    drawDerivativeEquityCurve(state.derivatives.equity_curve || []);
+  }
 }
 
 function updateThemeButton() {
@@ -797,6 +817,9 @@ function setActiveTab(tabName) {
   }
   if (tabName === "manualPortfolio") {
     drawManualEquityCurve(state.manualPortfolio.equity_curve || []);
+  }
+  if (tabName === "derivatives") {
+    drawDerivativeEquityCurve(state.derivatives.equity_curve || []);
   }
 }
 
@@ -1129,9 +1152,16 @@ function renderDerivatives(payload) {
   els.derivativeCurrentEquity.textContent = formatVnd(summary.current_equity);
   els.derivativeMaxDrawdown.innerHTML = formatDrawdownVnd(summary.max_drawdown_vnd);
   els.derivativeMaxDrawdownPct.innerHTML = formatDrawdownPercent(summary.max_drawdown_pct);
+  els.derivativeTotalPnl.innerHTML = formatSignedVnd(summary.total_pnl_vnd);
+  els.derivativeTotalReturn.innerHTML = formatSignedPercent(summary.total_return_pct);
+  els.derivativeWinningTrades.textContent = summary.closed_count
+    ? `${formatPercent(summary.win_rate_pct)} · ${summary.wins}/${summary.closed_count}`
+    : "-";
+  els.derivativeProfitFactor.textContent = formatRatio(summary.profit_factor);
   if (document.activeElement !== els.derivativeCapitalInput) {
     els.derivativeCapitalInput.value = rawNumber(summary.initial_capital);
   }
+  drawDerivativeEquityCurve(payload.equity_curve || []);
 
   if (!openPositions.length) {
     els.derivativeOpenPositionsTable.innerHTML =
@@ -1792,6 +1822,79 @@ function drawManualEquityCurve(curve) {
   ctx.fillText(`${last.value.toFixed(2)}`, pad.left, rect.height - 9);
 }
 
+function drawDerivativeEquityCurve(curve) {
+  const canvas = els.derivativeEquityCanvas;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+
+  const points = (curve || [])
+    .map((point) => ({
+      equity: Number(point.equity),
+      drawdown: Number(point.drawdown_vnd || 0),
+    }))
+    .filter((point) => Number.isFinite(point.equity));
+  if (points.length < 2) {
+    ctx.fillStyle = cssVar("--muted") || "#66727a";
+    ctx.font = "14px system-ui";
+    ctx.fillText(t("noDerivativeTrades"), 18, 38);
+    return;
+  }
+
+  const pad = { top: 24, right: 76, bottom: 32, left: 18 };
+  const width = rect.width - pad.left - pad.right;
+  const height = rect.height - pad.top - pad.bottom;
+  const values = points.map((point) => point.equity);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const maxDrawdown = Math.max(...points.map((point) => point.drawdown), 1);
+
+  ctx.strokeStyle = cssVar("--line") || "#dbe2df";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + (height / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(rect.width - pad.right, y);
+    ctx.stroke();
+    ctx.fillStyle = cssVar("--muted") || "#66727a";
+    ctx.font = "12px system-ui";
+    ctx.fillText(compactVnd(max - (range / 4) * i), rect.width - pad.right + 8, y + 4);
+  }
+
+  const stepX = width / Math.max(1, points.length - 1);
+  const barWidth = Math.max(2, Math.min(12, stepX * 0.55));
+  points.forEach((point, index) => {
+    if (point.drawdown <= 0) return;
+    const x = pad.left + stepX * index;
+    const barHeight = (point.drawdown / maxDrawdown) * (height * 0.34);
+    ctx.fillStyle = "rgba(202, 62, 62, 0.45)";
+    ctx.fillRect(x - barWidth / 2, pad.top + height - barHeight, barWidth, barHeight);
+  });
+
+  ctx.strokeStyle = cssVar("--buy") || "#16a085";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  points.forEach((point, index) => {
+    const x = pad.left + stepX * index;
+    const y = pad.top + height - ((point.equity - min) / range) * height;
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const last = points[points.length - 1];
+  ctx.fillStyle = cssVar("--ink") || "#152025";
+  ctx.font = "700 12px system-ui";
+  ctx.fillText(formatVnd(last.equity), pad.left, rect.height - 9);
+}
+
 function renderSummary(summary) {
   const visibleSummary = state.watchlistOnly ? summarizeSignals(state.signals) : summary;
   els.total.textContent = visibleSummary.total ?? 0;
@@ -2254,6 +2357,18 @@ function formatVnd(value) {
   return `${Number(value).toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ`;
 }
 
+function compactVnd(value) {
+  return Number(value).toLocaleString("vi-VN", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
+}
+
+function formatRatio(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "-";
+  return Number(value).toFixed(3);
+}
+
 function formatDrawdownVnd(value) {
   if (value === null || value === undefined) return "-";
   const number = Number(value);
@@ -2317,6 +2432,9 @@ window.addEventListener("resize", () => {
   if (state.selectedTicker) renderChart(state.selectedTicker);
   if (state.activeTab === "manualPortfolio") {
     drawManualEquityCurve(state.manualPortfolio.equity_curve || []);
+  }
+  if (state.activeTab === "derivatives") {
+    drawDerivativeEquityCurve(state.derivatives.equity_curve || []);
   }
 });
 

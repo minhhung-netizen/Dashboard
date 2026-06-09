@@ -420,6 +420,7 @@ main {
 }
 
 .tabPanel > .closedTradesPanel,
+.tabPanel > .derivativeEquityPanel,
 .tabPanel > .exportPanel,
 .tabPanel > .exportPanel + .invalidSignalsPanel,
 .tabPanel > .manualDailyPanel,
@@ -515,7 +516,8 @@ main {
 }
 
 #equityChart,
-#manualEquityChart {
+#manualEquityChart,
+#derivativeEquityChart {
   height: 260px;
 }
 
