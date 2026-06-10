@@ -49,7 +49,8 @@ const els = {
   refresh: document.querySelector("#refreshButton"),
   chartTitle: document.querySelector("#chartTitle"),
   lastUpdated: document.querySelector("#lastUpdated"),
-  canvas: document.querySelector("#priceChart"),
+  chart: document.querySelector("#priceChart"),
+  chartEmpty: document.querySelector("#priceChartEmpty"),
   equityCanvas: document.querySelector("#equityChart"),
   manualEquityCanvas: document.querySelector("#manualEquityChart"),
   dividendEventForm: document.querySelector("#dividendEventForm"),
@@ -708,6 +709,16 @@ const state = {
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
 };
 
+const priceChartState = {
+  chart: null,
+  candleSeries: null,
+  volumeSeries: null,
+  markerPlugin: null,
+  resizeObserver: null,
+  ticker: "",
+  requestId: 0,
+};
+
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -774,7 +785,9 @@ function applyTranslations() {
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
   updateThemeButton();
-  if (state.selectedTicker) {
+  if (priceChartState.chart) {
+    applyPriceChartTheme();
+  } else if (state.selectedTicker) {
     renderChart(state.selectedTicker);
   }
   if (state.activeTab === "performance") {
@@ -1990,13 +2003,25 @@ async function reopenClosedTrade(exitSignalId) {
 }
 
 async function renderChart(ticker) {
+  const requestId = ++priceChartState.requestId;
   state.selectedTicker = ticker;
   els.chartTitle.textContent = ticker;
   renderTickerTimeline(ticker);
-  const payload = await fetchJson(`/api/chart/${encodeURIComponent(ticker)}`);
+  let payload;
+  try {
+    payload = await fetchJson(`/api/chart/${encodeURIComponent(ticker)}`);
+  } catch (error) {
+    if (requestId === priceChartState.requestId) {
+      console.error(`Failed to load chart for ${ticker}`, error);
+      clearChart(t("noHistory"));
+    }
+    return;
+  }
+  if (requestId !== priceChartState.requestId) return;
   drawCandles(
     normalizeHistory(payload.history || []),
-    normalizeMarkers(payload.markers || [])
+    normalizeMarkers(payload.markers || []),
+    ticker
   );
 }
 
@@ -2037,9 +2062,10 @@ function renderTickerTimeline(ticker) {
 }
 
 function normalizeHistory(history) {
-  return history
+  const rowsByTime = new Map();
+  history
     .map((row) => ({
-      time: row.time || row.date || row.tradingDate || row.trading_date || "",
+      time: normalizeChartTime(row.time || row.date || row.tradingDate || row.trading_date || ""),
       open: Number(row.open ?? row.Open ?? row.openPrice ?? row.o),
       high: Number(row.high ?? row.High ?? row.highPrice ?? row.h),
       low: Number(row.low ?? row.Low ?? row.lowPrice ?? row.l),
@@ -2047,8 +2073,10 @@ function normalizeHistory(history) {
       volume: Number(row.volume ?? row.Volume ?? row.v ?? 0),
     }))
     .filter((row) =>
-      [row.open, row.high, row.low, row.close].every((value) => Number.isFinite(value))
-    );
+      row.time && [row.open, row.high, row.low, row.close].every((value) => Number.isFinite(value))
+    )
+    .forEach((row) => rowsByTime.set(row.time, row));
+  return [...rowsByTime.values()].sort((left, right) => left.time.localeCompare(right.time));
 }
 
 function normalizeMarkers(markers) {
@@ -2062,156 +2090,188 @@ function normalizeMarkers(markers) {
     .filter((marker) => ["buy", "sell"].includes(marker.action));
 }
 
-function drawCandles(rows, markers = []) {
-  const canvas = els.canvas;
-  const ctx = canvas.getContext("2d");
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, rect.width, rect.height);
-
+function drawCandles(rows, markers = [], ticker = "") {
+  ensurePriceChart();
   if (!rows.length) {
     clearChart(t("noHistory"));
     return;
   }
 
-  const pad = { top: 22, right: 54, bottom: 28, left: 18 };
-  const width = rect.width - pad.left - pad.right;
-  const height = rect.height - pad.top - pad.bottom;
-  const min = Math.min(...rows.map((row) => row.low));
-  const max = Math.max(...rows.map((row) => row.high));
-  const range = max - min || 1;
-  const candleGap = width / rows.length;
-  const bodyWidth = Math.max(4, Math.min(12, candleGap * 0.62));
+  els.chartEmpty.hidden = true;
+  priceChartState.candleSeries.setData(rows.map(({ time, open, high, low, close }) => ({
+    time,
+    open,
+    high,
+    low,
+    close,
+  })));
+  priceChartState.volumeSeries.setData(rows
+    .filter((row) => Number.isFinite(row.volume) && row.volume > 0)
+    .map((row) => ({
+      time: row.time,
+      value: row.volume,
+      color: row.close >= row.open
+        ? colorWithAlpha(cssVar("--buy") || "#078465", 0.42)
+        : colorWithAlpha(cssVar("--sell") || "#c2413a", 0.42),
+    })));
+  priceChartState.markerPlugin.setMarkers(toSeriesMarkers(markers, rows));
 
-  ctx.strokeStyle = cssVar("--line") || "#dbe2df";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i += 1) {
-    const y = pad.top + (height / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(pad.left, y);
-    ctx.lineTo(rect.width - pad.right + 6, y);
-    ctx.stroke();
-    const label = max - (range / 4) * i;
-    ctx.fillStyle = cssVar("--muted") || "#66727a";
-    ctx.font = "12px system-ui";
-    ctx.fillText(label.toFixed(2), rect.width - pad.right + 10, y + 4);
+  if (priceChartState.ticker !== ticker) {
+    priceChartState.chart.timeScale().fitContent();
+  }
+  priceChartState.ticker = ticker;
+}
+
+function ensurePriceChart() {
+  if (priceChartState.chart) return;
+  if (!window.LightweightCharts) {
+    throw new Error("Lightweight Charts failed to load");
   }
 
-  rows.forEach((row, index) => {
-    const x = pad.left + candleGap * index + candleGap / 2;
-    const yOpen = priceToY(row.open, min, range, pad.top, height);
-    const yHigh = priceToY(row.high, min, range, pad.top, height);
-    const yLow = priceToY(row.low, min, range, pad.top, height);
-    const yClose = priceToY(row.close, min, range, pad.top, height);
-    const up = row.close >= row.open;
-    const color = up ? cssVar("--buy") || "#0f8f72" : cssVar("--sell") || "#c64242";
-
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x, yHigh);
-    ctx.lineTo(x, yLow);
-    ctx.stroke();
-
-    const top = Math.min(yOpen, yClose);
-    const bodyHeight = Math.max(2, Math.abs(yClose - yOpen));
-    ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, bodyHeight);
+  const chart = window.LightweightCharts.createChart(els.chart, {
+    width: Math.max(1, els.chart.clientWidth),
+    height: Math.max(1, els.chart.clientHeight),
+    localization: { locale: state.language === "vi" ? "vi-VN" : "en-US" },
+    rightPriceScale: { borderVisible: false },
+    timeScale: {
+      borderVisible: false,
+      timeVisible: false,
+      secondsVisible: false,
+      rightOffset: 5,
+    },
+    crosshair: { mode: window.LightweightCharts.CrosshairMode.MagnetOHLC },
+  });
+  const candleSeries = chart.addSeries(window.LightweightCharts.CandlestickSeries, {
+    upColor: cssVar("--buy") || "#078465",
+    downColor: cssVar("--sell") || "#c2413a",
+    borderVisible: false,
+    wickUpColor: cssVar("--buy") || "#078465",
+    wickDownColor: cssVar("--sell") || "#c2413a",
+    priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+  });
+  const volumeSeries = chart.addSeries(window.LightweightCharts.HistogramSeries, {
+    priceFormat: { type: "volume" },
+    priceScaleId: "volume",
+    lastValueVisible: false,
+    priceLineVisible: false,
+  });
+  chart.priceScale("volume").applyOptions({
+    scaleMargins: { top: 0.82, bottom: 0 },
   });
 
-  drawMarkers(ctx, rows, markers, {
-    top: pad.top,
-    height,
-    min,
-    range,
-    candleGap,
-    left: pad.left,
-  });
-
-  const last = rows[rows.length - 1];
-  ctx.fillStyle = cssVar("--ink") || "#152025";
-  ctx.font = "12px system-ui";
-  ctx.fillText(String(last.time).slice(0, 10), pad.left, rect.height - 8);
+  priceChartState.chart = chart;
+  priceChartState.candleSeries = candleSeries;
+  priceChartState.volumeSeries = volumeSeries;
+  priceChartState.markerPlugin = window.LightweightCharts.createSeriesMarkers(candleSeries, []);
+  priceChartState.resizeObserver = new ResizeObserver(resizePriceChart);
+  priceChartState.resizeObserver.observe(els.chart);
+  applyPriceChartTheme();
 }
 
-function drawMarkers(ctx, rows, markers, scale) {
-  if (!rows.length || !markers.length) return;
+function applyPriceChartTheme() {
+  if (!priceChartState.chart) return;
+  const buy = cssVar("--buy") || "#078465";
+  const sell = cssVar("--sell") || "#c2413a";
+  priceChartState.chart.applyOptions({
+    layout: {
+      background: { type: window.LightweightCharts.ColorType.Solid, color: cssVar("--panel") || "#ffffff" },
+      textColor: cssVar("--muted") || "#64748b",
+      attributionLogo: false,
+    },
+    grid: {
+      vertLines: { color: cssVar("--line-soft") || "#edf1f6" },
+      horzLines: { color: cssVar("--line-soft") || "#edf1f6" },
+    },
+    localization: { locale: state.language === "vi" ? "vi-VN" : "en-US" },
+  });
+  priceChartState.candleSeries.applyOptions({
+    upColor: buy,
+    downColor: sell,
+    wickUpColor: buy,
+    wickDownColor: sell,
+  });
+}
 
-  const candleDates = rows.map((row) => normalizeDate(row.time));
-  const candleTimes = rows.map((row) => Date.parse(row.time));
+function resizePriceChart() {
+  if (!priceChartState.chart) return;
+  priceChartState.chart.resize(
+    Math.max(1, els.chart.clientWidth),
+    Math.max(1, els.chart.clientHeight)
+  );
+}
 
-  markers.forEach((marker) => {
-    const markerDate = normalizeDate(marker.time);
-    let index = candleDates.indexOf(markerDate);
-    if (index === -1) {
-      index = nearestCandleIndex(candleTimes, Date.parse(marker.time));
+function toSeriesMarkers(markers, rows) {
+  if (!markers.length || !rows.length) return [];
+  const availableTimes = rows.map((row) => row.time);
+  const availableSet = new Set(availableTimes);
+  return markers
+    .map((marker) => {
+      const requestedTime = normalizeChartTime(marker.time);
+      const time = availableSet.has(requestedTime)
+        ? requestedTime
+        : nearestChartTime(availableTimes, requestedTime);
+      if (!time) return null;
+      const isBuy = marker.action === "buy";
+      return {
+        time,
+        position: isBuy ? "belowBar" : "aboveBar",
+        color: isBuy ? cssVar("--buy") || "#078465" : cssVar("--sell") || "#c2413a",
+        shape: isBuy ? "arrowUp" : "arrowDown",
+        text: isBuy ? "B" : "S",
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time.localeCompare(right.time));
+}
+
+function nearestChartTime(availableTimes, requestedTime) {
+  const target = Date.parse(requestedTime);
+  if (!Number.isFinite(target)) return "";
+  let nearest = "";
+  let distance = Number.POSITIVE_INFINITY;
+  availableTimes.forEach((time) => {
+    const candidate = Date.parse(time);
+    const candidateDistance = Math.abs(candidate - target);
+    if (Number.isFinite(candidateDistance) && candidateDistance < distance) {
+      nearest = time;
+      distance = candidateDistance;
     }
-    if (index < 0) return;
-
-    const candle = rows[index];
-    const price = Number.isFinite(marker.price) && marker.price > 0
-      ? marker.price
-      : candle.close;
-    const x = scale.left + scale.candleGap * index + scale.candleGap / 2;
-    const y = priceToY(price, scale.min, scale.range, scale.top, scale.height);
-    const isBuy = marker.action === "buy";
-    const color = isBuy ? cssVar("--buy") || "#0f8f72" : cssVar("--sell") || "#c64242";
-    const direction = isBuy ? 1 : -1;
-
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x, y - direction * 12);
-    ctx.lineTo(x - 7, y - direction * 2);
-    ctx.lineTo(x + 7, y - direction * 2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.font = "700 11px system-ui";
-    ctx.fillText(isBuy ? "B" : "S", x - 4, y - direction * 16);
   });
+  return nearest;
 }
 
-function normalizeDate(value) {
+function normalizeChartTime(value) {
   if (!value) return "";
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-  return String(value).slice(0, 10);
+  const text = String(value);
+  const datePrefix = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (datePrefix) return datePrefix[1];
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
-function nearestCandleIndex(candleTimes, markerTime) {
-  if (!Number.isFinite(markerTime)) return -1;
-  let bestIndex = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  candleTimes.forEach((time, index) => {
-    if (!Number.isFinite(time)) return;
-    const distance = Math.abs(time - markerTime);
-    if (distance < bestDistance) {
-      bestIndex = index;
-      bestDistance = distance;
-    }
-  });
-  return bestIndex;
+function colorWithAlpha(color, alpha) {
+  const hex = String(color || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return color;
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function clearChart(message) {
-  const canvas = els.canvas;
-  const ctx = canvas.getContext("2d");
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, rect.width, rect.height);
-  ctx.fillStyle = cssVar("--muted") || "#66727a";
-  ctx.font = "14px system-ui";
-  ctx.fillText(message, 18, 38);
-}
-
-function priceToY(price, min, range, top, height) {
-  return top + height - ((price - min) / range) * height;
+  ensurePriceChart();
+  priceChartState.candleSeries.setData([]);
+  priceChartState.volumeSeries.setData([]);
+  priceChartState.markerPlugin.setMarkers([]);
+  priceChartState.ticker = "";
+  els.chartEmpty.textContent = message;
+  els.chartEmpty.hidden = false;
 }
 
 function formatDate(value) {
@@ -2429,7 +2489,7 @@ els.manualRecordDailyPerformance.addEventListener("click", recordManualDailyPerf
 els.dividendEventForm.addEventListener("submit", addDividendEvent);
 els.derivativeCapitalForm.addEventListener("submit", saveDerivativeCapital);
 window.addEventListener("resize", () => {
-  if (state.selectedTicker) renderChart(state.selectedTicker);
+  resizePriceChart();
   if (state.activeTab === "manualPortfolio") {
     drawManualEquityCurve(state.manualPortfolio.equity_curve || []);
   }

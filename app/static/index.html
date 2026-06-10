@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TradingView VN Dashboard</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -70,7 +71,16 @@
                 <span id="lastUpdated">Waiting for webhook</span>
               </div>
             </div>
-            <canvas id="priceChart" height="340"></canvas>
+            <div class="priceChartWrap">
+              <div id="priceChart" role="img" aria-label="Candlestick price chart"></div>
+              <div id="priceChartEmpty" class="chartEmpty" hidden></div>
+              <a
+                class="chartAttribution"
+                href="https://www.tradingview.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >TradingView Lightweight Charts</a>
+            </div>
           </div>
 
           <div class="signalsPanel">
@@ -588,6 +598,7 @@
       </div>
     </main>
 
+    <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>
