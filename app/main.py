@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.config import PROJECT_ROOT, get_settings
 from app.database import SignalStore, utc_now_iso
 from app.services.enrichment import (
+    DnseEnricher,
+    MarketDataEnricher,
     VnstockEnricher,
     coerce_float,
     normalize_stock_price,
@@ -41,13 +43,28 @@ from app.services.webhook_payload import parse_forgiving_json
 
 settings = get_settings()
 store = SignalStore(settings.database_path)
-enricher = VnstockEnricher(
+logger = logging.getLogger(__name__)
+vnstock_enricher = VnstockEnricher(
     lookback_days=settings.vnstock_lookback_days,
     cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
     min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
     include_metrics=settings.vnstock_include_metrics,
 )
-logger = logging.getLogger(__name__)
+dnse_enricher = None
+if settings.dnse_api_key and settings.dnse_api_secret:
+    try:
+        dnse_enricher = DnseEnricher(
+            api_key=settings.dnse_api_key,
+            api_secret=settings.dnse_api_secret,
+            base_url=settings.dnse_base_url,
+            api_version=settings.dnse_api_version,
+            lookback_days=settings.vnstock_lookback_days,
+            cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
+            min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
+        )
+    except BaseException:
+        logger.exception("Could not initialize DNSE market-data provider; using VNStock")
+enricher = MarketDataEnricher(dnse=dnse_enricher, vnstock=vnstock_enricher)
 last_auto_manual_price_refresh_date: str | None = None
 enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 
@@ -160,6 +177,7 @@ def dashboard_settings() -> dict[str, Any]:
         "default_signal_weight_pct": settings.default_signal_weight_pct,
         "derivative_contract_multiplier": settings.derivative_contract_multiplier,
         "derivative_initial_capital": derivative_initial_capital(),
+        "market_data_provider": "dnse" if dnse_enricher is not None else "vnstock",
     }
 
 

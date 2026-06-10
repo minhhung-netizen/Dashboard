@@ -19,6 +19,10 @@ class Settings:
     vnstock_min_request_interval_seconds: float = 4.0
     vnstock_lookback_days: int = 90
     vnstock_include_metrics: bool = False
+    dnse_api_key: str | None = None
+    dnse_api_secret: str | None = None
+    dnse_base_url: str = "https://openapi.dnse.com.vn"
+    dnse_api_version: str = "2026-05-07"
     default_signal_weight_pct: float = 5.0
     derivative_contract_multiplier: float = 100000.0
     derivative_initial_capital: float = 100000000.0
@@ -44,6 +48,10 @@ def get_settings() -> Settings:
     )
     vnstock_lookback_days = int(os.getenv("VNSTOCK_LOOKBACK_DAYS", "90"))
     vnstock_include_metrics = _env_bool("VNSTOCK_INCLUDE_METRICS", default=False)
+    dnse_api_key = os.getenv("DNSE_API_KEY") or None
+    dnse_api_secret = os.getenv("DNSE_API_SECRET") or None
+    dnse_base_url = os.getenv("DNSE_BASE_URL", "https://openapi.dnse.com.vn")
+    dnse_api_version = os.getenv("DNSE_API_VERSION", "2026-05-07")
     default_signal_weight_pct = float(os.getenv("DEFAULT_SIGNAL_WEIGHT_PCT", "5"))
     derivative_contract_multiplier = float(
         os.getenv("DERIVATIVE_CONTRACT_MULTIPLIER", "100000")
@@ -61,6 +69,10 @@ def get_settings() -> Settings:
         vnstock_min_request_interval_seconds=max(0.0, vnstock_min_request_interval_seconds),
         vnstock_lookback_days=max(30, vnstock_lookback_days),
         vnstock_include_metrics=vnstock_include_metrics,
+        dnse_api_key=dnse_api_key,
+        dnse_api_secret=dnse_api_secret,
+        dnse_base_url=dnse_base_url,
+        dnse_api_version=dnse_api_version,
         default_signal_weight_pct=max(0.01, default_signal_weight_pct),
         derivative_contract_multiplier=max(0.01, derivative_contract_multiplier),
         derivative_initial_capital=max(0.01, derivative_initial_capital),

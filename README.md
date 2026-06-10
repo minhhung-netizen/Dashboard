@@ -25,7 +25,25 @@ Open the dashboard at:
 http://127.0.0.1:8000
 ```
 
-Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh.
+Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. DNSE REST is the primary market-data provider when its credentials are configured; VNStock remains the automatic fallback.
+
+## DNSE market data
+
+Create these Railway service variables using the API Key and API Secret issued
+for your DNSE LightSpeed API registration:
+
+```text
+DNSE_API_KEY=your-api-key
+DNSE_API_SECRET=your-api-secret
+DNSE_BASE_URL=https://openapi.dnse.com.vn
+DNSE_API_VERSION=2026-05-07
+```
+
+Do not place real credentials in `.env.example` or commit them to Git. After
+Railway redeploys, `/api/settings` reports `"market_data_provider":"dnse"` when
+the DNSE client initialized successfully. The dashboard requests DNSE daily OHLC
+and the latest matched trade; if either source is unavailable, it automatically
+uses VNStock.
 
 Open-position prices refresh every 120 minutes during configured market sessions.
 By default this uses Vietnam time with `09:00-11:30,13:00-15:00`.
