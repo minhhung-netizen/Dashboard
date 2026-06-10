@@ -30,6 +30,7 @@ from app.services.derivatives import (
     build_derivative_performance,
     normalize_derivative_action,
 )
+from app.services.dividends import upcoming_dividend_events_for_positions
 from app.services.market_hours import is_market_open
 from app.services.manual_portfolio import (
     build_daily_performance_record,
@@ -587,7 +588,15 @@ def manual_portfolio() -> dict[str, Any]:
 @app.get("/api/dividend-events")
 def dividend_events(ticker: str | None = None) -> dict[str, Any]:
     normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
-    return {"dividend_events": store.list_dividend_events(normalized_ticker)}
+    open_tickers = open_position_tickers()
+    if normalized_ticker:
+        open_tickers &= {normalized_ticker}
+    return {
+        "dividend_events": upcoming_dividend_events_for_positions(
+            store.list_dividend_events(normalized_ticker),
+            open_tickers,
+        )
+    }
 
 
 @app.post("/api/dividend-events")
@@ -899,7 +908,23 @@ def sync_enrichment_dividends(enrichment: dict[str, Any]) -> int:
     events = enrichment.get("dividend_events") or []
     if not isinstance(events, list) or not events:
         return 0
-    return store.upsert_external_dividend_events(events)
+    upcoming_events = upcoming_dividend_events_for_positions(events, open_position_tickers())
+    if not upcoming_events:
+        return 0
+    return store.upsert_external_dividend_events(upcoming_events)
+
+
+def open_position_tickers() -> set[str]:
+    performance_data = build_performance(
+        store.list_all_signals(),
+        store.list_dividend_events(),
+    )
+    signal_tickers = {
+        str(trade.get("ticker") or "").upper()
+        for trade in performance_data["open_trades"]
+        if trade.get("ticker")
+    }
+    return signal_tickers | set(store.list_open_manual_tickers())
 
 
 def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:

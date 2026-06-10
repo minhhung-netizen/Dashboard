@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 from app.services.performance import build_performance
+from app.services.dividends import upcoming_dividend_events_for_positions
 
 
 def signal(
@@ -28,6 +29,35 @@ def signal(
 
 
 class PerformanceTest(unittest.TestCase):
+    def test_upcoming_dividend_calendar_only_includes_open_position_tickers(self):
+        events = [
+            {"ticker": "FPT", "ex_date": "2026-06-15"},
+            {"ticker": "VCB", "ex_date": "2026-06-16"},
+            {"ticker": "FPT", "ex_date": "2026-07-20"},
+            {"ticker": "FPT", "ex_date": "2026-06-01"},
+        ]
+
+        result = upcoming_dividend_events_for_positions(
+            events,
+            {"FPT"},
+            as_of_date=date(2026, 6, 10),
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["ticker"], "FPT")
+        self.assertEqual(result[0]["days_until"], 5)
+        self.assertEqual(result[0]["alert_status"], "upcoming")
+
+    def test_dividend_calendar_marks_ex_date_for_repeat_alert(self):
+        result = upcoming_dividend_events_for_positions(
+            [{"ticker": "FPT", "ex_date": "2026-06-10"}],
+            {"FPT"},
+            as_of_date=date(2026, 6, 10),
+        )
+
+        self.assertEqual(result[0]["days_until"], 0)
+        self.assertEqual(result[0]["alert_status"], "ex_date_today")
+
     def test_pairs_buy_then_sell_by_strategy(self):
         result = build_performance(
             [

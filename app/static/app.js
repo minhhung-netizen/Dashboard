@@ -62,6 +62,7 @@ const els = {
   dividendIssuePrice: document.querySelector("#dividendIssuePrice"),
   dividendNote: document.querySelector("#dividendNote"),
   dividendEventsTable: document.querySelector("#dividendEventsTable"),
+  exDateAlerts: document.querySelector("#exDateAlerts"),
   derivativeOpenCount: document.querySelector("#derivativeOpenCount"),
   derivativeOpenPnl: document.querySelector("#derivativeOpenPnl"),
   derivativeClosedCount: document.querySelector("#derivativeClosedCount"),
@@ -175,6 +176,8 @@ const translations = {
     dividendDeleteConfirm: "Delete this dividend event?",
     dividendSaveFailed: "Could not save dividend event",
     dividendDeleteFailed: "Could not delete dividend event",
+    exDateToday: "Ex-date today",
+    exDateAlertMessage: "Ex-rights date today for open positions",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
     entryPrice: "Entry",
@@ -574,6 +577,8 @@ Object.assign(translations.vi, {
   dividendDeleteConfirm: "Xóa sự kiện cổ tức này?",
   dividendSaveFailed: "Không thể lưu sự kiện cổ tức",
   dividendDeleteFailed: "Không thể xóa sự kiện cổ tức",
+  exDateToday: "Hôm nay là ngày GDKHQ",
+  exDateAlertMessage: "Cảnh báo ngày giao dịch không hưởng quyền cho vị thế đang mở",
   baseStrategyNotOpen: "Chiến lược gốc chưa mở",
   openPositions: "Vị thế đang mở",
   currentHoldings: "Danh mục hiện tại",
@@ -924,6 +929,7 @@ async function refresh() {
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
   renderDividendEvents();
+  renderExDateAlerts();
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
 
@@ -1295,9 +1301,11 @@ function renderDividendEvents() {
   }
   els.dividendEventsTable.innerHTML = rows
     .map((event) => `
-      <tr>
+      <tr class="${event.alert_status === "ex_date_today" ? "exDateRow" : ""}">
         <td><strong>${escapeHtml(event.ticker || "-")}</strong></td>
-        <td>${formatDateOnly(event.ex_date)}</td>
+        <td>${event.alert_status === "ex_date_today"
+          ? `<strong>${escapeHtml(t("exDateToday"))}</strong>`
+          : `${formatDateOnly(event.ex_date)} (${Number(event.days_until)} ngày)`}</td>
         <td>${formatPrice(event.cash_amount)}</td>
         <td>${formatPercent(event.stock_ratio_pct)}</td>
         <td>${formatPercent(event.issue_ratio_pct)}</td>
@@ -1313,6 +1321,36 @@ function renderDividendEvents() {
   els.dividendEventsTable.querySelectorAll("[data-dividend-delete-id]").forEach((button) => {
     button.addEventListener("click", () => deleteDividendEvent(button.dataset.dividendDeleteId));
   });
+}
+
+function renderExDateAlerts() {
+  if (!els.exDateAlerts) return;
+  const events = state.dividendEvents.filter((event) => event.alert_status === "ex_date_today");
+  if (!events.length) {
+    els.exDateAlerts.hidden = true;
+    els.exDateAlerts.innerHTML = "";
+    return;
+  }
+
+  const tickers = [...new Set(events.map((event) => String(event.ticker || "").toUpperCase()))].sort();
+  const message = `${t("exDateAlertMessage")}: ${tickers.join(", ")}`;
+  els.exDateAlerts.innerHTML = `<strong>${escapeHtml(t("exDateToday"))}</strong>: ${escapeHtml(tickers.join(", "))}`;
+  els.exDateAlerts.hidden = false;
+
+  const alertKey = `dividendExDateAlert:${localMarketDate()}:${tickers.join(",")}`;
+  if (localStorage.getItem(alertKey) !== "shown") {
+    localStorage.setItem(alertKey, "shown");
+    window.alert(message);
+  }
+}
+
+function localMarketDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 async function addDividendEvent(event) {

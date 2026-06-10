@@ -2,9 +2,38 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 UPCOMING_WINDOW_DAYS = 14
+MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+
+def upcoming_dividend_events_for_positions(
+    events: list[dict[str, Any]] | None,
+    open_tickers: set[str] | list[str] | tuple[str, ...],
+    *,
+    as_of_date: date | None = None,
+    upcoming_window_days: int = UPCOMING_WINDOW_DAYS,
+) -> list[dict[str, Any]]:
+    today = as_of_date or datetime.now(MARKET_TZ).date()
+    allowed = {_normalize_ticker(ticker) for ticker in open_tickers}
+    upcoming: list[dict[str, Any]] = []
+    for event in events or []:
+        ticker = _normalize_ticker(event.get("ticker"))
+        ex_date = _parse_date(event.get("ex_date"))
+        if ticker not in allowed or ex_date is None:
+            continue
+        days_until = (ex_date - today).days
+        if 0 <= days_until <= upcoming_window_days:
+            row = dict(event)
+            row["days_until"] = days_until
+            row["alert_status"] = "ex_date_today" if days_until == 0 else "upcoming"
+            upcoming.append(row)
+    return sorted(
+        upcoming,
+        key=lambda event: (str(event.get("ex_date") or ""), str(event.get("ticker") or "")),
+    )
 
 
 def dividend_adjustment(
@@ -19,8 +48,10 @@ def dividend_adjustment(
     upcoming_window_days: int = UPCOMING_WINDOW_DAYS,
 ) -> dict[str, Any]:
     entry_date = _parse_date(entry_time)
-    valuation_date = _parse_date(valuation_time) or as_of_date or date.today()
-    today = as_of_date or date.today()
+    valuation_date = (
+        _parse_date(valuation_time) or as_of_date or datetime.now(MARKET_TZ).date()
+    )
+    today = as_of_date or datetime.now(MARKET_TZ).date()
     adjusted_entry = entry_price
     notes: list[dict[str, Any]] = []
 

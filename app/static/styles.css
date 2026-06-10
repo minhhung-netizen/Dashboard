@@ -869,6 +869,29 @@ td strong {
   font-weight: 760;
 }
 
+.exDateAlerts {
+  background: color-mix(in srgb, var(--warning) 13%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--warning) 48%, var(--line));
+  border-left: 4px solid var(--warning);
+  border-radius: 7px;
+  color: var(--ink);
+  font-weight: 680;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.exDateAlerts[hidden] {
+  display: none;
+}
+
+.exDateAlerts strong {
+  color: var(--warning);
+}
+
+.exDateRow {
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
 .confirmedTicker {
   color: var(--buy);
 }
