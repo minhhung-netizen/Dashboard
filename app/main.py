@@ -18,6 +18,7 @@ from app.config import PROJECT_ROOT, get_settings
 from app.database import SignalStore, utc_now_iso
 from app.services.enrichment import (
     DnseEnricher,
+    FireAntEnricher,
     MarketDataEnricher,
     VnstockEnricher,
     coerce_float,
@@ -64,7 +65,23 @@ if settings.dnse_api_key and settings.dnse_api_secret:
         )
     except BaseException:
         logger.exception("Could not initialize DNSE market-data provider; using VNStock")
-enricher = MarketDataEnricher(dnse=dnse_enricher, vnstock=vnstock_enricher)
+fireant_enricher = None
+if settings.fireant_access_token:
+    try:
+        fireant_enricher = FireAntEnricher(
+            access_token=settings.fireant_access_token,
+            base_url=settings.fireant_base_url,
+            lookback_days=settings.vnstock_lookback_days,
+            cache_ttl_seconds=settings.fireant_cache_ttl_minutes * 60,
+            min_request_interval_seconds=settings.fireant_min_request_interval_seconds,
+        )
+    except BaseException:
+        logger.exception("Could not initialize FireAnt market-data provider")
+enricher = MarketDataEnricher(
+    fireant=fireant_enricher,
+    dnse=dnse_enricher,
+    vnstock=vnstock_enricher,
+)
 last_auto_manual_price_refresh_date: str | None = None
 enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 
@@ -177,7 +194,15 @@ def dashboard_settings() -> dict[str, Any]:
         "default_signal_weight_pct": settings.default_signal_weight_pct,
         "derivative_contract_multiplier": settings.derivative_contract_multiplier,
         "derivative_initial_capital": derivative_initial_capital(),
-        "market_data_provider": "dnse" if dnse_enricher is not None else "vnstock",
+        "market_data_provider": (
+            "fireant+dnse"
+            if fireant_enricher is not None and dnse_enricher is not None
+            else "fireant"
+            if fireant_enricher is not None
+            else "dnse"
+            if dnse_enricher is not None
+            else "vnstock"
+        ),
     }
 
 
@@ -728,6 +753,7 @@ def chart(ticker: str) -> dict[str, Any]:
 
 def enrich_signal(signal_id: int, ticker: str) -> None:
     enrichment = enricher.enrich(ticker)
+    sync_enrichment_dividends(enrichment)
     enrichment["refreshed_at"] = utc_now_iso()
     store.update_signal_enrichment(signal_id, enrichment)
 
@@ -812,6 +838,7 @@ async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
             continue
         enrichment["refreshed_by"] = "scheduled_price_refresh"
         enrichment["refreshed_at"] = utc_now_iso()
+        sync_enrichment_dividends(enrichment)
         for signal_id in signal_ids_by_ticker.get(ticker, []):
             store.update_signal_enrichment(signal_id, enrichment)
             updated_signals += 1
@@ -857,6 +884,7 @@ async def refresh_manual_portfolio_prices_if_due(
 
 def refresh_manual_ticker_price(ticker: str, *, force: bool = True) -> int:
     enrichment = enricher.enrich(ticker, force=force)
+    sync_enrichment_dividends(enrichment)
     price = latest_history_close(enrichment)
     if price is None or price <= 0:
         return 0
@@ -865,6 +893,13 @@ def refresh_manual_ticker_price(ticker: str, *, force: bool = True) -> int:
         price=price,
         recorded_at=utc_now_iso(),
     )
+
+
+def sync_enrichment_dividends(enrichment: dict[str, Any]) -> int:
+    events = enrichment.get("dividend_events") or []
+    if not isinstance(events, list) or not events:
+        return 0
+    return store.upsert_external_dividend_events(events)
 
 
 def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:

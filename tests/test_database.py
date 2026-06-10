@@ -1,11 +1,51 @@
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from app.database import SignalStore
 
 
 class SignalStoreTest(unittest.TestCase):
+    def test_init_migrates_existing_dividend_table_for_external_events(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "signals.db"
+            conn = sqlite3.connect(database_path)
+            try:
+                conn.execute(
+                    """
+                    CREATE TABLE dividend_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ticker TEXT NOT NULL,
+                        ex_date TEXT NOT NULL,
+                        cash_amount REAL,
+                        stock_ratio_pct REAL,
+                        issue_ratio_pct REAL,
+                        issue_price REAL,
+                        note TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            store = SignalStore(database_path)
+            store.upsert_external_dividend_events(
+                [
+                    {
+                        "ticker": "FPT",
+                        "ex_date": "2026-06-20",
+                        "source": "fireant",
+                        "external_id": "FPT:1",
+                    }
+                ]
+            )
+
+            self.assertEqual(store.list_dividend_events("FPT")[0]["source"], "fireant")
+
     def test_delete_signal_removes_existing_row(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")
@@ -327,6 +367,25 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(rows[0]["issue_price"], 10)
             self.assertTrue(store.delete_dividend_event(event["id"]))
             self.assertFalse(store.delete_dividend_event(event["id"]))
+
+    def test_external_dividend_events_are_upserted_without_duplicates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            event = {
+                "ticker": "FPT",
+                "ex_date": "2026-06-20",
+                "note": "FireAnt: Cổ tức",
+                "source": "fireant",
+                "external_id": "FPT:event-1",
+            }
+
+            store.upsert_external_dividend_events([event])
+            event["note"] = "FireAnt: Cổ tức cập nhật"
+            store.upsert_external_dividend_events([event])
+
+            rows = store.list_dividend_events("FPT")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["note"], "FireAnt: Cổ tức cập nhật")
 
 
 if __name__ == "__main__":

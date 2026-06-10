@@ -23,6 +23,10 @@ class Settings:
     dnse_api_secret: str | None = None
     dnse_base_url: str = "https://openapi.dnse.com.vn"
     dnse_api_version: str = "2026-05-07"
+    fireant_access_token: str | None = None
+    fireant_base_url: str = "https://api.fireant.vn"
+    fireant_cache_ttl_minutes: int = 240
+    fireant_min_request_interval_seconds: float = 1.0
     default_signal_weight_pct: float = 5.0
     derivative_contract_multiplier: float = 100000.0
     derivative_initial_capital: float = 100000000.0
@@ -52,6 +56,12 @@ def get_settings() -> Settings:
     dnse_api_secret = os.getenv("DNSE_API_SECRET") or None
     dnse_base_url = os.getenv("DNSE_BASE_URL", "https://openapi.dnse.com.vn")
     dnse_api_version = os.getenv("DNSE_API_VERSION", "2026-05-07")
+    fireant_access_token = os.getenv("FIREANT_ACCESS_TOKEN") or None
+    fireant_base_url = os.getenv("FIREANT_BASE_URL", "https://api.fireant.vn")
+    fireant_cache_ttl_minutes = int(os.getenv("FIREANT_CACHE_TTL_MINUTES", "240"))
+    fireant_min_request_interval_seconds = float(
+        os.getenv("FIREANT_MIN_REQUEST_INTERVAL_SECONDS", "1")
+    )
     default_signal_weight_pct = float(os.getenv("DEFAULT_SIGNAL_WEIGHT_PCT", "5"))
     derivative_contract_multiplier = float(
         os.getenv("DERIVATIVE_CONTRACT_MULTIPLIER", "100000")
@@ -73,6 +83,10 @@ def get_settings() -> Settings:
         dnse_api_secret=dnse_api_secret,
         dnse_base_url=dnse_base_url,
         dnse_api_version=dnse_api_version,
+        fireant_access_token=fireant_access_token,
+        fireant_base_url=fireant_base_url,
+        fireant_cache_ttl_minutes=max(1, fireant_cache_ttl_minutes),
+        fireant_min_request_interval_seconds=max(0.0, fireant_min_request_interval_seconds),
         default_signal_weight_pct=max(0.01, default_signal_weight_pct),
         derivative_contract_multiplier=max(0.01, derivative_contract_multiplier),
         derivative_initial_capital=max(0.01, derivative_initial_capital),

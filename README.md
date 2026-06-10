@@ -25,7 +25,26 @@ Open the dashboard at:
 http://127.0.0.1:8000
 ```
 
-Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. DNSE REST is the primary market-data provider when its credentials are configured; VNStock remains the automatic fallback.
+Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. When configured, FireAnt supplies daily OHLCV history and dividend-event notes, DNSE supplies the latest matched price, and VNStock remains the automatic fallback.
+
+## FireAnt daily OHLCV and dividend events
+
+Create a FireAnt OAuth access token with the `symbols-read` scope, then add these
+Railway service variables:
+
+```text
+FIREANT_ACCESS_TOKEN=your-oauth-access-token
+FIREANT_BASE_URL=https://api.fireant.vn
+FIREANT_CACHE_TTL_MINUTES=240
+FIREANT_MIN_REQUEST_INTERVAL_SECONDS=1
+```
+
+FireAnt daily OHLCV comes from `/symbols/{symbol}/historical-quotes`. Dated
+dividend notes come from `/symbols/{symbol}/timescale-marks` and are synchronized
+into the dashboard dividend calendar without creating duplicates. FireAnt's
+dated marks do not contain structured cash amounts or stock ratios, so imported
+events are informational only. Add a complete dividend event manually when
+automatic entry-price adjustment is required.
 
 ## DNSE market data
 
@@ -40,10 +59,10 @@ DNSE_API_VERSION=2026-05-07
 ```
 
 Do not place real credentials in `.env.example` or commit them to Git. After
-Railway redeploys, `/api/settings` reports `"market_data_provider":"dnse"` when
-the DNSE client initialized successfully. The dashboard requests DNSE daily OHLC
-and the latest matched trade; if either source is unavailable, it automatically
-uses VNStock.
+Railway redeploys, `/api/settings` reports
+`"market_data_provider":"fireant+dnse"` when both clients initialized
+successfully. If FireAnt history is unavailable, the dashboard falls back to
+DNSE history and then VNStock.
 
 Open-position prices refresh every 120 minutes during configured market sessions.
 By default this uses Vietnam time with `09:00-11:30,13:00-15:00`.

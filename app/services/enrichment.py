@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import time
+import unicodedata
 import base64
 import hashlib
 import hmac
@@ -259,6 +260,119 @@ class VnstockEnricher:
         return {}
 
 
+class FireAntEnricher:
+    """FireAnt adapter for daily OHLCV history and dated dividend-event notes."""
+
+    def __init__(
+        self,
+        *,
+        access_token: str,
+        base_url: str = "https://api.fireant.vn",
+        lookback_days: int = 90,
+        cache_ttl_seconds: int = 240 * 60,
+        min_request_interval_seconds: float = 1.0,
+        client: Any = None,
+    ) -> None:
+        self.lookback_days = lookback_days
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self.min_request_interval_seconds = min_request_interval_seconds
+        self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+        self._last_request_at = 0.0
+        self.client = client or FireAntRestClient(
+            access_token=access_token,
+            base_url=base_url,
+        )
+
+    def enrich(self, ticker: str, *, force: bool = False) -> dict[str, Any]:
+        if not force:
+            cached = self._get_cached(ticker)
+            if cached is not None:
+                return cached
+        try:
+            enrichment = self._enrich_with_fireant(ticker)
+        except BaseException as exc:
+            enrichment = {
+                "status": "unavailable",
+                "source": "fireant",
+                "message": str(exc),
+                "ticker": ticker,
+                "history": [],
+                "dividend_events": [],
+                "dividend_summary": [],
+                "metrics": {},
+            }
+        self._set_cached(ticker, enrichment)
+        return deepcopy(enrichment)
+
+    def _enrich_with_fireant(self, ticker: str) -> dict[str, Any]:
+        today = date.today()
+        start = today - timedelta(days=self.lookback_days)
+        self._wait_for_rate_limit()
+        history = _normalize_fireant_history(
+            self.client.get_historical_quotes(
+                symbol=ticker.upper(),
+                start_date=start.isoformat(),
+                end_date=today.isoformat(),
+                limit=max(100, self.lookback_days * 2),
+            )
+        )
+        if not history:
+            raise RuntimeError("FireAnt returned no daily OHLCV history")
+
+        marks: Any = []
+        dividend_summary: Any = []
+        dividend_message = None
+        try:
+            self._wait_for_rate_limit()
+            marks = self.client.get_timescale_marks(
+                symbol=ticker.upper(),
+                start_date=(today - timedelta(days=30)).isoformat(),
+                end_date=(today + timedelta(days=365)).isoformat(),
+            )
+            self._wait_for_rate_limit()
+            dividend_summary = self.client.get_dividends(symbol=ticker.upper(), count=10)
+        except BaseException as exc:
+            dividend_message = str(exc)
+        return {
+            "status": "ok",
+            "source": "fireant",
+            "ticker": ticker,
+            "history": history[-80:],
+            "dividend_events": _fireant_dividend_events(ticker, marks),
+            "dividend_summary": dividend_summary if isinstance(dividend_summary, list) else [],
+            "dividend_message": dividend_message,
+            "metrics": {},
+        }
+
+    def _get_cached(self, ticker: str) -> dict[str, Any] | None:
+        now = time.monotonic()
+        with self._lock:
+            cached = self._cache.get(ticker)
+            if not cached:
+                return None
+            cached_at, enrichment = cached
+            if now - cached_at > self.cache_ttl_seconds:
+                self._cache.pop(ticker, None)
+                return None
+            return deepcopy(enrichment)
+
+    def _set_cached(self, ticker: str, enrichment: dict[str, Any]) -> None:
+        with self._lock:
+            self._cache[ticker] = (time.monotonic(), deepcopy(enrichment))
+
+    def _wait_for_rate_limit(self) -> None:
+        if self.min_request_interval_seconds <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait_seconds = self.min_request_interval_seconds - (now - self._last_request_at)
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+                now = time.monotonic()
+            self._last_request_at = now
+
+
 class DnseEnricher:
     """DNSE REST market-data adapter using DNSE's documented HMAC signing."""
 
@@ -324,17 +438,7 @@ class DnseEnricher:
             _dnse_ohlc_records(_dnse_response(ohlc_status, ohlc_body))
         )
 
-        self._wait_for_rate_limit()
-        trade_status, trade_body = self.client.get_latest_trade(
-            symbol=ticker.upper(),
-            dry_run=False,
-        )
-        latest_trade = _dnse_response(trade_status, trade_body)
-        latest_price = _find_number(
-            latest_trade,
-            ("price", "matchPrice", "lastPrice", "close", "last"),
-        )
-        latest_price = normalize_stock_price(latest_price)
+        latest_price = self.latest_price(ticker)
         if latest_price is not None and latest_price > 0:
             if history:
                 history[-1]["close"] = latest_price
@@ -350,6 +454,20 @@ class DnseEnricher:
             "history": history[-80:],
             "metrics": {},
         }
+
+    def latest_price(self, ticker: str) -> float | None:
+        self._wait_for_rate_limit()
+        trade_status, trade_body = self.client.get_latest_trade(
+            symbol=ticker.upper(),
+            dry_run=False,
+        )
+        latest_trade = _dnse_response(trade_status, trade_body)
+        return normalize_stock_price(
+            _find_number(
+                latest_trade,
+                ("price", "matchPrice", "lastPrice", "close", "last"),
+            )
+        )
 
     def _get_cached(self, ticker: str) -> dict[str, Any] | None:
         now = time.monotonic()
@@ -380,30 +498,117 @@ class DnseEnricher:
 
 
 class MarketDataEnricher:
-    """Use DNSE first and transparently fall back to VNStock."""
+    """Use FireAnt history, DNSE latest price, then fall back to VNStock."""
 
     def __init__(
         self,
         *,
+        fireant: FireAntEnricher | None = None,
         dnse: DnseEnricher | None,
         vnstock: VnstockEnricher,
     ) -> None:
+        self.fireant = fireant
         self.dnse = dnse
         self.vnstock = vnstock
 
     def enrich(self, ticker: str, *, force: bool = False) -> dict[str, Any]:
+        fireant_message = None
+        if self.fireant is not None:
+            primary = self.fireant.enrich(ticker, force=force)
+            if primary.get("status") == "ok" and primary.get("history"):
+                if self.dnse is not None:
+                    try:
+                        latest_price = self.dnse.latest_price(ticker)
+                    except BaseException as exc:
+                        primary["dnse_message"] = str(exc)
+                    else:
+                        if latest_price is not None and latest_price > 0:
+                            primary["history"][-1]["close"] = latest_price
+                            primary["latest_price_source"] = "dnse"
+                return primary
+            fireant_message = primary.get("message")
+
         if self.dnse is not None:
             primary = self.dnse.enrich(ticker, force=force)
             if primary.get("status") == "ok" and primary.get("history"):
+                if fireant_message:
+                    primary["fireant_message"] = fireant_message
                 return primary
             fallback = self.vnstock.enrich(ticker, force=force)
-            fallback["fallback_from"] = "dnse"
+            fallback["fallback_from"] = "fireant,dnse" if fireant_message else "dnse"
+            fallback["fireant_message"] = fireant_message
             fallback["dnse_message"] = primary.get("message")
             fallback.setdefault("source", "vnstock")
             return fallback
         result = self.vnstock.enrich(ticker, force=force)
+        if fireant_message:
+            result["fallback_from"] = "fireant"
+            result["fireant_message"] = fireant_message
         result.setdefault("source", "vnstock")
         return result
+
+
+class FireAntRestClient:
+    def __init__(
+        self,
+        *,
+        access_token: str,
+        base_url: str = "https://api.fireant.vn",
+        timeout_seconds: float = 20,
+    ) -> None:
+        self.access_token = access_token
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+
+    def get_historical_quotes(
+        self,
+        *,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> Any:
+        return self._get(
+            f"/symbols/{urllib_parse.quote(symbol)}/historical-quotes",
+            {
+                "startDate": start_date,
+                "endDate": end_date,
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+
+    def get_timescale_marks(self, *, symbol: str, start_date: str, end_date: str) -> Any:
+        return self._get(
+            f"/symbols/{urllib_parse.quote(symbol)}/timescale-marks",
+            {"startDate": start_date, "endDate": end_date},
+        )
+
+    def get_dividends(self, *, symbol: str, count: int = 10) -> Any:
+        return self._get(
+            f"/symbols/{urllib_parse.quote(symbol)}/dividends",
+            {"count": count},
+        )
+
+    def _get(self, path: str, query: dict[str, Any] | None = None) -> Any:
+        url = f"{self.base_url}{path}"
+        if query:
+            url += f"?{urllib_parse.urlencode(query)}"
+        request = urllib_request.Request(
+            url,
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib_request.urlopen(request, timeout=self.timeout_seconds) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib_error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            raise RuntimeError(f"FireAnt HTTP {exc.code}: {body[:300]}") from exc
 
 
 class DnseRestClient:
@@ -536,6 +741,82 @@ def _normalize_dnse_stock_history(records: list[dict[str, Any]]) -> list[dict[st
             cleaned[field] = normalize_stock_price(cleaned.get(field))
         normalized.append(cleaned)
     return normalized
+
+
+def _normalize_fireant_history(records: Any) -> list[dict[str, Any]]:
+    if not isinstance(records, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        item = {
+            "time": row.get("date"),
+            "open": normalize_stock_price(row.get("priceOpen")),
+            "high": normalize_stock_price(row.get("priceHigh")),
+            "low": normalize_stock_price(row.get("priceLow")),
+            "close": normalize_stock_price(row.get("priceClose")),
+            "volume": coerce_float(row.get("totalVolume")),
+        }
+        if item["time"] and all(item[field] is not None for field in ("open", "high", "low", "close")):
+            normalized.append(item)
+    return sorted(normalized, key=lambda row: str(row["time"]))
+
+
+def _fireant_dividend_events(ticker: str, marks: Any) -> list[dict[str, Any]]:
+    if not isinstance(marks, list):
+        return []
+    events: list[dict[str, Any]] = []
+    for mark in marks:
+        if not isinstance(mark, dict):
+            continue
+        title = str(mark.get("title") or "").strip()
+        label = str(mark.get("label") or "").strip()
+        searchable = _ascii_fold(f"{label} {title}")
+        if "co tuc" not in searchable and "dividend" not in searchable:
+            continue
+        event_date = _iso_date(mark.get("date"))
+        if not event_date:
+            continue
+        mark_id = str(mark.get("id") or f"{event_date}:{label}:{title}")
+        note = f"FireAnt: {title or label}".strip()
+        events.append(
+            {
+                "ticker": ticker.upper(),
+                "ex_date": event_date,
+                "cash_amount": None,
+                "stock_ratio_pct": None,
+                "issue_ratio_pct": None,
+                "issue_price": None,
+                "note": note,
+                "source": "fireant",
+                "external_id": f"{ticker.upper()}:{mark_id}",
+            }
+        )
+    return events
+
+
+def _ascii_fold(value: str) -> str:
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value.casefold())
+        if not unicodedata.combining(character)
+    )
+
+
+def _iso_date(value: Any) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        try:
+            return date.fromisoformat(text[:10]).isoformat()
+        except ValueError:
+            return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return None
 
 
 def _normalize_dnse_time(value: Any) -> Any:

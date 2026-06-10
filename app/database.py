@@ -134,6 +134,8 @@ CREATE TABLE IF NOT EXISTS dividend_events (
     issue_ratio_pct REAL,
     issue_price REAL,
     note TEXT,
+    source TEXT,
+    external_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -180,6 +182,17 @@ class SignalStore:
             conn.execute("ALTER TABLE dividend_events ADD COLUMN issue_ratio_pct REAL")
         if "issue_price" not in columns:
             conn.execute("ALTER TABLE dividend_events ADD COLUMN issue_price REAL")
+        if "source" not in columns:
+            conn.execute("ALTER TABLE dividend_events ADD COLUMN source TEXT")
+        if "external_id" not in columns:
+            conn.execute("ALTER TABLE dividend_events ADD COLUMN external_id TEXT")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_dividend_events_external
+            ON dividend_events (source, external_id)
+            WHERE source IS NOT NULL AND external_id IS NOT NULL
+            """
+        )
 
     def _normalize_signal_actions(self, conn: sqlite3.Connection) -> None:
         action_expr = """
@@ -735,6 +748,64 @@ class SignalStore:
             )
             event_id = cursor.lastrowid
         return self.get_dividend_event(event_id)
+
+    def upsert_external_dividend_events(
+        self, events: list[dict[str, Any]]
+    ) -> int:
+        now = utc_now_iso()
+        updated = 0
+        with self.connect() as conn:
+            for event in events:
+                source = str(event.get("source") or "").strip().lower()
+                external_id = str(event.get("external_id") or "").strip()
+                ticker = str(event.get("ticker") or "").strip().upper()
+                ex_date = str(event.get("ex_date") or "").strip()
+                if not source or not external_id or not ticker or not ex_date:
+                    continue
+                existing = conn.execute(
+                    """
+                    SELECT id
+                    FROM dividend_events
+                    WHERE source = ? AND external_id = ?
+                    """,
+                    (source, external_id),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """
+                        UPDATE dividend_events
+                        SET ticker = ?, ex_date = ?, note = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (ticker, ex_date, event.get("note"), now, existing["id"]),
+                    )
+                    updated += 1
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO dividend_events (
+                        ticker, ex_date, cash_amount, stock_ratio_pct,
+                        issue_ratio_pct, issue_price, note, source, external_id,
+                        created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ticker,
+                        ex_date,
+                        event.get("cash_amount"),
+                        event.get("stock_ratio_pct"),
+                        event.get("issue_ratio_pct"),
+                        event.get("issue_price"),
+                        event.get("note"),
+                        source,
+                        external_id,
+                        now,
+                        now,
+                    ),
+                )
+                updated += 1
+        return updated
 
     def get_dividend_event(self, event_id: int) -> dict[str, Any]:
         with self.connect() as conn:

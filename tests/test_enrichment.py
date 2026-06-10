@@ -2,10 +2,13 @@ import unittest
 from app.services.enrichment import (
     DnseEnricher,
     DnseRestClient,
+    FireAntEnricher,
     MarketDataEnricher,
     VnstockEnricher,
     _dnse_ohlc_records,
     _normalize_dnse_stock_history,
+    _fireant_dividend_events,
+    _normalize_fireant_history,
     coerce_float,
     normalize_action,
     normalize_stock_price,
@@ -156,6 +159,93 @@ class EnrichmentHelpersTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["source"], "dnse")
         self.assertEqual(result["history"][-1]["close"], 11.5)
+
+    def test_fireant_enricher_returns_daily_history_and_dividend_events(self):
+        class FakeClient:
+            def get_historical_quotes(self, **kwargs):
+                return [
+                    {
+                        "date": "2026-06-09T00:00:00",
+                        "priceOpen": 74000,
+                        "priceHigh": 75000,
+                        "priceLow": 73000,
+                        "priceClose": 74500,
+                        "totalVolume": 1000,
+                    }
+                ]
+
+            def get_timescale_marks(self, **kwargs):
+                return [
+                    {
+                        "id": "event-1",
+                        "label": "D",
+                        "date": "2026-06-20T00:00:00",
+                        "title": "Ngày GDKHQ trả cổ tức bằng tiền",
+                    }
+                ]
+
+            def get_dividends(self, **kwargs):
+                return [{"year": 2025, "cashDividend": 1000}]
+
+        result = FireAntEnricher(
+            access_token="token",
+            min_request_interval_seconds=0,
+            client=FakeClient(),
+        ).enrich("FPT")
+
+        self.assertEqual(result["source"], "fireant")
+        self.assertEqual(result["history"][0]["close"], 74.5)
+        self.assertEqual(result["dividend_events"][0]["ex_date"], "2026-06-20")
+        self.assertEqual(result["dividend_summary"][0]["cashDividend"], 1000)
+
+    def test_fireant_helpers_filter_non_dividend_marks(self):
+        history = _normalize_fireant_history(
+            [
+                {
+                    "date": "2026-06-10",
+                    "priceOpen": 10,
+                    "priceHigh": 12,
+                    "priceLow": 9,
+                    "priceClose": 11,
+                    "totalVolume": 200,
+                }
+            ]
+        )
+        events = _fireant_dividend_events(
+            "FPT",
+            [
+                {"id": "1", "date": "2026-06-20", "title": "Cổ tức bằng cổ phiếu"},
+                {"id": "2", "date": "2026-06-21", "title": "Báo cáo tài chính"},
+            ],
+        )
+
+        self.assertEqual(history[0]["volume"], 200)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["external_id"], "FPT:1")
+
+    def test_market_data_uses_fireant_history_and_dnse_latest_price(self):
+        class FireAntStub:
+            def enrich(self, ticker, force=False):
+                return {
+                    "status": "ok",
+                    "source": "fireant",
+                    "history": [{"time": "2026-06-10", "close": 10}],
+                    "dividend_events": [],
+                }
+
+        class DnseStub:
+            def latest_price(self, ticker):
+                return 11
+
+        result = MarketDataEnricher(
+            fireant=FireAntStub(),
+            dnse=DnseStub(),
+            vnstock=None,
+        ).enrich("FPT")
+
+        self.assertEqual(result["source"], "fireant")
+        self.assertEqual(result["latest_price_source"], "dnse")
+        self.assertEqual(result["history"][-1]["close"], 11)
 
     def test_market_data_enricher_falls_back_to_vnstock(self):
         class Stub:
