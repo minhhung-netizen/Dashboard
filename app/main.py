@@ -4,13 +4,14 @@ import asyncio
 import csv
 import io
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -41,10 +42,23 @@ from app.services.manual_portfolio import (
 )
 from app.services.performance import DEFAULT_STRATEGY, build_performance
 from app.services.webhook_payload import parse_forgiving_json
+from app.services.auth import (
+    ALL_FEATURES,
+    SESSION_COOKIE,
+    hash_password,
+    hash_session_token,
+    new_session,
+    public_user,
+    verify_password,
+)
 
 
 settings = get_settings()
 store = SignalStore(settings.database_path)
+store.ensure_admin_user(
+    username=settings.admin_username,
+    password_hash=hash_password(settings.admin_password),
+)
 logger = logging.getLogger(__name__)
 vnstock_enricher = VnstockEnricher(
     lookback_days=settings.vnstock_lookback_days,
@@ -115,6 +129,62 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), name="static")
 
+FEATURE_PATHS = {
+    "overview": ("/api/summary", "/api/signals", "/api/chart/"),
+    "positions": ("/api/performance",),
+    "derivatives": ("/api/derivatives",),
+    "manualPortfolio": ("/api/manual-portfolio",),
+    "performance": ("/api/performance",),
+    "dividends": ("/api/dividend-events",),
+    "logs": ("/api/invalid-signals", "/api/export/"),
+}
+
+
+@app.middleware("http")
+async def authorize_dashboard_request(request: Request, call_next):
+    path = request.url.path
+    if (
+        path == "/"
+        or path == "/health"
+        or path == "/webhook"
+        or path == "/api/auth/login"
+        or path == "/api/auth/me"
+        or path.startswith("/static/")
+    ):
+        return await call_next(request)
+
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
+    token = request.cookies.get(SESSION_COOKIE)
+    user = store.get_session_user(hash_session_token(token)) if token else None
+    if user is None:
+        return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    request.state.user = user
+
+    if path.startswith("/api/admin/") and user["role"] != "admin":
+        return JSONResponse({"detail": "Admin access required"}, status_code=403)
+
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        if path == "/api/auth/logout":
+            return await call_next(request)
+        if user["role"] != "admin":
+            return JSONResponse({"detail": "Read-only account"}, status_code=403)
+
+    if user["role"] != "admin" and request.method in {"GET", "HEAD"}:
+        allowed = set(user.get("features") or [])
+        if path == "/api/export/database":
+            return JSONResponse({"detail": "Admin access required"}, status_code=403)
+        required = {
+            feature
+            for feature, prefixes in FEATURE_PATHS.items()
+            if any(path == prefix or path.startswith(prefix) for prefix in prefixes)
+        }
+        if required and not required.intersection(allowed):
+            return JSONResponse({"detail": "Feature is not enabled"}, status_code=403)
+
+    return await call_next(request)
+
 
 class WebhookPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -179,6 +249,25 @@ class DerivativeCapitalPayload(BaseModel):
     initial_capital: float = Field(..., gt=0, examples=[100000000])
 
 
+class LoginPayload(BaseModel):
+    username: str = Field(..., min_length=1, max_length=80)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class UserCreatePayload(BaseModel):
+    username: str = Field(..., min_length=3, max_length=80)
+    password: str = Field(..., min_length=8, max_length=256)
+    role: str = "user"
+    features: list[str] = Field(default_factory=list)
+
+
+class UserUpdatePayload(BaseModel):
+    role: str | None = None
+    features: list[str] | None = None
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+
+
 @app.get("/")
 def dashboard() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "app" / "static" / "index.html")
@@ -187,6 +276,123 @@ def dashboard() -> FileResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginPayload, request: Request) -> Response:
+    user = store.get_user_credentials(payload.username)
+    if (
+        user is None
+        or not user.get("active")
+        or not verify_password(payload.password, user["password_hash"])
+    ):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token, token_hash, expires_at = new_session(settings.session_days)
+    store.create_session(token_hash=token_hash, user_id=user["id"], expires_at=expires_at)
+    response = JSONResponse({"user": public_user(user)})
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=settings.session_days * 24 * 60 * 60,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        store.delete_session(hash_session_token(token))
+    response = JSONResponse({"status": "logged_out"})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    token = request.cookies.get(SESSION_COOKIE)
+    user = store.get_session_user(hash_session_token(token)) if token else None
+    return {
+        "user": public_user(user) if user else None,
+        "available_features": ALL_FEATURES,
+    }
+
+
+@app.get("/api/admin/users")
+def admin_users() -> dict[str, Any]:
+    return {
+        "users": [public_user(user) for user in store.list_users()],
+        "available_features": ALL_FEATURES,
+    }
+
+
+@app.post("/api/admin/users")
+def create_dashboard_user(payload: UserCreatePayload) -> dict[str, Any]:
+    role = validate_role(payload.role)
+    features = validate_features(payload.features)
+    username = payload.username.strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=422, detail="Username must have at least 3 characters")
+    try:
+        user = store.create_user(
+            username=username,
+            password_hash=hash_password(payload.password),
+            role=role,
+            features=features,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Username already exists") from exc
+    return {"user": public_user(user)}
+
+
+@app.patch("/api/admin/users/{user_id}")
+def update_dashboard_user(
+    user_id: int, payload: UserUpdatePayload, request: Request
+) -> dict[str, Any]:
+    if user_id == request.state.user["id"] and payload.active is False:
+        raise HTTPException(status_code=422, detail="Cannot disable your own account")
+    role = validate_role(payload.role) if payload.role is not None else None
+    if user_id == request.state.user["id"] and role == "user":
+        raise HTTPException(status_code=422, detail="Cannot remove your own admin role")
+    features = validate_features(payload.features) if payload.features is not None else None
+    try:
+        user = store.update_user(
+            user_id,
+            role=role,
+            features=features,
+            active=payload.active,
+            password_hash=hash_password(payload.password) if payload.password else None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="User not found") from exc
+    return {"user": public_user(user)}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_dashboard_user(user_id: int, request: Request) -> dict[str, Any]:
+    if user_id == request.state.user["id"]:
+        raise HTTPException(status_code=422, detail="Cannot delete your own account")
+    if not store.delete_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "deleted", "user_id": user_id}
+
+
+def validate_role(role: str) -> str:
+    normalized = role.strip().lower()
+    if normalized not in {"admin", "user"}:
+        raise HTTPException(status_code=422, detail="Role must be admin or user")
+    return normalized
+
+
+def validate_features(features: list[str]) -> list[str]:
+    invalid = set(features) - set(ALL_FEATURES)
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid features: {sorted(invalid)}")
+    return [feature for feature in ALL_FEATURES if feature in set(features)]
 
 
 @app.get("/api/settings")

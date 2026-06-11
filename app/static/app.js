@@ -81,9 +81,31 @@ const els = {
   derivativeOpenPositionsTable: document.querySelector("#derivativeOpenPositionsTable"),
   derivativeClosedTradesTable: document.querySelector("#derivativeClosedTradesTable"),
   derivativeEventsTable: document.querySelector("#derivativeEventsTable"),
+  loginScreen: document.querySelector("#loginScreen"),
+  loginForm: document.querySelector("#loginForm"),
+  loginUsername: document.querySelector("#loginUsername"),
+  loginPassword: document.querySelector("#loginPassword"),
+  loginError: document.querySelector("#loginError"),
+  currentUser: document.querySelector("#currentUser"),
+  logoutButton: document.querySelector("#logoutButton"),
+  userCreateForm: document.querySelector("#userCreateForm"),
+  newUsername: document.querySelector("#newUsername"),
+  newPassword: document.querySelector("#newPassword"),
+  newUserRole: document.querySelector("#newUserRole"),
+  newUserFeatures: document.querySelector("#newUserFeatures"),
+  usersTable: document.querySelector("#usersTable"),
 };
 
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
+const FEATURE_LABELS = {
+  overview: "Tổng quan",
+  positions: "Vị thế",
+  derivatives: "Phái sinh VN30",
+  manualPortfolio: "Danh mục tay",
+  performance: "Hiệu suất",
+  dividends: "Cổ tức",
+  logs: "Nhật ký",
+};
 
 const translations = {
   en: {
@@ -698,6 +720,9 @@ Object.assign(translations.vi, {
 });
 
 const state = {
+  user: null,
+  availableFeatures: Object.keys(FEATURE_LABELS),
+  users: [],
   language: localStorage.getItem("dashboardLanguage") || "en",
   theme: localStorage.getItem("dashboardTheme") || "light",
   activeTab: localStorage.getItem("dashboardActiveTab") || "overview",
@@ -813,9 +838,14 @@ function updateThemeButton() {
 }
 
 function setActiveTab(tabName) {
-  const exists = [...els.tabButtons].some((button) => button.dataset.tabTarget === tabName);
+  const exists = [...els.tabButtons].some(
+    (button) =>
+      button.dataset.tabTarget === tabName && button.dataset.accessHidden !== "true"
+  );
   if (!exists) {
-    tabName = "overview";
+    tabName =
+      [...els.tabButtons].find((button) => button.dataset.accessHidden !== "true")
+        ?.dataset.tabTarget || "overview";
   }
   state.activeTab = tabName;
   localStorage.setItem("dashboardActiveTab", tabName);
@@ -843,10 +873,223 @@ function setActiveTab(tabName) {
 
 async function fetchJson(url) {
   const response = await fetch(url);
+  if (response.status === 401) {
+    showLogin();
+  }
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
   return response.json();
+}
+
+function featureEnabled(feature) {
+  if (!state.user) return false;
+  if (state.user.role === "admin") return true;
+  const required = Array.isArray(feature) ? feature : [feature];
+  return required.some((item) => state.user.features.includes(item));
+}
+
+function featureFetch(feature, url, fallback) {
+  return featureEnabled(feature) ? fetchJson(url) : Promise.resolve(fallback);
+}
+
+async function bootstrapAuth() {
+  try {
+    const payload = await fetchJson("/api/auth/me");
+    if (!payload.user) {
+      showLogin();
+      return;
+    }
+    setAuthenticatedUser(payload.user, payload.available_features || []);
+    await refresh();
+  } catch (error) {
+    showLogin();
+  }
+}
+
+function setAuthenticatedUser(user, availableFeatures) {
+  state.user = user;
+  state.availableFeatures = availableFeatures.length ? availableFeatures : Object.keys(FEATURE_LABELS);
+  els.loginScreen.hidden = true;
+  els.currentUser.textContent = `${user.username} · ${user.role}`;
+  document.body.classList.toggle("readOnly", user.role !== "admin");
+  applyAccessControl();
+  if (user.role === "admin") {
+    renderFeatureSelector(els.newUserFeatures, state.availableFeatures);
+    loadAdminUsers();
+  }
+}
+
+function showLogin() {
+  state.user = null;
+  els.loginScreen.hidden = false;
+  els.loginPassword.value = "";
+  els.loginUsername.focus();
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+  els.loginError.hidden = true;
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: els.loginUsername.value.trim(),
+      password: els.loginPassword.value,
+    }),
+  });
+  if (!response.ok) {
+    els.loginError.textContent = "Sai tài khoản hoặc mật khẩu";
+    els.loginError.hidden = false;
+    return;
+  }
+  const payload = await response.json();
+  const me = await fetchJson("/api/auth/me");
+  setAuthenticatedUser(payload.user, me.available_features || []);
+  await refresh();
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  showLogin();
+}
+
+function applyAccessControl() {
+  const allowed = new Set(state.user?.features || []);
+  const isAdmin = state.user?.role === "admin";
+  document.querySelectorAll("[data-tab-target]").forEach((button) => {
+    const target = button.dataset.tabTarget;
+    const visible = target === "admin" ? isAdmin : isAdmin || allowed.has(target);
+    button.dataset.accessHidden = visible ? "false" : "true";
+  });
+  document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
+    const target = panel.dataset.tabPanel;
+    const visible = target === "admin" ? isAdmin : isAdmin || allowed.has(target);
+    panel.dataset.accessHidden = visible ? "false" : "true";
+  });
+  [
+    els.openPositionRefreshPrices,
+    els.manualPositionForm,
+    els.manualRefreshPrices,
+    els.manualRecordDailyPerformance,
+    els.dividendEventForm,
+    els.derivativeCapitalForm,
+    document.querySelector(".exportActions"),
+  ].forEach((element) => element?.classList.add("adminOnly"));
+  setActiveTab(state.activeTab);
+}
+
+function renderFeatureSelector(container, selectedFeatures = []) {
+  const selected = new Set(selectedFeatures);
+  container.innerHTML = state.availableFeatures
+    .map((feature) => `
+      <label class="featureOption">
+        <input type="checkbox" value="${escapeHtml(feature)}" ${selected.has(feature) ? "checked" : ""} />
+        <span>${escapeHtml(FEATURE_LABELS[feature] || feature)}</span>
+      </label>
+    `)
+    .join("");
+}
+
+function selectedFeatures(container) {
+  return [...container.querySelectorAll('input[type="checkbox"]:checked')].map(
+    (input) => input.value
+  );
+}
+
+async function loadAdminUsers() {
+  if (state.user?.role !== "admin") return;
+  const payload = await fetchJson("/api/admin/users");
+  state.users = payload.users || [];
+  state.availableFeatures = payload.available_features || state.availableFeatures;
+  renderAdminUsers();
+}
+
+function renderAdminUsers() {
+  els.usersTable.innerHTML = state.users
+    .map((user) => `
+      <tr data-user-id="${user.id}">
+        <td><strong>${escapeHtml(user.username)}</strong></td>
+        <td>
+          <select data-user-role>
+            <option value="user" ${user.role === "user" ? "selected" : ""}>User chỉ xem</option>
+            <option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option>
+          </select>
+        </td>
+        <td><div class="featureSelector" data-user-features></div></td>
+        <td>
+          <label class="featureOption">
+            <input data-user-active type="checkbox" ${user.active ? "checked" : ""} />
+            <span>Hoạt động</span>
+          </label>
+        </td>
+        <td><input data-user-password type="password" minlength="8" placeholder="Để trống nếu giữ nguyên" /></td>
+        <td>
+          <button class="smallButton" type="button" data-user-save>Lưu</button>
+          ${user.id === state.user.id ? "" : `<button class="deleteButton" type="button" data-user-delete>Xóa</button>`}
+        </td>
+      </tr>
+    `)
+    .join("");
+
+  state.users.forEach((user) => {
+    const row = els.usersTable.querySelector(`[data-user-id="${user.id}"]`);
+    renderFeatureSelector(row.querySelector("[data-user-features]"), user.features);
+    row.querySelector("[data-user-save]").addEventListener("click", () => saveAdminUser(user.id));
+    row.querySelector("[data-user-delete]")?.addEventListener("click", () => deleteAdminUser(user.id));
+  });
+}
+
+async function createAdminUser(event) {
+  event.preventDefault();
+  const response = await fetch("/api/admin/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: els.newUsername.value.trim(),
+      password: els.newPassword.value,
+      role: els.newUserRole.value,
+      features: selectedFeatures(els.newUserFeatures),
+    }),
+  });
+  if (!response.ok) {
+    window.alert((await response.json()).detail || "Không thể tạo tài khoản");
+    return;
+  }
+  els.userCreateForm.reset();
+  renderFeatureSelector(els.newUserFeatures, state.availableFeatures);
+  await loadAdminUsers();
+}
+
+async function saveAdminUser(userId) {
+  const row = els.usersTable.querySelector(`[data-user-id="${userId}"]`);
+  const password = row.querySelector("[data-user-password]").value;
+  const body = {
+    role: row.querySelector("[data-user-role]").value,
+    active: row.querySelector("[data-user-active]").checked,
+    features: selectedFeatures(row.querySelector("[data-user-features]")),
+  };
+  if (password) body.password = password;
+  const response = await fetch(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    window.alert((await response.json()).detail || "Không thể cập nhật tài khoản");
+    return;
+  }
+  await loadAdminUsers();
+}
+
+async function deleteAdminUser(userId) {
+  if (!window.confirm("Xóa tài khoản này?")) return;
+  const response = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+  if (!response.ok) {
+    window.alert((await response.json()).detail || "Không thể xóa tài khoản");
+    return;
+  }
+  await loadAdminUsers();
 }
 
 function settledPayload(result, fallback, label) {
@@ -858,17 +1101,23 @@ function settledPayload(result, fallback, label) {
 }
 
 async function refresh() {
+  if (!state.user) return;
   const query = "";
   const performanceQuery = buildPerformanceQuery();
   const results = await Promise.allSettled([
     fetchJson("/api/settings"),
-    fetchJson("/api/summary"),
-    fetchJson(`/api/signals${query}`),
-    fetchJson(`/api/performance${performanceQuery}`),
-    fetchJson("/api/invalid-signals"),
-    fetchJson("/api/manual-portfolio"),
-    fetchJson("/api/dividend-events"),
-    fetchJson("/api/derivatives"),
+    featureFetch("overview", "/api/summary", { total: 0, buy_count: 0, sell_count: 0, tickers: 0 }),
+    featureFetch("overview", `/api/signals${query}`, { signals: [] }),
+    featureFetch(["positions", "performance"], `/api/performance${performanceQuery}`, {
+      open_trades: [],
+      closed_trades: [],
+      strategies: [],
+      ignored_signals: [],
+    }),
+    featureFetch("logs", "/api/invalid-signals", { invalid_signals: [] }),
+    featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio),
+    featureFetch("dividends", "/api/dividend-events", { dividend_events: [] }),
+    featureFetch("derivatives", "/api/derivatives", state.derivatives),
   ]);
 
   const settingsPayload = settledPayload(
@@ -2491,6 +2740,9 @@ function escapeHtml(value) {
 }
 
 els.refresh.addEventListener("click", refresh);
+els.loginForm.addEventListener("submit", submitLogin);
+els.logoutButton.addEventListener("click", logout);
+els.userCreateForm.addEventListener("submit", createAdminUser);
 els.languageSelect.value = state.language;
 els.languageSelect.addEventListener("change", async () => {
   state.language = els.languageSelect.value;
@@ -2539,6 +2791,5 @@ window.addEventListener("resize", () => {
 applyTheme();
 applyTranslations();
 updateWatchlistControls();
-setActiveTab(state.activeTab);
-refresh();
+bootstrapAuth();
 setInterval(refresh, 15000);

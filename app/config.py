@@ -30,6 +30,9 @@ class Settings:
     default_signal_weight_pct: float = 5.0
     derivative_contract_multiplier: float = 100000.0
     derivative_initial_capital: float = 100000000.0
+    admin_username: str = "admin"
+    admin_password: str = "change-me"
+    session_days: int = 30
 
 
 def _resolve_path(value: str) -> Path:
@@ -69,6 +72,9 @@ def get_settings() -> Settings:
     derivative_initial_capital = float(
         os.getenv("DERIVATIVE_INITIAL_CAPITAL", "100000000")
     )
+    admin_username = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
+    admin_password = os.getenv("ADMIN_PASSWORD", "change-me")
+    session_days = int(os.getenv("SESSION_DAYS", "30"))
     return Settings(
         database_path=database_path,
         webhook_secret=secret,
@@ -90,6 +96,9 @@ def get_settings() -> Settings:
         default_signal_weight_pct=max(0.01, default_signal_weight_pct),
         derivative_contract_multiplier=max(0.01, derivative_contract_multiplier),
         derivative_initial_capital=max(0.01, derivative_initial_capital),
+        admin_username=admin_username,
+        admin_password=admin_password,
+        session_days=max(1, session_days),
     )
 
 

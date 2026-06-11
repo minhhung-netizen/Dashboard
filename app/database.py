@@ -142,6 +142,28 @@ CREATE TABLE IF NOT EXISTS dividend_events (
 
 CREATE INDEX IF NOT EXISTS idx_dividend_events_ticker_date
 ON dividend_events (ticker, ex_date ASC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user',
+    features_json TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry
+ON user_sessions (expires_at);
 """
 
 
@@ -159,6 +181,7 @@ class SignalStore:
     def connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.database_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
             conn.commit()
@@ -240,6 +263,166 @@ class SignalStore:
             )
             """
         )
+
+    def create_user(
+        self,
+        *,
+        username: str,
+        password_hash: str,
+        role: str,
+        features: list[str],
+        active: bool = True,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO users (
+                    username, password_hash, role, features_json, active,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    username.strip(),
+                    password_hash,
+                    role,
+                    json.dumps(features),
+                    1 if active else 0,
+                    now,
+                    now,
+                ),
+            )
+            user_id = cursor.lastrowid
+        return self.get_user(user_id)
+
+    def ensure_admin_user(self, *, username: str, password_hash: str) -> dict[str, Any]:
+        existing = self.get_user_by_username(username)
+        if existing:
+            return existing
+        return self.create_user(
+            username=username,
+            password_hash=password_hash,
+            role="admin",
+            features=[],
+            active=True,
+        )
+
+    def get_user(self, user_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"User {user_id} was not found")
+        return self._user_row(row)
+
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                (username.strip(),),
+            ).fetchone()
+        return self._user_row(row) if row else None
+
+    def get_user_credentials(self, username: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                (username.strip(),),
+            ).fetchone()
+        if row is None:
+            return None
+        user = dict(row)
+        user["features"] = json.loads(user.pop("features_json") or "[]")
+        user["active"] = bool(user["active"])
+        return user
+
+    def list_users(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users ORDER BY role ASC, username ASC"
+            ).fetchall()
+        return [self._user_row(row) for row in rows]
+
+    def update_user(
+        self,
+        user_id: int,
+        *,
+        role: str | None = None,
+        features: list[str] | None = None,
+        active: bool | None = None,
+        password_hash: str | None = None,
+    ) -> dict[str, Any]:
+        updates = ["updated_at = ?"]
+        params: list[Any] = [utc_now_iso()]
+        if role is not None:
+            updates.append("role = ?")
+            params.append(role)
+        if features is not None:
+            updates.append("features_json = ?")
+            params.append(json.dumps(features))
+        if active is not None:
+            updates.append("active = ?")
+            params.append(1 if active else 0)
+        if password_hash is not None:
+            updates.append("password_hash = ?")
+            params.append(password_hash)
+        params.append(user_id)
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(f"User {user_id} was not found")
+            if active is False:
+                conn.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+        return self.get_user(user_id)
+
+    def delete_user(self, user_id: int) -> bool:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+            cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            return cursor.rowcount > 0
+
+    def create_session(self, *, token_hash: str, user_id: int, expires_at: str) -> None:
+        now = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (now,))
+            conn.execute(
+                """
+                INSERT INTO user_sessions (token_hash, user_id, expires_at, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (token_hash, user_id, expires_at, now),
+            )
+
+    def get_session_user(self, token_hash: str) -> dict[str, Any] | None:
+        now = utc_now_iso()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT users.*
+                FROM user_sessions
+                JOIN users ON users.id = user_sessions.user_id
+                WHERE user_sessions.token_hash = ?
+                  AND user_sessions.expires_at > ?
+                  AND users.active = 1
+                """,
+                (token_hash, now),
+            ).fetchone()
+        return self._user_row(row) if row else None
+
+    def delete_session(self, token_hash: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE token_hash = ?", (token_hash,))
+
+    @staticmethod
+    def _user_row(row: sqlite3.Row) -> dict[str, Any]:
+        user = dict(row)
+        user["features"] = json.loads(user.pop("features_json") or "[]")
+        user["active"] = bool(user["active"])
+        user.pop("password_hash", None)
+        return user
 
     def insert_signal(
         self,

@@ -239,3 +239,20 @@ https://your-ngrok-url/webhook
 ```
 
 For a permanent setup, deploy the same FastAPI app to a small Ubuntu VPS and run it behind Nginx with HTTPS.
+
+## Admin And Read-Only Users
+
+The dashboard has two account roles:
+
+- `admin`: can edit data, manage users, and choose which dashboard sections each user can view.
+- `user`: read-only and can only view the sections assigned by an admin.
+
+Set the initial admin account through environment variables before the first deployment:
+
+```text
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-strong-password
+SESSION_DAYS=30
+```
+
+On Railway, add these values under the service's **Variables** tab, then redeploy. Sign in with the admin account and open the **Quản trị** tab to create users and configure their visible features.

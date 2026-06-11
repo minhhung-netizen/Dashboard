@@ -56,6 +56,108 @@ body {
   line-height: 1.45;
 }
 
+.loginScreen {
+  align-items: center;
+  background: var(--bg);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 100;
+}
+
+.loginScreen[hidden] {
+  display: none;
+}
+
+.loginPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  width: min(100%, 380px);
+}
+
+.loginPanel label {
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.loginPanel input {
+  max-width: none;
+  text-transform: none;
+  width: 100%;
+}
+
+.loginError {
+  color: var(--sell);
+  font-size: 13px;
+}
+
+.currentUser {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.adminPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.userCreateForm {
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 170px 220px 150px minmax(320px, 1fr) auto;
+  padding: 14px 16px;
+}
+
+.userCreateForm input {
+  max-width: none;
+  text-transform: none;
+}
+
+.featureSelector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.featureOption {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.featureOption input {
+  height: 15px;
+  margin: 0;
+  width: 15px;
+}
+
+.readOnly .deleteButton,
+.readOnly .restoreButton,
+.readOnly .adminOnly {
+  display: none !important;
+}
+
+[data-access-hidden="true"] {
+  display: none !important;
+}
+
 button,
 input,
 select {
@@ -912,6 +1014,10 @@ td strong {
   .closedTradesPanel {
     grid-column: 1 / -1;
   }
+
+  .userCreateForm {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -958,6 +1064,10 @@ td strong {
   .derivativeCapitalForm input {
     max-width: none;
     width: 100%;
+  }
+
+  .userCreateForm {
+    grid-template-columns: 1fr;
   }
 
   .tabs {
