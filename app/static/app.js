@@ -3,8 +3,17 @@ const els = {
   buy: document.querySelector("#buySignals"),
   sell: document.querySelector("#sellSignals"),
   tickers: document.querySelector("#tickerCount"),
+  metricTotalLabel: document.querySelector("#metricTotalLabel"),
+  metricBuyLabel: document.querySelector("#metricBuyLabel"),
+  metricSellLabel: document.querySelector("#metricSellLabel"),
+  metricTickerLabel: document.querySelector("#metricTickerLabel"),
+  syncStatus: document.querySelector("#syncStatus"),
+  userAttentionPanel: document.querySelector("#userAttentionPanel"),
+  userAttentionList: document.querySelector("#userAttentionList"),
   table: document.querySelector("#signalsTable"),
+  signalCards: document.querySelector("#signalCards"),
   openPositionsTable: document.querySelector("#openPositionsTable"),
+  openPositionCards: document.querySelector("#openPositionCards"),
   closedTradesTable: document.querySelector("#closedTradesTable"),
   invalidSignalsTable: document.querySelector("#invalidSignalsTable"),
   performanceTable: document.querySelector("#performanceTable"),
@@ -87,6 +96,7 @@ const els = {
   loginPassword: document.querySelector("#loginPassword"),
   loginError: document.querySelector("#loginError"),
   currentUser: document.querySelector("#currentUser"),
+  accountMenu: document.querySelector("#accountMenu"),
   logoutButton: document.querySelector("#logoutButton"),
   userCreateForm: document.querySelector("#userCreateForm"),
   newUsername: document.querySelector("#newUsername"),
@@ -719,11 +729,49 @@ Object.assign(translations.vi, {
   deleteDerivativeFailed: "Không thể xóa sự kiện phái sinh",
 });
 
+Object.assign(translations.en, {
+  language: "Language",
+  syncing: "Syncing...",
+  syncedJustNow: "Updated just now",
+  userOpenPositions: "Open positions",
+  userOpenPl: "Estimated P/L",
+  userTodaySignals: "Signals today",
+  userAlerts: "Needs attention",
+  attention: "Needs attention",
+  positionAlerts: "Positions and signals to monitor",
+  noAttention: "No positions currently need attention",
+  alertLoss: "Return is below -5%",
+  alertSignal: "Another signal was received",
+  alertDividend: "Upcoming ex-rights date",
+  entryShort: "Entry",
+  currentShort: "Current",
+  daysShort: "Held",
+});
+
+Object.assign(translations.vi, {
+  language: "Ngôn ngữ",
+  syncing: "Đang đồng bộ...",
+  syncedJustNow: "Vừa cập nhật",
+  userOpenPositions: "Vị thế đang mở",
+  userOpenPl: "Lãi/lỗ tạm tính",
+  userTodaySignals: "Tín hiệu hôm nay",
+  userAlerts: "Cần chú ý",
+  attention: "Cần chú ý",
+  positionAlerts: "Vị thế và tín hiệu cần theo dõi",
+  noAttention: "Hiện không có vị thế cần chú ý",
+  alertLoss: "Lãi/lỗ đang dưới -5%",
+  alertSignal: "Đã nhận tín hiệu khác",
+  alertDividend: "Sắp đến ngày GDKHQ",
+  entryShort: "Giá vào",
+  currentShort: "Hiện tại",
+  daysShort: "Đã giữ",
+});
+
 const state = {
   user: null,
   availableFeatures: Object.keys(FEATURE_LABELS),
   users: [],
-  language: localStorage.getItem("dashboardLanguage") || "en",
+  language: localStorage.getItem("dashboardLanguage") || "vi",
   theme: localStorage.getItem("dashboardTheme") || "light",
   activeTab: localStorage.getItem("dashboardActiveTab") || "overview",
   selectedTicker: "",
@@ -737,6 +785,8 @@ const state = {
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
   dividendEvents: [],
   dividendAlerts: [],
+  summary: {},
+  lastRefreshAt: null,
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
 };
 
@@ -811,6 +861,8 @@ function applyTranslations() {
   }
   updateClosedTradesFilterLabel();
   updateThemeButton();
+  renderSummary(state.summary);
+  renderUserAttention();
 }
 
 function applyTheme() {
@@ -912,7 +964,8 @@ function setAuthenticatedUser(user, availableFeatures) {
   state.user = user;
   state.availableFeatures = availableFeatures.length ? availableFeatures : Object.keys(FEATURE_LABELS);
   els.loginScreen.hidden = true;
-  els.currentUser.textContent = `${user.username} · ${user.role}`;
+  els.currentUser.textContent = user.username;
+  els.currentUser.dataset.initial = user.username.slice(0, 1).toUpperCase();
   document.body.classList.toggle("readOnly", user.role !== "admin");
   applyAccessControl();
   if (user.role === "admin") {
@@ -952,6 +1005,7 @@ async function submitLogin(event) {
 
 async function logout() {
   await fetch("/api/auth/logout", { method: "POST" });
+  els.accountMenu.open = false;
   showLogin();
 }
 
@@ -1103,6 +1157,7 @@ function settledPayload(result, fallback, label) {
 
 async function refresh() {
   if (!state.user) return;
+  els.syncStatus.textContent = t("syncing");
   const query = "";
   const performanceQuery = buildPerformanceQuery();
   const results = await Promise.allSettled([
@@ -1156,8 +1211,8 @@ async function refresh() {
   );
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
+  state.summary = summary;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
-  renderSummary(summary);
   renderSignals();
   state.openTrades = performancePayload.open_trades || [];
   renderOpenPositions();
@@ -1181,8 +1236,12 @@ async function refresh() {
   state.dividendAlerts = dividendPayload.dividend_alerts || [];
   renderDividendEvents();
   renderExDateAlerts();
+  renderSummary(summary);
+  renderUserAttention();
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
+  state.lastRefreshAt = new Date();
+  els.syncStatus.textContent = t("syncedJustNow");
 
   const firstTicker = state.selectedTicker || state.signals[0]?.ticker || "";
   if (firstTicker) {
@@ -1494,7 +1553,7 @@ function renderDerivatives(payload) {
         <td>${formatPrice(event.quantity)}</td>
         <td>${escapeHtml(event.strategy || "-")}</td>
         <td>${escapeHtml(event.reason || "-")}</td>
-        <td>
+        <td class="adminOnly">
           <button class="deleteButton" type="button" data-derivative-delete-id="${event.id}">
             ${escapeHtml(t("delete"))}
           </button>
@@ -1567,7 +1626,7 @@ function renderDividendEvents() {
         <td>${formatPercent(event.issue_ratio_pct)}</td>
         <td>${formatPrice(event.issue_price)}</td>
         <td>${escapeHtml(event.note || "-")}</td>
-        <td>
+        <td class="adminOnly">
           <button class="deleteButton" type="button" data-dividend-delete-id="${event.id}">${escapeHtml(t("delete"))}</button>
         </td>
       </tr>
@@ -1772,6 +1831,7 @@ function renderOpenPositions() {
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
     els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
 
@@ -1794,9 +1854,44 @@ function renderOpenPositions() {
     `;
     })
     .join("");
+  els.openPositionCards.innerHTML = openTrades
+    .map((trade) => `
+      <article class="positionCard" data-card-ticker="${escapeHtml(trade.ticker)}">
+        <div class="positionCardHead">
+          <div>
+            <strong class="${trade.has_confirm_buy ? "confirmedTicker" : ""}">${escapeHtml(trade.ticker)}</strong>
+            <span>${escapeHtml(trade.strategy || "-")}</span>
+          </div>
+          ${formatSignedPercent(trade.return_pct)}
+        </div>
+        <div class="positionCardMetrics">
+          <div><span>${escapeHtml(t("entryShort"))}</span><strong>${formatPrice(trade.entry_price)}</strong></div>
+          <div><span>${escapeHtml(t("currentShort"))}</span><strong>${formatPrice(trade.exit_price)}</strong></div>
+          <div><span>${escapeHtml(t("daysShort"))}</span><strong>${formatHoldingDaysBetween(trade.entry_time)}</strong></div>
+        </div>
+        <div class="positionCardSignal">
+          ${(trade.confirmations || []).length
+            ? `<span class="confirmBadge">${escapeHtml(t("confirmedStatus"))}</span>`
+            : `<span class="mutedText">${escapeHtml(t("unconfirmedStatus"))}</span>`}
+          ${(trade.dividend_notes || []).some((note) => note.status === "upcoming")
+            ? `<span class="dividendBadge">${escapeHtml(t("upcomingDividend"))}</span>`
+            : ""}
+        </div>
+      </article>
+    `)
+    .join("");
 
   els.openPositionsTable.querySelectorAll("[data-ticker]").forEach((row) => {
-    row.addEventListener("click", () => renderChart(row.dataset.ticker));
+    row.addEventListener("click", () => {
+      setActiveTab("overview");
+      renderChart(row.dataset.ticker);
+    });
+  });
+  els.openPositionCards.querySelectorAll("[data-card-ticker]").forEach((card) => {
+    card.addEventListener("click", () => {
+      setActiveTab("overview");
+      renderChart(card.dataset.cardTicker);
+    });
   });
 }
 
@@ -1881,7 +1976,7 @@ function renderClosedTrades(closedTrades) {
         <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
         <td>${formatDuration(trade.holding_seconds)}</td>
         <td>${formatDate(trade.exit_time)}</td>
-        <td>
+        <td class="adminOnly">
           ${trade.exit_signal_id ? `
             <button class="restoreButton" type="button" data-reopen-exit-id="${escapeHtml(trade.exit_signal_id)}" title="${escapeHtml(t("reopenPositionTitle"))}">
               ${escapeHtml(t("reopenPosition"))}
@@ -2204,15 +2299,95 @@ function drawDerivativeEquityCurve(curve) {
 }
 
 function renderSummary(summary) {
-  const visibleSummary = state.watchlistOnly ? summarizeSignals(state.signals) : summary;
-  els.total.textContent = visibleSummary.total ?? 0;
-  els.buy.textContent = visibleSummary.buy_count ?? 0;
-  els.sell.textContent = visibleSummary.sell_count ?? 0;
-  els.tickers.textContent = visibleSummary.tickers ?? 0;
+  if (!els.total || !state.user) return;
+  if (state.user.role !== "admin" && featureEnabled(["positions", "performance"])) {
+    const openReturn = state.openTrades.reduce((sum, trade) => {
+      const value = allocatedReturnPct(trade.return_pct);
+      return Number.isFinite(value) ? sum + value : sum;
+    }, 0);
+    const today = localMarketDate();
+    const todaySignals = state.signals.filter(
+      (signal) => marketDateKey(signalTimeValue(signal)) === today
+    ).length;
+    els.metricTotalLabel.textContent = t("userOpenPositions");
+    els.metricBuyLabel.textContent = t("userOpenPl");
+    els.metricSellLabel.textContent = t("userTodaySignals");
+    els.metricTickerLabel.textContent = t("userAlerts");
+    els.total.textContent = state.openTrades.length;
+    els.buy.innerHTML = state.openTrades.length ? formatSignedPercent(openReturn) : "-";
+    els.sell.textContent = todaySignals;
+    els.tickers.textContent = userAttentionItems().length;
+  } else {
+    const visibleSummary = state.watchlistOnly ? summarizeSignals(state.signals) : summary;
+    els.metricTotalLabel.textContent = t("total");
+    els.metricBuyLabel.textContent = t("buy");
+    els.metricSellLabel.textContent = t("sell");
+    els.metricTickerLabel.textContent = t("tickers");
+    els.total.textContent = visibleSummary.total ?? 0;
+    els.buy.textContent = visibleSummary.buy_count ?? 0;
+    els.sell.textContent = visibleSummary.sell_count ?? 0;
+    els.tickers.textContent = visibleSummary.tickers ?? 0;
+  }
   els.lastUpdated.textContent = summary.latest_received_at
     ? formatDate(summary.latest_received_at)
     : t("waitingWebhook");
   els.lastUpdated.dataset.empty = summary.latest_received_at ? "false" : "true";
+}
+
+function marketDateKey(value) {
+  const date = parseDateValue(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function userAttentionItems() {
+  return state.openTrades
+    .map((trade) => {
+      const upcomingDividend = (trade.dividend_notes || []).find(
+        (note) => note.status === "upcoming"
+      );
+      if (Number(trade.return_pct) <= -5) {
+        return { trade, reason: t("alertLoss"), priority: 1 };
+      }
+      if ((trade.confirmations || []).length) {
+        return { trade, reason: t("alertSignal"), priority: 2 };
+      }
+      if (upcomingDividend) {
+        return { trade, reason: t("alertDividend"), priority: 3 };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.priority - right.priority);
+}
+
+function renderUserAttention() {
+  if (!els.userAttentionList || state.user?.role === "admin") return;
+  const items = userAttentionItems().slice(0, 3);
+  els.userAttentionPanel.hidden = !items.length;
+  if (!items.length) {
+    els.userAttentionList.innerHTML = `<div class="attentionEmpty">${escapeHtml(t("noAttention"))}</div>`;
+    return;
+  }
+  els.userAttentionList.innerHTML = items
+    .map(({ trade, reason }) => `
+      <article class="attentionItem" data-attention-ticker="${escapeHtml(trade.ticker)}">
+        <div class="attentionItemHead">
+          <strong>${escapeHtml(trade.ticker)}</strong>
+          ${formatSignedPercent(trade.return_pct)}
+        </div>
+        <p>${escapeHtml(reason)} · ${escapeHtml(trade.strategy || "-")}</p>
+      </article>
+    `)
+    .join("");
+  els.userAttentionList.querySelectorAll("[data-attention-ticker]").forEach((item) => {
+    item.addEventListener("click", () => renderChart(item.dataset.attentionTicker));
+  });
 }
 
 function summarizeSignals(signals) {
@@ -2236,6 +2411,7 @@ function summarizeSignals(signals) {
 function renderSignals() {
   if (!state.signals.length) {
     els.table.innerHTML = `<tr><td class="empty" colspan="7">${t("noSignals")}</td></tr>`;
+    els.signalCards.innerHTML = `<div class="empty">${t("noSignals")}</div>`;
     return;
   }
 
@@ -2250,16 +2426,35 @@ function renderSignals() {
           <td>${formatPrice(signal.price)}</td>
           <td>${escapeHtml(signal.timeframe || "-")}</td>
           <td>${escapeHtml(signal.strategy || "-")}</td>
-          <td>
+          <td class="adminOnly">
             <button class="deleteButton" type="button" data-delete-id="${signal.id}" title="${escapeHtml(t("deleteTitle"))}" aria-label="${escapeHtml(`${t("deleteTitle")} ${signal.id}`)}">${escapeHtml(t("delete"))}</button>
           </td>
         </tr>
       `;
     })
     .join("");
+  els.signalCards.innerHTML = state.signals
+    .map((signal) => {
+      const action = String(signal.action || "").toLowerCase();
+      return `
+        <article class="signalCard" data-signal-card-ticker="${escapeHtml(signal.ticker)}">
+          <span class="side ${action}">${escapeHtml(signal.action)}</span>
+          <div>
+            <strong>${escapeHtml(signal.ticker)}</strong>
+            <span class="signalCardMeta">${escapeHtml(signal.strategy || "-")} · ${escapeHtml(signal.timeframe || "-")}</span>
+          </div>
+          <strong>${formatPrice(signal.price)}</strong>
+          <time>${formatSignalTime(signal)}</time>
+        </article>
+      `;
+    })
+    .join("");
 
   document.querySelectorAll("[data-ticker]").forEach((row) => {
     row.addEventListener("click", () => renderChart(row.dataset.ticker));
+  });
+  els.signalCards.querySelectorAll("[data-signal-card-ticker]").forEach((card) => {
+    card.addEventListener("click", () => renderChart(card.dataset.signalCardTicker));
   });
   document.querySelectorAll("[data-delete-id]").forEach((button) => {
     button.addEventListener("click", async (event) => {
@@ -2573,7 +2768,7 @@ function formatDate(value) {
   if (!value) return "-";
   const date = parseDateValue(value);
   if (!date) return value;
-  return date.toLocaleString();
+  return date.toLocaleString(state.language === "vi" ? "vi-VN" : "en-US");
 }
 
 function signalTimeValue(signal) {

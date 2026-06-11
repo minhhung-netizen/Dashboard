@@ -26,9 +26,10 @@
     </div>
 
     <header class="topbar">
-      <div>
+      <div class="brandBlock">
         <p class="eyebrow" data-i18n="webhookLabel">Signal Dashboard</p>
         <h1>VN Signals Dashboard</h1>
+        <span id="syncStatus" class="syncStatus">Đang đồng bộ...</span>
       </div>
       <div class="actions">
         <input id="watchlistInput" aria-label="Watchlist symbols" placeholder="VPB,TCB,FPT" />
@@ -36,14 +37,21 @@
           <input id="watchlistOnly" type="checkbox" />
           <span data-i18n="watchlistOnly">Watchlist only</span>
         </label>
-        <select id="languageSelect" aria-label="Language">
-          <option value="en">English</option>
-          <option value="vi">Tiếng Việt</option>
-        </select>
-        <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme" data-i18n="darkMode">Dark mode</button>
-        <button id="refreshButton" type="button" title="Refresh signals" data-i18n="refresh">Refresh</button>
-        <span id="currentUser" class="currentUser"></span>
-        <button id="logoutButton" class="smallButton" type="button">Đăng xuất</button>
+        <button id="refreshButton" class="refreshIcon" type="button" title="Refresh signals" aria-label="Refresh signals">↻</button>
+        <details id="accountMenu" class="accountMenu">
+          <summary id="currentUser" class="currentUser"></summary>
+          <div class="accountMenuPanel">
+            <label>
+              <span data-i18n="language">Ngôn ngữ</span>
+              <select id="languageSelect" aria-label="Language">
+                <option value="en">English</option>
+                <option value="vi">Tiếng Việt</option>
+              </select>
+            </label>
+            <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme" data-i18n="darkMode">Dark mode</button>
+            <button id="logoutButton" class="smallButton" type="button">Đăng xuất</button>
+          </div>
+        </details>
       </div>
     </header>
 
@@ -64,21 +72,31 @@
       <div class="tabPanel active" data-tab-panel="overview">
         <section class="metrics" aria-label="Signal summary">
           <article>
-            <span data-i18n="total">Total</span>
+            <span id="metricTotalLabel" data-i18n="total">Total</span>
             <strong id="totalSignals">0</strong>
           </article>
           <article>
-            <span data-i18n="buy">Buy</span>
+            <span id="metricBuyLabel" data-i18n="buy">Buy</span>
             <strong id="buySignals">0</strong>
           </article>
           <article>
-            <span data-i18n="sell">Sell</span>
+            <span id="metricSellLabel" data-i18n="sell">Sell</span>
             <strong id="sellSignals">0</strong>
           </article>
           <article>
-            <span data-i18n="tickers">Tickers</span>
+            <span id="metricTickerLabel" data-i18n="tickers">Tickers</span>
             <strong id="tickerCount">0</strong>
           </article>
+        </section>
+
+        <section id="userAttentionPanel" class="attentionPanel userOnly">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="attention">Cần chú ý</p>
+              <h2 data-i18n="positionAlerts">Vị thế và tín hiệu cần theo dõi</h2>
+            </div>
+          </div>
+          <div id="userAttentionList" class="attentionList"></div>
         </section>
 
         <section class="workspace">
@@ -122,12 +140,13 @@
                     <th data-i18n="price">Price</th>
                     <th data-i18n="timeframe">Timeframe</th>
                     <th data-i18n="strategy">Strategy</th>
-                    <th></th>
+                    <th class="adminOnly"></th>
                   </tr>
                 </thead>
                 <tbody id="signalsTable"></tbody>
               </table>
             </div>
+            <div id="signalCards" class="signalCardList"></div>
           </div>
         </section>
 
@@ -189,6 +208,7 @@
               <tbody id="openPositionsTable"></tbody>
             </table>
           </div>
+          <div id="openPositionCards" class="positionCardList"></div>
         </section>
 
         <section class="closedTradesPanel">
@@ -215,7 +235,7 @@
                   <th data-i18n="portfolioPl">P/L</th>
                   <th data-i18n="holdTime">Hold Time</th>
                   <th data-i18n="exitTime">Exit Time</th>
-                  <th data-i18n="action">Action</th>
+                  <th class="adminOnly" data-i18n="action">Action</th>
                 </tr>
               </thead>
               <tbody id="closedTradesTable"></tbody>
@@ -375,7 +395,7 @@
                   <th data-i18n="contracts">Contracts</th>
                   <th data-i18n="strategy">Strategy</th>
                   <th data-i18n="reason">Reason</th>
-                  <th></th>
+                  <th class="adminOnly"></th>
                 </tr>
               </thead>
               <tbody id="derivativeEventsTable"></tbody>
@@ -449,7 +469,7 @@
                   <th data-i18n="holdingDays">Days Held</th>
                   <th data-i18n="dividend">Dividend</th>
                   <th data-i18n="note">Note</th>
-                  <th></th>
+                  <th class="adminOnly"></th>
                 </tr>
               </thead>
               <tbody id="manualPortfolioTable"></tbody>
@@ -567,7 +587,7 @@
                   <th data-i18n="additionalIssue">Issue %</th>
                   <th data-i18n="issuePrice">Issue Price</th>
                   <th data-i18n="note">Note</th>
-                  <th></th>
+                  <th class="adminOnly"></th>
                 </tr>
               </thead>
               <tbody id="dividendEventsTable"></tbody>
@@ -577,7 +597,7 @@
       </div>
 
       <div class="tabPanel" data-tab-panel="logs">
-        <section class="exportPanel">
+        <section class="exportPanel adminOnly">
           <div class="panelHead">
             <div>
               <p class="eyebrow" data-i18n="exportBackup">Export / Backup</p>

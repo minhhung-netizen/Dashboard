@@ -101,9 +101,37 @@ body {
 }
 
 .currentUser {
-  color: var(--muted);
+  align-items: center;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
   font-size: 12px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
   white-space: nowrap;
+}
+
+.currentUser::before {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 50%;
+  color: var(--accent);
+  content: attr(data-initial);
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.userOnly {
+  display: none !important;
+}
+
+.readOnly .userOnly {
+  display: block !important;
 }
 
 .adminPanel {
@@ -154,6 +182,10 @@ body {
   display: none !important;
 }
 
+.readOnly .timelinePanel {
+  display: none;
+}
+
 [data-access-hidden="true"] {
   display: none !important;
 }
@@ -202,6 +234,17 @@ h2 {
   z-index: 20;
 }
 
+.brandBlock {
+  min-width: 220px;
+}
+
+.syncStatus {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  margin-top: 5px;
+}
+
 .eyebrow {
   color: var(--accent);
   font-size: 11px;
@@ -226,6 +269,61 @@ h2 {
 
 .actions {
   justify-content: flex-end;
+}
+
+.refreshIcon {
+  border-radius: 50%;
+  font-size: 20px;
+  height: 38px;
+  padding: 0;
+  width: 38px;
+}
+
+.accountMenu {
+  position: relative;
+}
+
+.accountMenu > summary {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  list-style: none;
+}
+
+.accountMenu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.accountMenu[open] > summary {
+  border-color: var(--accent);
+  box-shadow: var(--focus);
+}
+
+.accountMenuPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 14%);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 210px;
+  z-index: 40;
+}
+
+.accountMenuPanel label {
+  color: var(--muted);
+  display: grid;
+  font-size: 11px;
+  gap: 5px;
+}
+
+.accountMenuPanel select,
+.accountMenuPanel button {
+  max-width: none;
+  width: 100%;
 }
 
 .checkboxControl {
@@ -375,6 +473,11 @@ main {
   gap: 4px;
   margin-bottom: 18px;
   padding: 5px;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tabButton {
@@ -401,6 +504,66 @@ main {
   gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 16px;
+}
+
+.attentionPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.attentionPanel[hidden] {
+  display: none !important;
+}
+
+.attentionList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.attentionItem {
+  border-right: 1px solid var(--line-soft);
+  color: var(--ink);
+  cursor: pointer;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.attentionItem:last-child {
+  border-right: 0;
+}
+
+.attentionItem:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.attentionItemHead {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.attentionItem strong {
+  font-size: 15px;
+}
+
+.attentionItem p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attentionEmpty {
+  color: var(--muted);
+  grid-column: 1 / -1;
+  padding: 16px;
 }
 
 .metrics article,
@@ -660,6 +823,11 @@ main {
 .tableWrap {
   max-height: 358px;
   overflow: auto;
+}
+
+.positionCardList,
+.signalCardList {
+  display: none;
 }
 
 .compactTable {
@@ -1018,10 +1186,73 @@ td strong {
   .userCreateForm {
     grid-template-columns: 1fr 1fr;
   }
+
+  .attentionList {
+    grid-template-columns: 1fr;
+  }
+
+  .attentionItem {
+    border-bottom: 1px solid var(--line-soft);
+    border-right: 0;
+  }
 }
 
 @media (max-width: 720px) {
-  .topbar,
+  body {
+    padding-bottom: 66px;
+  }
+
+  .topbar {
+    align-items: center;
+    flex-direction: row;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+
+  .topbar h1 {
+    font-size: 17px;
+    white-space: nowrap;
+  }
+
+  .topbar .eyebrow,
+  .topbar .syncStatus {
+    display: none;
+  }
+
+  .topbar .actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .topbar .actions > #watchlistInput,
+  .topbar .actions > .checkboxControl {
+    display: none;
+  }
+
+  .refreshIcon {
+    height: 36px;
+    width: 36px;
+  }
+
+  .currentUser {
+    font-size: 0;
+    min-height: 36px;
+    padding: 0 5px;
+  }
+
+  .currentUser::before {
+    font-size: 11px;
+  }
+
+  .accountMenuPanel {
+    position: fixed;
+    right: 12px;
+    top: 58px;
+    width: min(280px, calc(100vw - 24px));
+  }
+
   .panelHead {
     align-items: stretch;
     flex-direction: column;
@@ -1038,7 +1269,6 @@ td strong {
     justify-content: flex-start;
   }
 
-  .actions,
   .metrics,
   .analyticsGrid,
   .manualPortfolioGrid,
@@ -1046,9 +1276,7 @@ td strong {
     grid-template-columns: 1fr;
   }
 
-  .actions,
   .performanceControls,
-  .positionControls,
   .derivativeCapitalForm,
   .panelActions {
     display: grid;
@@ -1071,12 +1299,151 @@ td strong {
   }
 
   .tabs {
-    overflow-x: auto;
+    border-radius: 0;
+    bottom: 0;
+    box-shadow: 0 -2px 12px rgb(15 23 42 / 12%);
+    display: flex;
     flex-wrap: nowrap;
+    gap: 2px;
+    left: 0;
+    margin: 0;
+    overflow-x: auto;
+    padding: 6px;
+    position: fixed;
+    right: 0;
+    z-index: 30;
   }
 
   .tabButton {
-    flex: 0 0 auto;
+    flex: 1 0 auto;
+    height: 42px;
+    min-width: 78px;
+    padding: 0 10px;
+  }
+
+  main {
+    padding: 14px 12px 24px;
+  }
+
+  .metrics {
+    gap: 8px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .metrics article {
+    min-height: 78px;
+    padding: 13px;
+  }
+
+  .metrics strong {
+    font-size: 23px;
+  }
+
+  .workspace {
+    gap: 12px;
+  }
+
+  #priceChart {
+    height: 300px;
+  }
+
+  .positionControls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .positionControls .positionTotal {
+    grid-column: 1 / -1;
+  }
+
+  .positionControls .adminOnly {
+    display: none !important;
+  }
+
+  .openPositionsPanel > .tableWrap {
+    display: none;
+  }
+
+  .positionCardList,
+  .signalCardList {
+    display: grid;
+  }
+
+  .signalsPanel > .tableWrap {
+    display: none;
+  }
+
+  .positionCard {
+    border-bottom: 1px solid var(--line-soft);
+    cursor: pointer;
+    display: grid;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+
+  .positionCard:last-child {
+    border-bottom: 0;
+  }
+
+  .positionCardHead,
+  .positionCardMetrics {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+  }
+
+  .positionCardHead span,
+  .positionCardMeta {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .positionCardMetrics div {
+    display: grid;
+    gap: 2px;
+  }
+
+  .positionCardMetrics span {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .positionCardSignal {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .signalCard {
+    align-items: center;
+    border-bottom: 1px solid var(--line-soft);
+    cursor: pointer;
+    display: grid;
+    gap: 8px 12px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 12px 16px;
+  }
+
+  .signalCard:last-child {
+    border-bottom: 0;
+  }
+
+  .signalCard strong,
+  .signalCard span {
+    display: block;
+  }
+
+  .signalCardMeta,
+  .signalCard time {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .signalCard time {
+    grid-column: 2 / -1;
   }
 
   .manualForm {
