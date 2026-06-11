@@ -109,7 +109,7 @@ const FEATURE_LABELS = {
 
 const translations = {
   en: {
-    webhookLabel: "TradingView Webhook",
+    webhookLabel: "Signal Dashboard",
     refresh: "Refresh",
     darkMode: "Dark mode",
     lightMode: "Light mode",
@@ -320,7 +320,7 @@ const translations = {
     deleteDerivativeFailed: "Could not delete derivative event",
   },
   vi: {
-    webhookLabel: "Webhook TradingView",
+    webhookLabel: "Bảng tín hiệu",
     refresh: "Làm mới",
     darkMode: "Chế độ tối",
     lightMode: "Chế độ sáng",
@@ -386,7 +386,7 @@ const translations = {
     exportDailyPerformance: "Hiệu suất ngày CSV",
     backupDatabase: "Sao lưu DB",
     baseStrategyNotOpen: "Chiến lược gốc chưa mở",
-    webhookLabel: "Webhook TradingView",
+    webhookLabel: "Bảng tín hiệu",
     refresh: "Làm mới",
     darkMode: "Chế độ tối",
     lightMode: "Chế độ sáng",
@@ -513,7 +513,7 @@ const translations = {
 };
 
 Object.assign(translations.vi, {
-  webhookLabel: "Webhook TradingView",
+  webhookLabel: "Bảng tín hiệu",
   refresh: "Làm mới",
   darkMode: "Chế độ tối",
   lightMode: "Chế độ sáng",

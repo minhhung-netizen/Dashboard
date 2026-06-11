@@ -139,7 +139,7 @@ async def lifespan(app: FastAPI):
         enrichment_queue = None
 
 
-app = FastAPI(title="TradingView VN Dashboard", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="VN Signals Dashboard", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

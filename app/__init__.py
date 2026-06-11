@@ -1,1 +1,1 @@
-"""TradingView webhook dashboard package."""
+"""VN signals dashboard package."""
