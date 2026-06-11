@@ -55,10 +55,30 @@ from app.services.auth import (
 
 settings = get_settings()
 store = SignalStore(settings.database_path)
-store.ensure_admin_user(
-    username=settings.admin_username,
-    password_hash=hash_password(settings.admin_password),
-)
+configured_admin = store.get_user_credentials(settings.admin_username)
+if configured_admin is None:
+    store.ensure_admin_user(
+        username=settings.admin_username,
+        password_hash=hash_password(settings.admin_password),
+    )
+else:
+    password_changed = settings.admin_password_managed and not verify_password(
+        settings.admin_password,
+        configured_admin["password_hash"],
+    )
+    if (
+        configured_admin["role"] != "admin"
+        or not configured_admin["active"]
+        or password_changed
+    ):
+        store.update_user(
+            configured_admin["id"],
+            role="admin",
+            active=True,
+            password_hash=hash_password(settings.admin_password)
+            if password_changed
+            else None,
+        )
 logger = logging.getLogger(__name__)
 vnstock_enricher = VnstockEnricher(
     lookback_days=settings.vnstock_lookback_days,

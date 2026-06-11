@@ -63,6 +63,29 @@ class AuthTest(unittest.TestCase):
 
             self.assertIsNone(store.get_session_user(token_hash))
 
+    def test_changing_password_invalidates_session(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            user = store.create_user(
+                username="admin",
+                password_hash=hash_password("old-password"),
+                role="admin",
+                features=[],
+            )
+            _, token_hash, expires_at = new_session(30)
+            store.create_session(
+                token_hash=token_hash,
+                user_id=user["id"],
+                expires_at=expires_at,
+            )
+
+            store.update_user(
+                user["id"],
+                password_hash=hash_password("new-password"),
+            )
+
+            self.assertIsNone(store.get_session_user(token_hash))
+
 
 if __name__ == "__main__":
     unittest.main()

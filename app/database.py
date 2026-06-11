@@ -374,7 +374,7 @@ class SignalStore:
             )
             if cursor.rowcount == 0:
                 raise KeyError(f"User {user_id} was not found")
-            if active is False:
+            if active is False or password_hash is not None:
                 conn.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
         return self.get_user(user_id)
 

@@ -32,6 +32,7 @@ class Settings:
     derivative_initial_capital: float = 100000000.0
     admin_username: str = "admin"
     admin_password: str = "change-me"
+    admin_password_managed: bool = False
     session_days: int = 30
 
 
@@ -74,6 +75,7 @@ def get_settings() -> Settings:
     )
     admin_username = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
     admin_password = os.getenv("ADMIN_PASSWORD", "change-me")
+    admin_password_managed = "ADMIN_PASSWORD" in os.environ
     session_days = int(os.getenv("SESSION_DAYS", "30"))
     return Settings(
         database_path=database_path,
@@ -98,6 +100,7 @@ def get_settings() -> Settings:
         derivative_initial_capital=max(0.01, derivative_initial_capital),
         admin_username=admin_username,
         admin_password=admin_password,
+        admin_password_managed=admin_password_managed,
         session_days=max(1, session_days),
     )
 

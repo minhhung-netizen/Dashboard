@@ -256,3 +256,4 @@ SESSION_DAYS=30
 ```
 
 On Railway, add these values under the service's **Variables** tab, then redeploy. Sign in with the admin account and open the **Quản trị** tab to create users and configure their visible features.
+When `ADMIN_PASSWORD` is explicitly set, redeploying also synchronizes the stored admin password with that variable.
