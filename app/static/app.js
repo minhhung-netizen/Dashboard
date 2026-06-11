@@ -736,6 +736,7 @@ const state = {
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
   dividendEvents: [],
+  dividendAlerts: [],
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
 };
 
@@ -1116,7 +1117,7 @@ async function refresh() {
     }),
     featureFetch("logs", "/api/invalid-signals", { invalid_signals: [] }),
     featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio),
-    featureFetch("dividends", "/api/dividend-events", { dividend_events: [] }),
+    featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] }),
     featureFetch("derivatives", "/api/derivatives", state.derivatives),
   ]);
 
@@ -1145,7 +1146,7 @@ async function refresh() {
   const manualPayload = settledPayload(results[5], state.manualPortfolio, "manual portfolio");
   const dividendPayload = settledPayload(
     results[6],
-    { dividend_events: state.dividendEvents },
+    { dividend_events: state.dividendEvents, dividend_alerts: state.dividendAlerts },
     "dividend events"
   );
   const derivativePayload = settledPayload(
@@ -1177,6 +1178,7 @@ async function refresh() {
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
+  state.dividendAlerts = dividendPayload.dividend_alerts || [];
   renderDividendEvents();
   renderExDateAlerts();
   state.derivatives = derivativePayload;
@@ -1549,12 +1551,17 @@ function renderDividendEvents() {
     return;
   }
   els.dividendEventsTable.innerHTML = rows
-    .map((event) => `
+    .map((event) => {
+      const daysUntil = Number(event.days_until);
+      const dateLabel = event.alert_status === "ex_date_today"
+        ? `<strong>${escapeHtml(t("exDateToday"))}</strong>`
+        : Number.isFinite(daysUntil)
+          ? `${formatDateOnly(event.ex_date)} (${daysUntil} ngày)`
+          : formatDateOnly(event.ex_date);
+      return `
       <tr class="${event.alert_status === "ex_date_today" ? "exDateRow" : ""}">
         <td><strong>${escapeHtml(event.ticker || "-")}</strong></td>
-        <td>${event.alert_status === "ex_date_today"
-          ? `<strong>${escapeHtml(t("exDateToday"))}</strong>`
-          : `${formatDateOnly(event.ex_date)} (${Number(event.days_until)} ngày)`}</td>
+        <td>${dateLabel}</td>
         <td>${formatPrice(event.cash_amount)}</td>
         <td>${formatPercent(event.stock_ratio_pct)}</td>
         <td>${formatPercent(event.issue_ratio_pct)}</td>
@@ -1564,7 +1571,8 @@ function renderDividendEvents() {
           <button class="deleteButton" type="button" data-dividend-delete-id="${event.id}">${escapeHtml(t("delete"))}</button>
         </td>
       </tr>
-    `)
+    `;
+    })
     .join("");
 
   els.dividendEventsTable.querySelectorAll("[data-dividend-delete-id]").forEach((button) => {
@@ -1574,7 +1582,7 @@ function renderDividendEvents() {
 
 function renderExDateAlerts() {
   if (!els.exDateAlerts) return;
-  const events = state.dividendEvents.filter((event) => event.alert_status === "ex_date_today");
+  const events = state.dividendAlerts.filter((event) => event.alert_status === "ex_date_today");
   if (!events.length) {
     els.exDateAlerts.hidden = true;
     els.exDateAlerts.innerHTML = "";

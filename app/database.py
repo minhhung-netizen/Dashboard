@@ -1023,6 +1023,14 @@ class SignalStore:
             cursor = conn.execute("DELETE FROM dividend_events WHERE id = ?", (event_id,))
             return cursor.rowcount > 0
 
+    def delete_dividend_events_for_ticker(self, ticker: str) -> int:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM dividend_events WHERE ticker = ?",
+                (ticker.strip().upper(),),
+            )
+            return cursor.rowcount
+
     def _insert_manual_snapshot(
         self,
         conn: sqlite3.Connection,

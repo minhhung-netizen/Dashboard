@@ -368,6 +368,28 @@ class SignalStoreTest(unittest.TestCase):
             self.assertTrue(store.delete_dividend_event(event["id"]))
             self.assertFalse(store.delete_dividend_event(event["id"]))
 
+    def test_deletes_all_dividend_events_for_ticker_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            for ticker, ex_date in [
+                ("FPT", "2026-06-15"),
+                ("FPT", "2026-07-15"),
+                ("VCB", "2026-06-20"),
+            ]:
+                store.insert_dividend_event(
+                    ticker=ticker,
+                    ex_date=ex_date,
+                    cash_amount=1,
+                    stock_ratio_pct=None,
+                    note=None,
+                )
+
+            removed = store.delete_dividend_events_for_ticker("fpt")
+
+            self.assertEqual(removed, 2)
+            self.assertEqual(store.list_dividend_events("FPT"), [])
+            self.assertEqual(len(store.list_dividend_events("VCB")), 1)
+
     def test_external_dividend_events_are_upserted_without_duplicates(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

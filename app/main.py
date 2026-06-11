@@ -500,6 +500,7 @@ async def receive_webhook(
         )
         return {"status": "duplicate", "signal": duplicate}
 
+    ticker_was_open = action == "sell" and ticker in open_position_tickers()
     signal = store.insert_signal(
         ticker=ticker,
         exchange=exchange,
@@ -512,8 +513,16 @@ async def receive_webhook(
         payload=payload.model_dump(),
         enrichment={"status": "pending", "ticker": ticker, "history": [], "metrics": {}},
     )
+    removed_dividend_events = cleanup_dividend_events_after_close(
+        ticker,
+        position_was_open=ticker_was_open,
+    )
     enqueue_signal_enrichment(signal["id"], ticker)
-    return {"status": "accepted", "signal": signal}
+    return {
+        "status": "accepted",
+        "signal": signal,
+        "removed_dividend_events": removed_dividend_events,
+    }
 
 
 def is_derivative_payload(payload: WebhookPayload) -> bool:
@@ -814,14 +823,22 @@ def manual_portfolio() -> dict[str, Any]:
 @app.get("/api/dividend-events")
 def dividend_events(ticker: str | None = None) -> dict[str, Any]:
     normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    events = store.list_dividend_events(normalized_ticker)
     open_tickers = open_position_tickers()
     if normalized_ticker:
         open_tickers &= {normalized_ticker}
+    alerts = upcoming_dividend_events_for_positions(events, open_tickers)
+    alerts_by_id = {
+        alert["id"]: alert
+        for alert in alerts
+        if alert.get("id") is not None
+    }
     return {
-        "dividend_events": upcoming_dividend_events_for_positions(
-            store.list_dividend_events(normalized_ticker),
-            open_tickers,
-        )
+        "dividend_events": [
+            {**event, **alerts_by_id.get(event.get("id"), {})}
+            for event in events
+        ],
+        "dividend_alerts": alerts,
     }
 
 
@@ -947,12 +964,21 @@ async def refresh_open_position_prices_endpoint() -> dict[str, Any]:
 @app.post("/api/manual-portfolio/{position_id}/close")
 def close_manual_position(position_id: int, payload: ManualClosePayload) -> dict[str, Any]:
     try:
+        existing_position = store.get_manual_position(position_id)
         position = store.close_manual_position(
             position_id, exit_price=payload.exit_price, closed_at=payload.closed_at
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Manual position not found") from exc
-    return {"status": "closed", "position": position}
+    removed_dividend_events = cleanup_dividend_events_after_close(
+        position["ticker"],
+        position_was_open=existing_position["status"] == "open",
+    )
+    return {
+        "status": "closed",
+        "position": position,
+        "removed_dividend_events": removed_dividend_events,
+    }
 
 
 @app.delete("/api/manual-portfolio/{position_id}")
@@ -1151,6 +1177,15 @@ def open_position_tickers() -> set[str]:
         if trade.get("ticker")
     }
     return signal_tickers | set(store.list_open_manual_tickers())
+
+
+def cleanup_dividend_events_after_close(
+    ticker: str, *, position_was_open: bool
+) -> int:
+    normalized_ticker = normalize_ticker(ticker)[0]
+    if not position_was_open or normalized_ticker in open_position_tickers():
+        return 0
+    return store.delete_dividend_events_for_ticker(normalized_ticker)
 
 
 def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:
