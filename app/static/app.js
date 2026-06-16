@@ -2064,12 +2064,23 @@ function renderClosedTrades(closedTrades) {
 }
 
 function filterClosedTrades(closedTrades) {
-  if (!state.closedTradeFilter) return closedTrades;
+  const visibleClosedTrades = hideClosedTradesForReopenedPositions(closedTrades);
+  if (!state.closedTradeFilter) return visibleClosedTrades;
   const ticker = state.closedTradeFilter.ticker;
   const strategy = state.closedTradeFilter.strategy;
-  return closedTrades.filter(
+  return visibleClosedTrades.filter(
     (trade) => trade.ticker === ticker && trade.strategy === strategy
   );
+}
+
+function hideClosedTradesForReopenedPositions(closedTrades) {
+  const openKeys = new Set(state.openTrades.map(tradeIdentityKey));
+  if (!openKeys.size) return closedTrades;
+  return closedTrades.filter((trade) => !openKeys.has(tradeIdentityKey(trade)));
+}
+
+function tradeIdentityKey(trade) {
+  return `${String(trade.ticker || "").trim().toUpperCase()}::${String(trade.strategy || "").trim().toLowerCase()}`;
 }
 
 function applyClosedTradeFilter(ticker, strategy) {
