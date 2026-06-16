@@ -1846,7 +1846,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noOpenPositions")}</td></tr>`;
     els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
@@ -1859,6 +1859,7 @@ function renderOpenPositions() {
       <tr data-ticker="${escapeHtml(trade.ticker)}">
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+        <td>${escapeHtml(trade.timeframe || "-")}</td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
@@ -1876,7 +1877,7 @@ function renderOpenPositions() {
         <div class="positionCardHead">
           <div>
             <strong class="${trade.has_confirm_buy ? "confirmedTicker" : ""}">${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")}</span>
+            <span>${escapeHtml(trade.strategy || "-")} · ${escapeHtml(trade.timeframe || "-")}</span>
           </div>
           ${formatSignedPercent(trade.return_pct)}
         </div>

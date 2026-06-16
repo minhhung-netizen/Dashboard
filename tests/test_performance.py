@@ -14,6 +14,7 @@ def signal(
     received_at=None,
     source_time=None,
     payload=None,
+    timeframe=None,
 ):
     return {
         "id": signal_id,
@@ -21,6 +22,7 @@ def signal(
         "action": action,
         "price": price,
         "strategy": strategy,
+        "timeframe": timeframe,
         "source_time": source_time,
         "received_at": received_at or f"2026-01-0{signal_id}T00:00:00+00:00",
         "enrichment": {},
@@ -83,6 +85,15 @@ class PerformanceTest(unittest.TestCase):
         self.assertEqual(result["open_trades"][0]["return_pct"], 5)
         self.assertEqual(result["strategies"][0]["open_trades"], 1)
         self.assertAlmostEqual(result["strategies"][0]["current_return_pct"], 5)
+
+    def test_open_trade_keeps_entry_timeframe(self):
+        result = build_performance(
+            [
+                signal(1, "FTS", "buy", 24.95, "Modern Stock EMA", timeframe="60"),
+            ]
+        )
+
+        self.assertEqual(result["open_trades"][0]["timeframe"], "60")
 
     def test_sell_without_buy_is_ignored(self):
         result = build_performance([signal(1, "VCB", "sell", 99, "Swing")])

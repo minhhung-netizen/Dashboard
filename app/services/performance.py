@@ -17,6 +17,7 @@ MARKET_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 class OpenPosition:
     ticker: str
     strategy: str
+    timeframe: str | None
     entry_price: float
     entry_time: str
     entry_signal_id: int
@@ -51,6 +52,7 @@ def build_performance(
             open_positions[key] = OpenPosition(
                 ticker=ticker,
                 strategy=strategy,
+                timeframe=signal.get("timeframe"),
                 entry_price=price,
                 entry_time=_signal_time(signal),
                 entry_signal_id=signal["id"],
@@ -254,6 +256,7 @@ def _trade_record(
     return {
         "ticker": position.ticker,
         "strategy": position.strategy,
+        "timeframe": position.timeframe,
         "status": status,
         "entry_price": entry_price,
         "entry_price_original": adjustment["entry_price_original"],
