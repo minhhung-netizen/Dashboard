@@ -527,7 +527,9 @@
               </div>
               <div class="performanceControls">
                 <input id="performanceTickerFilter" aria-label="Performance ticker filter" placeholder="Ticker" />
-                <input id="performanceStrategyFilter" aria-label="Performance strategy filter" placeholder="Strategy" />
+                <select id="performanceStrategyFilter" aria-label="Performance strategy filter">
+                  <option value="" data-i18n="allStrategies">All strategies</option>
+                </select>
                 <select id="performanceSort" aria-label="Performance sort">
                   <option value="current_desc" data-i18n="sortCurrentDesc">Current desc</option>
                   <option value="current_asc" data-i18n="sortCurrentAsc">Current asc</option>

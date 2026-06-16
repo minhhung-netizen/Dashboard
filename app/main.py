@@ -770,8 +770,7 @@ def performance(ticker: str | None = None, strategy: str | None = None) -> dict[
         signals = [
             signal
             for signal in signals
-            if strategy_filter in (signal.get("strategy") or "").strip().lower()
-            or strategy_filter in confirmation_payload_strategy(signal)
+            if signal_matches_strategy_filter(signal, strategy_filter)
         ]
     return build_performance(signals, store.list_dividend_events())
 
@@ -811,6 +810,20 @@ def confirmation_payload_strategy(signal: dict[str, Any]) -> str:
         payload.get("requires_open_strategy"),
     ]
     return " ".join(str(value).strip().lower() for value in values if value)
+
+
+def signal_matches_strategy_filter(signal: dict[str, Any], strategy_filter: str) -> bool:
+    normalized_filter = strategy_filter.strip().lower()
+    if not normalized_filter:
+        return True
+    signal_strategy = (signal.get("strategy") or DEFAULT_STRATEGY).strip().lower()
+    if signal_strategy == normalized_filter:
+        return True
+    payload = signal.get("payload") or {}
+    return any(
+        str(payload.get(key) or "").strip().lower() == normalized_filter
+        for key in ("base_strategy", "confirm_for", "requires_open_strategy")
+    )
 
 
 @app.get("/api/invalid-signals")

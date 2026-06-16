@@ -5,6 +5,7 @@ from app.main import (
     confirmation_base_strategy,
     is_confirmation_signal,
     required_open_strategy_for_signal,
+    signal_matches_strategy_filter,
 )
 
 
@@ -41,6 +42,31 @@ class WebhookRoutingTest(unittest.TestCase):
         self.assertEqual(
             required_open_strategy_for_signal(payload, "confirm_buy"),
             "Modern Stock EMA",
+        )
+
+    def test_strategy_filter_uses_exact_strategy_match(self):
+        self.assertTrue(
+            signal_matches_strategy_filter(
+                {"strategy": "Modern Stock EMA", "payload": {}},
+                "modern stock ema",
+            )
+        )
+        self.assertFalse(
+            signal_matches_strategy_filter(
+                {"strategy": "STxanhdo", "payload": {}},
+                "st",
+            )
+        )
+
+    def test_strategy_filter_matches_confirmation_base_strategy(self):
+        self.assertTrue(
+            signal_matches_strategy_filter(
+                {
+                    "strategy": "HMA",
+                    "payload": {"base_strategy": "Modern Stock EMA"},
+                },
+                "modern stock ema",
+            )
         )
 
 

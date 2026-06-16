@@ -788,6 +788,7 @@ const state = {
   signals: [],
   openTrades: [],
   closedTrades: [],
+  performanceStrategies: [],
   closedTradeFilter: null,
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
@@ -860,7 +861,7 @@ function applyTranslations() {
   els.openPositionTickerFilter.placeholder = t("openPositionTickerPlaceholder");
   updateOpenPositionStrategyFilterOptions(state.openTrades);
   els.performanceTickerFilter.placeholder = t("performanceTickerPlaceholder");
-  els.performanceStrategyFilter.placeholder = t("performanceStrategyPlaceholder");
+  updatePerformanceStrategyFilterOptions(state.performanceStrategies);
   if (!state.selectedTicker) {
     els.chartTitle.textContent = t("noTickerSelected");
   }
@@ -1240,6 +1241,8 @@ async function refresh() {
   renderSignals();
   state.openTrades = positionPayload.open_trades || [];
   updateOpenPositionStrategyFilterOptions(state.openTrades);
+  state.performanceStrategies = positionPayload.strategies || [];
+  updatePerformanceStrategyFilterOptions(state.performanceStrategies);
   renderOpenPositions();
   state.closedTrades = positionPayload.closed_trades || [];
   renderClosedTrades(state.closedTrades);
@@ -1769,6 +1772,24 @@ function updateOpenPositionStrategyFilterOptions(openTrades) {
     els.openPositionStrategyFilter.append(new Option(strategy, strategy));
   });
   els.openPositionStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
+}
+
+function updatePerformanceStrategyFilterOptions(strategyRows) {
+  const currentValue = els.performanceStrategyFilter.value;
+  const strategies = [
+    ...new Set(
+      (strategyRows || [])
+        .map((row) => String(row.strategy || "").trim())
+        .filter(Boolean)
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  els.performanceStrategyFilter.replaceChildren();
+  els.performanceStrategyFilter.append(new Option(t("allStrategies"), ""));
+  strategies.forEach((strategy) => {
+    els.performanceStrategyFilter.append(new Option(strategy, strategy));
+  });
+  els.performanceStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
 
 function sortPerformance(strategies) {
@@ -3017,7 +3038,7 @@ els.openPositionConfirmFilter.addEventListener("change", renderOpenPositions);
 els.openPositionSort.addEventListener("change", renderOpenPositions);
 els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);
 els.performanceTickerFilter.addEventListener("input", refresh);
-els.performanceStrategyFilter.addEventListener("input", refresh);
+els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
