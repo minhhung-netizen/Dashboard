@@ -767,6 +767,14 @@ Object.assign(translations.vi, {
   daysShort: "Đã giữ",
 });
 
+Object.assign(translations.en, {
+  allStrategies: "All strategies",
+});
+
+Object.assign(translations.vi, {
+  allStrategies: "Tất cả chiến lược",
+});
+
 const state = {
   user: null,
   availableFeatures: Object.keys(FEATURE_LABELS),
@@ -850,7 +858,7 @@ function applyTranslations() {
   });
   els.refresh.title = t("refresh");
   els.openPositionTickerFilter.placeholder = t("openPositionTickerPlaceholder");
-  els.openPositionStrategyFilter.placeholder = t("openPositionStrategyPlaceholder");
+  updateOpenPositionStrategyFilterOptions(state.openTrades);
   els.performanceTickerFilter.placeholder = t("performanceTickerPlaceholder");
   els.performanceStrategyFilter.placeholder = t("performanceStrategyPlaceholder");
   if (!state.selectedTicker) {
@@ -1231,6 +1239,7 @@ async function refresh() {
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
   renderSignals();
   state.openTrades = positionPayload.open_trades || [];
+  updateOpenPositionStrategyFilterOptions(state.openTrades);
   renderOpenPositions();
   state.closedTrades = positionPayload.closed_trades || [];
   renderClosedTrades(state.closedTrades);
@@ -1744,6 +1753,24 @@ function buildPerformanceQuery() {
   return query ? `?${query}` : "";
 }
 
+function updateOpenPositionStrategyFilterOptions(openTrades) {
+  const currentValue = els.openPositionStrategyFilter.value;
+  const strategies = [
+    ...new Set(
+      (openTrades || [])
+        .map((trade) => String(trade.strategy || "").trim())
+        .filter(Boolean)
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  els.openPositionStrategyFilter.replaceChildren();
+  els.openPositionStrategyFilter.append(new Option(t("allStrategies"), ""));
+  strategies.forEach((strategy) => {
+    els.openPositionStrategyFilter.append(new Option(strategy, strategy));
+  });
+  els.openPositionStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
+}
+
 function sortPerformance(strategies) {
   const sortMode = els.performanceSort.value;
   const sorted = [...strategies];
@@ -1772,12 +1799,12 @@ function sortPerformance(strategies) {
 
 function filterOpenPositions(openTrades) {
   const tickerFilter = els.openPositionTickerFilter.value.trim().toUpperCase();
-  const strategyFilter = els.openPositionStrategyFilter.value.trim().toLowerCase();
+  const strategyFilter = els.openPositionStrategyFilter.value.trim();
   const confirmFilter = els.openPositionConfirmFilter.value;
   return openTrades.filter((trade) => {
     const tickerMatches = !tickerFilter || String(trade.ticker || "").includes(tickerFilter);
     const strategyMatches =
-      !strategyFilter || String(trade.strategy || "").toLowerCase().includes(strategyFilter);
+      !strategyFilter || String(trade.strategy || "") === strategyFilter;
     const confirmMatches =
       confirmFilter === "all" ||
       (confirmFilter === "confirmed" && trade.has_confirm_buy) ||
@@ -2985,7 +3012,7 @@ els.watchlistInput.addEventListener("keydown", (event) => {
 els.watchlistOnly.addEventListener("change", toggleWatchlistOnly);
 els.addTickerToWatchlist.addEventListener("click", addSelectedTickerToWatchlist);
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
-els.openPositionStrategyFilter.addEventListener("input", renderOpenPositions);
+els.openPositionStrategyFilter.addEventListener("change", renderOpenPositions);
 els.openPositionConfirmFilter.addEventListener("change", renderOpenPositions);
 els.openPositionSort.addEventListener("change", renderOpenPositions);
 els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);

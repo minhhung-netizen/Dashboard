@@ -172,7 +172,9 @@
               <span class="positionTotal"><span data-i18n="openUnrealizedPl">Unrealized P/L</span>: <strong id="openPositionsTotalReturn">-</strong></span>
               <button id="openPositionRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
               <input id="openPositionTickerFilter" aria-label="Open position ticker filter" placeholder="Ticker" />
-              <input id="openPositionStrategyFilter" aria-label="Open position strategy filter" placeholder="Strategy" />
+              <select id="openPositionStrategyFilter" aria-label="Open position strategy filter">
+                <option value="" data-i18n="allStrategies">All strategies</option>
+              </select>
               <select id="openPositionConfirmFilter" aria-label="Open position trend filter">
                 <option value="all" data-i18n="confirmAll">All signal states</option>
                 <option value="confirmed" data-i18n="confirmedOnly">Has other signal</option>
