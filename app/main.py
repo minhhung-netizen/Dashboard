@@ -457,8 +457,9 @@ async def receive_webhook(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    required_open_strategy = confirmation_base_strategy(payload)
-    if is_confirmation_signal(payload, action) and not required_open_strategy:
+    is_confirmation = is_confirmation_signal(payload, action)
+    required_open_strategy = required_open_strategy_for_signal(payload, action)
+    if is_confirmation and not required_open_strategy:
         raise HTTPException(
             status_code=422,
             detail="Confirmation signals require base_strategy or confirm_for",
@@ -595,6 +596,12 @@ def confirmation_base_strategy(payload: WebhookPayload) -> str | None:
         payload.requires_open_strategy or payload.base_strategy or payload.confirm_for
     )
     return explicit_strategy.strip() if explicit_strategy and explicit_strategy.strip() else None
+
+
+def required_open_strategy_for_signal(payload: WebhookPayload, action: str) -> str | None:
+    if not is_confirmation_signal(payload, action):
+        return None
+    return confirmation_base_strategy(payload)
 
 
 def is_confirmation_signal(payload: WebhookPayload, action: str) -> bool:
