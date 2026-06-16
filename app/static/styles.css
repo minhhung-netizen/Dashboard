@@ -574,6 +574,7 @@ main {
 .closedTradesPanel,
 .invalidSignalsPanel,
 .performancePanel,
+.performanceHistoryPanel,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -653,6 +654,7 @@ main {
 .closedTradesPanel,
 .invalidSignalsPanel,
 .performancePanel,
+.performanceHistoryPanel,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -678,6 +680,7 @@ main {
 .tabPanel > .analyticsGrid,
 .tabPanel > .manualPortfolioGrid,
 .tabPanel > .manualDailyPanel,
+.tabPanel > .performanceHistoryPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .analyticsGrid > .performancePanel {
@@ -689,6 +692,7 @@ main {
 .tabPanel > .exportPanel,
 .tabPanel > .exportPanel + .invalidSignalsPanel,
 .tabPanel > .manualDailyPanel,
+.tabPanel > .performanceHistoryPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .tabPanel > .timelinePanel {

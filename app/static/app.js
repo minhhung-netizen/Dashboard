@@ -51,6 +51,7 @@ const els = {
   performanceTickerFilter: document.querySelector("#performanceTickerFilter"),
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
   performanceSort: document.querySelector("#performanceSort"),
+  performanceClosedTradesTable: document.querySelector("#performanceClosedTradesTable"),
   languageSelect: document.querySelector("#languageSelect"),
   themeToggle: document.querySelector("#themeToggle"),
   tabButtons: document.querySelectorAll("[data-tab-target]"),
@@ -769,10 +770,14 @@ Object.assign(translations.vi, {
 
 Object.assign(translations.en, {
   allStrategies: "All strategies",
+  performanceTradeHistory: "Trade History",
+  strategyTradeHistory: "Strategy Closed Trades",
 });
 
 Object.assign(translations.vi, {
   allStrategies: "Tất cả chiến lược",
+  performanceTradeHistory: "Lịch sử giao dịch",
+  strategyTradeHistory: "Lệnh đã đóng theo chiến lược",
 });
 
 const state = {
@@ -1258,6 +1263,7 @@ async function refresh() {
     ...(invalidPayload.invalid_signals || []),
   ]);
   renderPerformance(sortPerformance(performancePayload.strategies || []));
+  renderPerformanceClosedTrades(performancePayload.closed_trades || []);
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
@@ -1888,6 +1894,44 @@ function renderPerformance(strategies) {
       applyClosedTradeFilter(row.dataset.performanceTicker, row.dataset.performanceStrategy);
     });
   });
+}
+
+function renderPerformanceClosedTrades(closedTrades) {
+  const sorted = [...closedTrades].sort((left, right) =>
+    String(right.exit_time || "").localeCompare(String(left.exit_time || ""))
+  );
+
+  if (!sorted.length) {
+    els.performanceClosedTradesTable.innerHTML =
+      `<tr><td class="empty" colspan="10">${t("noClosedTrades")}</td></tr>`;
+    return;
+  }
+
+  els.performanceClosedTradesTable.innerHTML = sorted
+    .map((trade) => `
+      <tr data-performance-history-ticker="${escapeHtml(trade.ticker)}">
+        <td><strong>${escapeHtml(trade.ticker)}</strong></td>
+        <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+        <td>${escapeHtml(trade.timeframe || "-")}</td>
+        <td>${formatPrice(trade.entry_price)}</td>
+        <td>${formatPrice(trade.exit_price)}</td>
+        <td>${formatSignedPercent(trade.return_pct)}</td>
+        <td>${formatPercent(state.defaultSignalWeightPct)}</td>
+        <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
+        <td>${formatDuration(trade.holding_seconds)}</td>
+        <td>${formatDate(trade.exit_time)}</td>
+      </tr>
+    `)
+    .join("");
+
+  els.performanceClosedTradesTable
+    .querySelectorAll("[data-performance-history-ticker]")
+    .forEach((row) => {
+      row.addEventListener("click", () => {
+        setActiveTab("overview");
+        renderChart(row.dataset.performanceHistoryTicker);
+      });
+    });
 }
 
 function renderOpenPositions() {

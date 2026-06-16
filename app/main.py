@@ -763,15 +763,7 @@ def export_database() -> FileResponse:
 
 @app.get("/api/performance")
 def performance(ticker: str | None = None, strategy: str | None = None) -> dict[str, Any]:
-    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
-    signals = store.list_all_signals(ticker=normalized_ticker)
-    if strategy:
-        strategy_filter = strategy.strip().lower()
-        signals = [
-            signal
-            for signal in signals
-            if signal_matches_strategy_filter(signal, strategy_filter)
-        ]
+    signals = filtered_performance_signals(ticker=ticker, strategy=strategy)
     return build_performance(signals, store.list_dividend_events())
 
 
@@ -810,6 +802,21 @@ def confirmation_payload_strategy(signal: dict[str, Any]) -> str:
         payload.get("requires_open_strategy"),
     ]
     return " ".join(str(value).strip().lower() for value in values if value)
+
+
+def filtered_performance_signals(
+    *, ticker: str | None = None, strategy: str | None = None
+) -> list[dict[str, Any]]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    signals = store.list_all_signals(ticker=normalized_ticker)
+    if not strategy:
+        return signals
+    strategy_filter = strategy.strip().lower()
+    return [
+        signal
+        for signal in signals
+        if signal_matches_strategy_filter(signal, strategy_filter)
+    ]
 
 
 def signal_matches_strategy_filter(signal: dict[str, Any], strategy_filter: str) -> bool:

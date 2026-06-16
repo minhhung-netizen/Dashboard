@@ -556,9 +556,37 @@
                     <th data-i18n="currentPl">Current</th>
                   </tr>
                 </thead>
-                <tbody id="performanceTable"></tbody>
-              </table>
+              <tbody id="performanceTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+        <section class="performanceHistoryPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="performanceTradeHistory">Trade History</p>
+              <h2 data-i18n="strategyTradeHistory">Strategy Closed Trades</h2>
             </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="timeframe">Timeframe</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="exitPrice">Exit</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="allocationWeight">Weight</th>
+                  <th data-i18n="portfolioPl">P/L</th>
+                  <th data-i18n="holdTime">Hold Time</th>
+                  <th data-i18n="exitTime">Exit Time</th>
+                </tr>
+              </thead>
+              <tbody id="performanceClosedTradesTable"></tbody>
+            </table>
           </div>
         </section>
       </div>
