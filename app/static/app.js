@@ -1164,7 +1164,13 @@ async function refresh() {
     fetchJson("/api/settings"),
     featureFetch("overview", "/api/summary", { total: 0, buy_count: 0, sell_count: 0, tickers: 0 }),
     featureFetch("overview", `/api/signals${query}`, { signals: [] }),
-    featureFetch(["positions", "performance"], `/api/performance${performanceQuery}`, {
+    featureFetch(["positions", "performance"], "/api/performance", {
+      open_trades: [],
+      closed_trades: [],
+      strategies: [],
+      ignored_signals: [],
+    }),
+    featureFetch("performance", `/api/performance${performanceQuery}`, {
       open_trades: [],
       closed_trades: [],
       strategies: [],
@@ -1187,7 +1193,7 @@ async function refresh() {
     "summary"
   );
   const signalsPayload = settledPayload(results[2], { signals: state.signals }, "signals");
-  const performancePayload = settledPayload(
+  const positionPayload = settledPayload(
     results[3],
     {
       open_trades: state.openTrades,
@@ -1195,17 +1201,27 @@ async function refresh() {
       strategies: [],
       ignored_signals: [],
     },
+    "positions"
+  );
+  const performancePayload = settledPayload(
+    results[4],
+    {
+      open_trades: [],
+      closed_trades: [],
+      strategies: [],
+      ignored_signals: [],
+    },
     "performance"
   );
-  const invalidPayload = settledPayload(results[4], { invalid_signals: [] }, "invalid signals");
-  const manualPayload = settledPayload(results[5], state.manualPortfolio, "manual portfolio");
+  const invalidPayload = settledPayload(results[5], { invalid_signals: [] }, "invalid signals");
+  const manualPayload = settledPayload(results[6], state.manualPortfolio, "manual portfolio");
   const dividendPayload = settledPayload(
-    results[6],
+    results[7],
     { dividend_events: state.dividendEvents, dividend_alerts: state.dividendAlerts },
     "dividend events"
   );
   const derivativePayload = settledPayload(
-    results[7],
+    results[8],
     state.derivatives,
     "derivatives"
   );
@@ -1214,15 +1230,15 @@ async function refresh() {
   state.summary = summary;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
   renderSignals();
-  state.openTrades = performancePayload.open_trades || [];
+  state.openTrades = positionPayload.open_trades || [];
   renderOpenPositions();
-  state.closedTrades = performancePayload.closed_trades || [];
+  state.closedTrades = positionPayload.closed_trades || [];
   renderClosedTrades(state.closedTrades);
   if (state.activeTab === "performance") {
-    drawEquityCurve(state.closedTrades);
+    drawEquityCurve(performancePayload.closed_trades || []);
   }
   renderInvalidSignals([
-    ...(performancePayload.ignored_signals || []).map((item) => ({
+    ...(positionPayload.ignored_signals || []).map((item) => ({
       ...item,
       received_at: "",
       timeframe: "",
