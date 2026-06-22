@@ -8,6 +8,8 @@ const els = {
   metricSellLabel: document.querySelector("#metricSellLabel"),
   metricTickerLabel: document.querySelector("#metricTickerLabel"),
   syncStatus: document.querySelector("#syncStatus"),
+  recentTradeBanner: document.querySelector("#recentTradeBanner"),
+  recentTradeBannerTrack: document.querySelector("#recentTradeBannerTrack"),
   userAttentionPanel: document.querySelector("#userAttentionPanel"),
   userAttentionList: document.querySelector("#userAttentionList"),
   table: document.querySelector("#signalsTable"),
@@ -806,6 +808,18 @@ Object.assign(translations.vi, {
 });
 
 Object.assign(translations.en, {
+  recentTradeBanner: "Recent trade alerts",
+  recentOpened: "New buys",
+  recentClosed: "New closes",
+});
+
+Object.assign(translations.vi, {
+  recentTradeBanner: "Cảnh báo giao dịch mới",
+  recentOpened: "Mới mở mua",
+  recentClosed: "Mới đóng",
+});
+
+Object.assign(translations.en, {
   allStrategies: "All strategies",
   performanceTradeHistory: "Trade History",
   strategyTradeHistory: "Strategy Closed Trades",
@@ -1227,6 +1241,7 @@ function applyTranslations() {
   updateThemeButton();
   renderSummary(state.summary);
   renderUserAttention();
+  renderRecentTradeBanner();
   renderKellyCalculator();
   renderKellyEntries();
 }
@@ -1603,6 +1618,7 @@ async function refresh() {
   renderOpenPositions();
   state.closedTrades = positionPayload.closed_trades || [];
   renderClosedTrades(state.closedTrades);
+  renderRecentTradeBanner();
   if (state.activeTab === "performance") {
     drawEquityCurve(performancePayload.closed_trades || []);
   }
@@ -2168,6 +2184,68 @@ function updateKellyStrategyOptions(strategies, preferredValue = els.kellyStrate
   els.kellyStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
     ? preferredValue
     : "";
+}
+
+function tradeTimestamp(trade, field) {
+  const parsed = Date.parse(trade?.[field] || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function recentTrades(trades, field, limit = 5) {
+  return [...(trades || [])]
+    .sort((left, right) => tradeTimestamp(right, field) - tradeTimestamp(left, field))
+    .slice(0, limit);
+}
+
+function renderRecentTradeBanner() {
+  const opened = recentTrades(state.openTrades, "entry_time", 5);
+  const closed = recentTrades(state.closedTrades, "exit_time", 5);
+
+  if (!opened.length && !closed.length) {
+    els.recentTradeBanner.hidden = true;
+    els.recentTradeBannerTrack.innerHTML = "";
+    return;
+  }
+
+  const groupHtml = [
+    renderRecentTradeGroup(t("recentOpened"), opened, "entry_time", "buy"),
+    renderRecentTradeGroup(t("recentClosed"), closed, "exit_time", "sell"),
+  ].filter(Boolean).join("");
+
+  els.recentTradeBanner.hidden = false;
+  els.recentTradeBannerTrack.innerHTML = `
+    <div class="recentTradeGroupSet">${groupHtml}</div>
+    <div class="recentTradeGroupSet" aria-hidden="true">${groupHtml}</div>
+  `;
+
+  els.recentTradeBannerTrack.querySelectorAll("[data-recent-trade-ticker]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("overview");
+      renderChart(button.dataset.recentTradeTicker);
+    });
+  });
+}
+
+function renderRecentTradeGroup(label, trades, timeField, tone) {
+  if (!trades.length) return "";
+  return `
+    <span class="recentTradeGroup ${tone}">
+      <span class="recentTradeGroupLabel">${escapeHtml(label)}</span>
+      ${trades
+        .map((trade) => `
+          <button
+            class="recentTradeChip ${tone}"
+            type="button"
+            data-recent-trade-ticker="${escapeHtml(trade.ticker)}"
+            title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${formatDate(trade[timeField])}`)}"
+          >
+            <strong>${escapeHtml(trade.ticker)}</strong>
+            <span>${escapeHtml(trade.strategy || "-")} · ${escapeHtml(formatDateOnly(trade[timeField]))}</span>
+          </button>
+        `)
+        .join("")}
+    </span>
+  `;
 }
 
 function sortPerformance(strategies) {

@@ -491,6 +491,122 @@ main {
   color: var(--accent-ink);
 }
 
+.recentTradeBanner {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: -6px 0 18px;
+  overflow: hidden;
+  padding: 8px 10px 8px 12px;
+}
+
+.recentTradeBanner[hidden] {
+  display: none;
+}
+
+.recentTradeBannerLabel {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.recentTradeMarquee {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.recentTradeBannerTrack {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  width: max-content;
+}
+
+.recentTradeBanner:not([hidden]) .recentTradeBannerTrack {
+  animation: recent-trade-marquee 34s linear infinite;
+}
+
+.recentTradeBanner:hover .recentTradeBannerTrack {
+  animation-play-state: paused;
+}
+
+.recentTradeGroupSet,
+.recentTradeGroup {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.recentTradeGroupSet {
+  padding-right: 18px;
+}
+
+.recentTradeGroupLabel {
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  padding: 4px 8px;
+}
+
+.recentTradeGroup.buy .recentTradeGroupLabel {
+  background: color-mix(in srgb, var(--buy) 12%, transparent);
+  color: var(--buy);
+}
+
+.recentTradeGroup.sell .recentTradeGroupLabel {
+  background: color-mix(in srgb, var(--sell) 12%, transparent);
+  color: var(--sell);
+}
+
+.recentTradeChip {
+  align-items: center;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.recentTradeChip:hover {
+  background: var(--field-hover);
+}
+
+.recentTradeChip.buy strong {
+  color: var(--buy);
+}
+
+.recentTradeChip.sell strong {
+  color: var(--sell);
+}
+
+.recentTradeChip span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@keyframes recent-trade-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
 .tabPanel {
   display: none;
 }
@@ -1311,6 +1427,12 @@ td strong {
   .kellyGrid {
     grid-template-columns: 1fr;
   }
+
+  .recentTradeBanner {
+    align-items: start;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1350,6 +1472,20 @@ td strong {
   .refreshIcon {
     height: 36px;
     width: 36px;
+  }
+
+  .recentTradeBanner {
+    margin-top: -8px;
+    padding: 8px;
+  }
+
+  .recentTradeChip {
+    height: 28px;
+    padding: 0 8px;
+  }
+
+  .recentTradeChip span {
+    display: none;
   }
 
   .currentUser {
@@ -1583,5 +1719,17 @@ td strong {
   .timelineItem time {
     grid-column: 2;
     text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recentTradeBanner:not([hidden]) .recentTradeBannerTrack {
+    animation: none;
+    flex-wrap: wrap;
+    width: auto;
+  }
+
+  .recentTradeGroupSet[aria-hidden="true"] {
+    display: none;
   }
 }
