@@ -71,6 +71,7 @@ const els = {
   kellyEdge: document.querySelector("#kellyEdge"),
   kellyDrawdownFactor: document.querySelector("#kellyDrawdownFactor"),
   kellyNote: document.querySelector("#kellyNote"),
+  kellySearch: document.querySelector("#kellySearch"),
   kellySavedTable: document.querySelector("#kellySavedTable"),
   languageSelect: document.querySelector("#languageSelect"),
   themeToggle: document.querySelector("#themeToggle"),
@@ -828,6 +829,7 @@ Object.assign(translations.en, {
   saveKellyEntry: "Save ticker",
   kellySavedList: "Saved Kelly List",
   kellySavedByTicker: "Allocation by Ticker",
+  kellySearchPlaceholder: "Search ticker",
   noKellyEntries: "No saved Kelly entries",
   deleteKellyEntryConfirm: "Delete this Kelly entry?",
   kellyInvalidNote: "Enter a valid win rate and profit factor to calculate Kelly allocation.",
@@ -862,6 +864,7 @@ Object.assign(translations.vi, {
   saveKellyEntry: "Lưu mã",
   kellySavedList: "Danh sách Kelly đã lưu",
   kellySavedByTicker: "Phân bổ theo từng mã",
+  kellySearchPlaceholder: "Tìm mã",
   noKellyEntries: "Chưa có mã Kelly đã lưu",
   deleteKellyEntryConfirm: "Xóa mã Kelly này?",
   kellyInvalidNote: "Nhập tỷ lệ thắng và hệ số lãi hợp lệ để tính phân bổ Kelly.",
@@ -1035,13 +1038,17 @@ function saveCurrentKellyEntry() {
 
 function renderKellyEntries() {
   const entries = loadKellyEntries();
-  if (!entries.length) {
+  const search = els.kellySearch.value.trim().toUpperCase();
+  const filteredEntries = search
+    ? entries.filter((entry) => String(entry.ticker || "").toUpperCase().includes(search))
+    : entries;
+  if (!filteredEntries.length) {
     els.kellySavedTable.innerHTML =
       `<tr><td class="empty" colspan="8">${t("noKellyEntries")}</td></tr>`;
     return;
   }
 
-  els.kellySavedTable.innerHTML = entries
+  els.kellySavedTable.innerHTML = filteredEntries
     .map((entry) => {
       const result = calculateKelly(entry);
       return `
@@ -3414,6 +3421,7 @@ els.performanceSort.addEventListener("change", refresh);
 els.kellyForm.addEventListener("input", renderKellyCalculator);
 els.kellyForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveKellyEntry.addEventListener("click", saveCurrentKellyEntry);
+els.kellySearch.addEventListener("input", renderKellyEntries);
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);

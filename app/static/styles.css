@@ -862,6 +862,15 @@ main {
   border-top: 1px solid var(--line);
 }
 
+.kellySavedControls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.kellySavedControls input {
+  max-width: 210px;
+}
+
 .compactHead {
   min-height: 58px;
 }
