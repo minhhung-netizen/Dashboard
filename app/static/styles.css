@@ -1,41 +1,49 @@
 :root {
   color-scheme: light;
-  --bg: #f3f5f7;
+  --bg: #eef3f8;
   --panel: #ffffff;
-  --topbar: #ffffff;
-  --field: #ffffff;
-  --field-hover: #f8fafc;
-  --ink: #111827;
-  --muted: #64748b;
-  --line: #d8dee8;
-  --line-soft: #edf1f6;
-  --buy: #078465;
-  --sell: #c2413a;
-  --accent: #2563eb;
+  --panel-raised: #fbfdff;
+  --topbar: #fbfdff;
+  --field: #f8fbff;
+  --field-hover: #f1f6fb;
+  --ink: #0f172a;
+  --muted: #637083;
+  --line: #d7e0ea;
+  --line-soft: #e9eff6;
+  --buy: #008a6a;
+  --sell: #d14343;
+  --accent: #2f6fed;
   --accent-ink: #ffffff;
-  --warning: #b7791f;
-  --shadow: 0 1px 2px rgb(15 23 42 / 6%);
-  --focus: 0 0 0 3px rgb(37 99 235 / 16%);
+  --warning: #b77912;
+  --table-head: #f6f9fd;
+  --row-hover: #f4f8ff;
+  --shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 10px 24px rgb(15 23 42 / 4%);
+  --shadow-strong: 0 16px 36px rgb(15 23 42 / 12%);
+  --focus: 0 0 0 3px rgb(47 111 237 / 18%);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f141b;
-  --panel: #151b24;
-  --topbar: #111720;
-  --field: #0f141b;
-  --field-hover: #18212c;
-  --ink: #e6edf5;
-  --muted: #95a3b6;
-  --line: #273241;
-  --line-soft: #202a37;
-  --buy: #2fbf96;
-  --sell: #ef6a63;
-  --accent: #6ea8ff;
-  --accent-ink: #07111f;
-  --warning: #d6a342;
-  --shadow: 0 1px 2px rgb(0 0 0 / 24%);
-  --focus: 0 0 0 3px rgb(110 168 255 / 18%);
+  --bg: #0b1118;
+  --panel: #131b25;
+  --panel-raised: #172130;
+  --topbar: #101821;
+  --field: #0e1620;
+  --field-hover: #182434;
+  --ink: #edf3fb;
+  --muted: #9aa8ba;
+  --line: #263345;
+  --line-soft: #1e2a3a;
+  --buy: #34c69a;
+  --sell: #ff6b6b;
+  --accent: #77a9ff;
+  --accent-ink: #08111d;
+  --warning: #e0ad3f;
+  --table-head: #162131;
+  --row-hover: #17263a;
+  --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 34px rgb(0 0 0 / 20%);
+  --shadow-strong: 0 18px 42px rgb(0 0 0 / 32%);
+  --focus: 0 0 0 3px rgb(119 169 255 / 20%);
 }
 
 * {
@@ -54,6 +62,26 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.45;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 32%, transparent);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .loginScreen {
@@ -75,7 +103,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-strong);
   display: grid;
   gap: 16px;
   padding: 24px;
@@ -138,6 +166,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -231,7 +260,7 @@ h2 {
   align-items: center;
   background: var(--topbar);
   border-bottom: 1px solid var(--line);
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--line) 76%, transparent), 0 12px 26px rgb(15 23 42 / 5%);
   display: flex;
   gap: 22px;
   justify-content: space-between;
@@ -293,6 +322,7 @@ h2 {
 .accountMenu > summary {
   border: 1px solid var(--line);
   border-radius: 7px;
+  background: var(--field);
   list-style: none;
 }
 
@@ -309,7 +339,7 @@ h2 {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 12px 30px rgb(15 23 42 / 14%);
+  box-shadow: var(--shadow-strong);
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -337,6 +367,7 @@ h2 {
   align-items: center;
   border: 1px solid var(--line);
   border-radius: 7px;
+  background: var(--field);
   color: var(--ink);
   display: inline-flex;
   gap: 8px;
@@ -367,6 +398,7 @@ select {
   min-width: 0;
   outline: none;
   padding: 0 11px;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
 input {
@@ -399,17 +431,22 @@ button {
   cursor: pointer;
   font-weight: 680;
   padding: 0 14px;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
 button:hover {
-  background: color-mix(in srgb, var(--accent) 86%, var(--ink));
+  background: color-mix(in srgb, var(--accent) 90%, var(--ink));
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+button:active {
+  transform: translateY(1px);
 }
 
 .themeToggle,
 .smallButton,
 .tabButton {
-  background: var(--field);
+  background: color-mix(in srgb, var(--field) 86%, var(--panel));
   border-color: var(--line);
   color: var(--ink);
 }
@@ -471,7 +508,7 @@ main {
 }
 
 .tabs {
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
@@ -490,17 +527,19 @@ main {
 .tabButton {
   height: 34px;
   padding: 0 13px;
+  font-weight: 720;
 }
 
 .tabButton.active {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .recentTradeBanner {
   align-items: center;
-  background: var(--panel);
+  background: var(--panel-raised);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
@@ -528,7 +567,7 @@ main {
   color: var(--muted);
   font-size: 11px;
   font-weight: 760;
-  letter-spacing: .04em;
+  letter-spacing: 0;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -585,7 +624,7 @@ main {
 
 .recentTradeChip {
   align-items: center;
-  background: var(--field);
+  background: color-mix(in srgb, var(--panel) 82%, var(--field));
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink);
@@ -598,6 +637,7 @@ main {
 
 .recentTradeChip:hover {
   background: var(--field-hover);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
 }
 
 .recentTradeChip.buy strong {
@@ -679,6 +719,18 @@ main {
   padding: 14px 16px;
 }
 
+.riskMetrics article:nth-child(1) {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.riskMetrics article:nth-child(2) {
+  background: color-mix(in srgb, var(--buy) 4%, transparent);
+}
+
+.riskMetrics article:nth-child(3) {
+  background: color-mix(in srgb, var(--warning) 4%, transparent);
+}
+
 .riskMetrics article:last-child {
   border-right: 0;
 }
@@ -725,7 +777,7 @@ main {
 }
 
 .riskBreakdownRow i {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
   border-radius: 999px;
   bottom: -3px;
   display: block;
@@ -761,7 +813,7 @@ main {
 }
 
 .riskAlertItem:hover {
-  background: var(--field-hover);
+  background: var(--row-hover);
 }
 
 .riskAlertItem span {
@@ -818,7 +870,7 @@ main {
 }
 
 .attentionItem:hover {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: var(--row-hover);
 }
 
 .attentionItemHead {
@@ -871,14 +923,22 @@ main {
 }
 
 .metrics article {
+  background: var(--panel-raised);
   min-height: 92px;
   padding: 15px 16px;
   position: relative;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.metrics article:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  box-shadow: var(--shadow-strong);
+  transform: translateY(-1px);
 }
 
 .metrics article::after {
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: 999px;
   content: "";
   height: 3px;
   left: 16px;
@@ -986,7 +1046,7 @@ main {
 
 .panelHead {
   align-items: center;
-  background: color-mix(in srgb, var(--panel) 94%, var(--bg));
+  background: color-mix(in srgb, var(--panel-raised) 88%, var(--bg));
   border-bottom: 1px solid var(--line);
   display: flex;
   gap: 14px;
@@ -1095,7 +1155,7 @@ main {
 }
 
 .kellyHeroResult {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
   border-radius: 8px;
   padding: 16px;
@@ -1124,6 +1184,7 @@ main {
 }
 
 .kellyResultGrid article {
+  background: var(--panel-raised);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
@@ -1179,7 +1240,7 @@ main {
 
 .chartEmpty {
   align-items: center;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   color: var(--muted);
   display: flex;
   inset: 0 0 22px;
@@ -1216,6 +1277,7 @@ main {
 .tableWrap {
   max-height: 358px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .positionCardList,
@@ -1237,13 +1299,13 @@ table {
 th,
 td {
   border-bottom: 1px solid var(--line-soft);
-  padding: 11px 14px;
+  padding: 12px 14px;
   text-align: left;
   white-space: nowrap;
 }
 
 th {
-  background: var(--panel);
+  background: var(--table-head);
   color: var(--muted);
   font-size: 12px;
   font-weight: 760;
@@ -1254,7 +1316,11 @@ th {
 }
 
 tbody tr:hover {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  background: var(--row-hover);
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 td strong {
@@ -1303,8 +1369,8 @@ td strong {
 
 .positionTotal {
   align-items: center;
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
   border-radius: 7px;
   color: var(--muted);
   display: inline-flex;
@@ -1334,30 +1400,33 @@ td strong {
   font-size: 11px;
   font-weight: 780;
   min-width: 48px;
-  padding: 3px 8px;
+  padding: 4px 9px;
   text-align: center;
   text-transform: uppercase;
 }
 
 .side {
-  color: #ffffff;
+  color: var(--accent-ink);
 }
 
 .side.buy {
   background: var(--buy);
+  color: #ffffff;
 }
 
 .side.sell {
   background: var(--sell);
+  color: #ffffff;
 }
 
 .side.confirm_buy,
 .side.confirm {
-  background: #2563eb;
+  background: var(--accent);
 }
 
 .side.confirm_sell {
-  background: #7c3aed;
+  background: #6d5bd0;
+  color: #ffffff;
 }
 
 .side.long_start,
@@ -1392,13 +1461,13 @@ td strong {
 }
 
 .derivativeSide.long {
-  background: color-mix(in srgb, var(--buy) 10%, transparent);
+  background: color-mix(in srgb, var(--buy) 12%, transparent);
   border-color: color-mix(in srgb, var(--buy) 36%, var(--line));
   color: var(--buy);
 }
 
 .derivativeSide.short {
-  background: color-mix(in srgb, var(--sell) 10%, transparent);
+  background: color-mix(in srgb, var(--sell) 12%, transparent);
   border-color: color-mix(in srgb, var(--sell) 36%, var(--line));
   color: var(--sell);
 }
@@ -1410,13 +1479,13 @@ td strong {
 }
 
 .statusBadge.open {
-  background: color-mix(in srgb, var(--buy) 9%, transparent);
+  background: color-mix(in srgb, var(--buy) 11%, transparent);
   border-color: color-mix(in srgb, var(--buy) 36%, var(--line));
   color: var(--buy);
 }
 
 .statusBadge.closed {
-  background: color-mix(in srgb, var(--sell) 9%, transparent);
+  background: color-mix(in srgb, var(--sell) 11%, transparent);
   border-color: color-mix(in srgb, var(--sell) 36%, var(--line));
   color: var(--sell);
 }
@@ -1434,7 +1503,7 @@ td strong {
 
 .confirmBadge {
   align-items: center;
-  background: color-mix(in srgb, var(--buy) 10%, transparent);
+  background: color-mix(in srgb, var(--buy) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--buy) 34%, var(--line));
   border-radius: 999px;
   color: var(--buy);
@@ -1453,7 +1522,7 @@ td strong {
 
 .dividendBadge {
   align-items: center;
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--warning) 36%, var(--line));
   border-radius: 999px;
   color: var(--warning);
@@ -1498,7 +1567,7 @@ td strong {
 }
 
 .timelineItem:hover {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  background: var(--row-hover);
 }
 
 .timelineItem div {
@@ -1533,8 +1602,8 @@ td strong {
 }
 
 .exDateAlerts {
-  background: color-mix(in srgb, var(--warning) 13%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--warning) 48%, var(--line));
+  background: color-mix(in srgb, var(--warning) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--line));
   border-left: 4px solid var(--warning);
   border-radius: 7px;
   color: var(--ink);
@@ -1552,7 +1621,7 @@ td strong {
 }
 
 .exDateRow {
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .confirmedTicker {
@@ -1725,7 +1794,7 @@ td strong {
   .tabs {
     border-radius: 0;
     bottom: 0;
-    box-shadow: 0 -2px 12px rgb(15 23 42 / 12%);
+    box-shadow: 0 -2px 16px rgb(15 23 42 / 12%);
     display: flex;
     flex-wrap: nowrap;
     gap: 2px;
