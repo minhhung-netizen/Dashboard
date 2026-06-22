@@ -792,7 +792,8 @@ main {
   gap: 6px;
 }
 
-.kellyForm input {
+.kellyForm input,
+.kellyForm select {
   max-width: none;
   text-transform: none;
   width: 100%;

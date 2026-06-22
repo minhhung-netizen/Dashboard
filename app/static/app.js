@@ -1114,6 +1114,10 @@ function loadKellyEntry(entryKey) {
   );
   if (!entry) return;
   els.kellyTicker.value = entry.ticker || "";
+  updateKellyStrategyOptions(
+    (state.performanceStrategies || []).map((row) => row.strategy),
+    entry.strategy || ""
+  );
   els.kellyStrategy.value = entry.strategy || "";
   els.kellyWinRate.value = rawNumber(entry.winRate);
   els.kellyWinningTrades.value = rawNumber(entry.winningTrades);
@@ -2144,6 +2148,26 @@ function updatePerformanceStrategyFilterOptions(strategyRows) {
     els.performanceStrategyFilter.append(new Option(strategy, strategy));
   });
   els.performanceStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
+  updateKellyStrategyOptions(strategies);
+}
+
+function updateKellyStrategyOptions(strategies, preferredValue = els.kellyStrategy.value) {
+  const normalizedStrategies = [...new Set(strategies || [])]
+    .map((strategy) => String(strategy || "").trim())
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+
+  els.kellyStrategy.replaceChildren();
+  els.kellyStrategy.append(new Option(t("allStrategies"), ""));
+  normalizedStrategies.forEach((strategy) => {
+    els.kellyStrategy.append(new Option(strategy, strategy));
+  });
+  if (preferredValue && !normalizedStrategies.includes(preferredValue)) {
+    els.kellyStrategy.append(new Option(preferredValue, preferredValue));
+  }
+  els.kellyStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
+    ? preferredValue
+    : "";
 }
 
 function sortPerformance(strategies) {
@@ -3456,6 +3480,7 @@ els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
 els.kellyForm.addEventListener("input", renderKellyCalculator);
+els.kellyForm.addEventListener("change", renderKellyCalculator);
 els.kellyForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveKellyEntry.addEventListener("click", saveCurrentKellyEntry);
 els.kellySearch.addEventListener("input", renderKellyEntries);
