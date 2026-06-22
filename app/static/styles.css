@@ -575,6 +575,7 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .performanceHistoryPanel,
+.kellyPanel,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -655,6 +656,7 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .performanceHistoryPanel,
+.kellyPanel,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -681,6 +683,7 @@ main {
 .tabPanel > .manualPortfolioGrid,
 .tabPanel > .manualDailyPanel,
 .tabPanel > .performanceHistoryPanel,
+.tabPanel > .kellyPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .analyticsGrid > .performancePanel {
@@ -693,6 +696,7 @@ main {
 .tabPanel > .exportPanel + .invalidSignalsPanel,
 .tabPanel > .manualDailyPanel,
 .tabPanel > .performanceHistoryPanel,
+.tabPanel > .kellyPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .tabPanel > .timelinePanel {
@@ -766,6 +770,83 @@ main {
 
 .dailyPerformanceStatus strong {
   color: var(--ink);
+}
+
+.kellyGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+  padding: 16px;
+}
+
+.kellyForm {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.kellyForm label {
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.kellyForm input {
+  max-width: none;
+  text-transform: none;
+  width: 100%;
+}
+
+.kellyOutputPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.kellyHeroResult {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.kellyHeroResult span,
+.kellyResultGrid span {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+}
+
+.kellyHeroResult strong {
+  color: var(--accent);
+  display: block;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin-top: 4px;
+}
+
+.kellyResultGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.kellyResultGrid article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.kellyResultGrid strong {
+  display: block;
+  font-size: 18px;
+  margin-top: 5px;
+}
+
+.kellyNote {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .panelActions {
@@ -1199,6 +1280,10 @@ td strong {
     border-bottom: 1px solid var(--line-soft);
     border-right: 0;
   }
+
+  .kellyGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1451,6 +1536,11 @@ td strong {
   }
 
   .manualForm {
+    grid-template-columns: 1fr;
+  }
+
+  .kellyForm,
+  .kellyResultGrid {
     grid-template-columns: 1fr;
   }
 

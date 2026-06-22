@@ -52,6 +52,23 @@ const els = {
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
   performanceSort: document.querySelector("#performanceSort"),
   performanceClosedTradesTable: document.querySelector("#performanceClosedTradesTable"),
+  kellyForm: document.querySelector("#kellyForm"),
+  kellyWinRate: document.querySelector("#kellyWinRate"),
+  kellyWinningTrades: document.querySelector("#kellyWinningTrades"),
+  kellyTotalTrades: document.querySelector("#kellyTotalTrades"),
+  kellyProfitFactor: document.querySelector("#kellyProfitFactor"),
+  kellyMaxDrawdown: document.querySelector("#kellyMaxDrawdown"),
+  kellyTargetDrawdown: document.querySelector("#kellyTargetDrawdown"),
+  kellyFraction: document.querySelector("#kellyFraction"),
+  kellyMaxAllocation: document.querySelector("#kellyMaxAllocation"),
+  kellyRecommendedAllocation: document.querySelector("#kellyRecommendedAllocation"),
+  kellyFullKelly: document.querySelector("#kellyFullKelly"),
+  kellyHalfKelly: document.querySelector("#kellyHalfKelly"),
+  kellyQuarterKelly: document.querySelector("#kellyQuarterKelly"),
+  kellyWinLossRatio: document.querySelector("#kellyWinLossRatio"),
+  kellyEdge: document.querySelector("#kellyEdge"),
+  kellyDrawdownFactor: document.querySelector("#kellyDrawdownFactor"),
+  kellyNote: document.querySelector("#kellyNote"),
   languageSelect: document.querySelector("#languageSelect"),
   themeToggle: document.querySelector("#themeToggle"),
   tabButtons: document.querySelectorAll("[data-tab-target]"),
@@ -108,12 +125,24 @@ const els = {
 };
 
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
+const KELLY_STORAGE_KEY = "dashboardKellyInputs";
+const DEFAULT_KELLY_INPUTS = {
+  winRate: 50.64,
+  winningTrades: 79,
+  totalTrades: 156,
+  profitFactor: 2.269,
+  maxDrawdown: 3.63,
+  targetDrawdown: 10,
+  fraction: 50,
+  maxAllocation: 20,
+};
 const FEATURE_LABELS = {
   overview: "Tổng quan",
   positions: "Vị thế",
   derivatives: "Phái sinh VN30",
   manualPortfolio: "Danh mục tay",
   performance: "Hiệu suất",
+  kelly: "Kelly",
   dividends: "Cổ tức",
   logs: "Nhật ký",
 };
@@ -772,12 +801,54 @@ Object.assign(translations.en, {
   allStrategies: "All strategies",
   performanceTradeHistory: "Trade History",
   strategyTradeHistory: "Strategy Closed Trades",
+  tabKelly: "Kelly",
+  kellyCalculator: "Kelly Calculator",
+  kellyAllocation: "Allocation by Modern Chart DCA Metrics",
+  kellyWinRate: "Win Rate (%)",
+  kellyWinningTrades: "Winning Trades",
+  kellyTotalTrades: "Total Trades",
+  kellyProfitFactor: "Profit Factor",
+  kellyMaxDrawdown: "Max Drawdown (%)",
+  kellyTargetDrawdown: "Target Drawdown (%)",
+  kellyFraction: "Kelly Used (%)",
+  kellyMaxAllocation: "Max Allocation Cap (%)",
+  kellyRecommended: "Recommended Allocation",
+  kellyFull: "Full Kelly",
+  kellyHalf: "1/2 Kelly",
+  kellyQuarter: "1/4 Kelly",
+  kellyWinLossRatio: "Avg Win / Avg Loss",
+  kellyEdge: "Edge",
+  kellyDrawdownFactor: "Drawdown Factor",
+  kellyInvalidNote: "Enter a valid win rate and profit factor to calculate Kelly allocation.",
+  kellyNegativeNote: "Kelly is zero or negative, so this setup does not justify allocation by the formula.",
+  kellyPositiveNote: "Recommendation uses fractional Kelly, max allocation cap, and drawdown adjustment.",
 });
 
 Object.assign(translations.vi, {
   allStrategies: "Tất cả chiến lược",
   performanceTradeHistory: "Lịch sử giao dịch",
   strategyTradeHistory: "Lệnh đã đóng theo chiến lược",
+  tabKelly: "Kelly",
+  kellyCalculator: "Kelly",
+  kellyAllocation: "Phân bổ theo chỉ số Modern Chart DCA",
+  kellyWinRate: "Tỷ lệ thắng (%)",
+  kellyWinningTrades: "Giao dịch lãi",
+  kellyTotalTrades: "Tổng giao dịch",
+  kellyProfitFactor: "Hệ số lãi",
+  kellyMaxDrawdown: "Mức sụt giảm tối đa (%)",
+  kellyTargetDrawdown: "Mức sụt giảm mục tiêu (%)",
+  kellyFraction: "Kelly sử dụng (%)",
+  kellyMaxAllocation: "Trần phân bổ tối đa (%)",
+  kellyRecommended: "Tỷ lệ phân bổ khuyến nghị",
+  kellyFull: "Kelly đầy đủ",
+  kellyHalf: "1/2 Kelly",
+  kellyQuarter: "1/4 Kelly",
+  kellyWinLossRatio: "Lãi TB / Lỗ TB",
+  kellyEdge: "Lợi thế",
+  kellyDrawdownFactor: "Hệ số drawdown",
+  kellyInvalidNote: "Nhập tỷ lệ thắng và hệ số lãi hợp lệ để tính phân bổ Kelly.",
+  kellyNegativeNote: "Kelly bằng 0 hoặc âm, công thức chưa ủng hộ phân bổ cho bộ chỉ số này.",
+  kellyPositiveNote: "Khuyến nghị đã áp dụng Kelly phân đoạn, trần phân bổ và điều chỉnh drawdown.",
 });
 
 const state = {
@@ -854,6 +925,122 @@ function saveWatchlist() {
   localStorage.setItem("dashboardWatchlist", state.watchlist.join(","));
 }
 
+function loadKellyInputs() {
+  try {
+    return {
+      ...DEFAULT_KELLY_INPUTS,
+      ...(JSON.parse(localStorage.getItem(KELLY_STORAGE_KEY) || "{}") || {}),
+    };
+  } catch {
+    return { ...DEFAULT_KELLY_INPUTS };
+  }
+}
+
+function initializeKellyCalculator() {
+  const values = loadKellyInputs();
+  els.kellyWinRate.value = rawNumber(values.winRate);
+  els.kellyWinningTrades.value = rawNumber(values.winningTrades);
+  els.kellyTotalTrades.value = rawNumber(values.totalTrades);
+  els.kellyProfitFactor.value = rawNumber(values.profitFactor);
+  els.kellyMaxDrawdown.value = rawNumber(values.maxDrawdown);
+  els.kellyTargetDrawdown.value = rawNumber(values.targetDrawdown);
+  els.kellyFraction.value = rawNumber(values.fraction);
+  els.kellyMaxAllocation.value = rawNumber(values.maxAllocation);
+  renderKellyCalculator();
+}
+
+function readKellyInputs() {
+  return {
+    winRate: optionalNumber(els.kellyWinRate.value),
+    winningTrades: optionalNumber(els.kellyWinningTrades.value),
+    totalTrades: optionalNumber(els.kellyTotalTrades.value),
+    profitFactor: optionalNumber(els.kellyProfitFactor.value),
+    maxDrawdown: optionalNumber(els.kellyMaxDrawdown.value),
+    targetDrawdown: optionalNumber(els.kellyTargetDrawdown.value),
+    fraction: optionalNumber(els.kellyFraction.value),
+    maxAllocation: optionalNumber(els.kellyMaxAllocation.value),
+  };
+}
+
+function renderKellyCalculator() {
+  const inputs = readKellyInputs();
+  localStorage.setItem(KELLY_STORAGE_KEY, JSON.stringify(inputs));
+  const result = calculateKelly(inputs);
+
+  els.kellyRecommendedAllocation.innerHTML = formatKellyPercent(result.recommendedPct);
+  els.kellyFullKelly.innerHTML = formatSignedPercent(result.fullKellyPct);
+  els.kellyHalfKelly.innerHTML = formatKellyPercent(result.halfKellyPct);
+  els.kellyQuarterKelly.innerHTML = formatKellyPercent(result.quarterKellyPct);
+  els.kellyWinLossRatio.textContent = formatRatio(result.winLossRatio);
+  els.kellyEdge.innerHTML = formatSignedPercent(result.edgePct);
+  els.kellyDrawdownFactor.textContent = formatRatio(result.drawdownFactor);
+  els.kellyNote.textContent = result.note;
+}
+
+function calculateKelly(inputs) {
+  const tradesWinRate =
+    inputs.totalTrades > 0 && inputs.winningTrades >= 0
+      ? (inputs.winningTrades / inputs.totalTrades) * 100
+      : null;
+  const winRatePct = Number.isFinite(inputs.winRate) ? inputs.winRate : tradesWinRate;
+  const p = clamp(Number(winRatePct) / 100, 0, 1);
+  const q = 1 - p;
+  const profitFactor = Number(inputs.profitFactor);
+  const fraction = clamp(Number(inputs.fraction ?? 50), 0, 100) / 100;
+  const maxAllocation = clamp(Number(inputs.maxAllocation ?? 100), 0, 100);
+  const maxDrawdown = Number(inputs.maxDrawdown);
+  const targetDrawdown = Number(inputs.targetDrawdown);
+
+  if (!Number.isFinite(p) || p <= 0 || !Number.isFinite(profitFactor) || profitFactor <= 0) {
+    return emptyKellyResult(t("kellyInvalidNote"));
+  }
+
+  const winLossRatio =
+    q > 0 ? profitFactor * (q / p) : Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(winLossRatio) || winLossRatio <= 0) {
+    return emptyKellyResult(t("kellyInvalidNote"));
+  }
+
+  const fullKelly = p - q / winLossRatio;
+  const usableKelly = Math.max(0, fullKelly);
+  const drawdownFactor =
+    Number.isFinite(maxDrawdown) && maxDrawdown > 0 && Number.isFinite(targetDrawdown) && targetDrawdown > 0
+      ? Math.min(1, targetDrawdown / maxDrawdown)
+      : 1;
+  const recommended = Math.min(usableKelly * fraction * drawdownFactor * 100, maxAllocation);
+  const note = usableKelly <= 0 ? t("kellyNegativeNote") : t("kellyPositiveNote");
+
+  return {
+    fullKellyPct: fullKelly * 100,
+    halfKellyPct: usableKelly * 50,
+    quarterKellyPct: usableKelly * 25,
+    recommendedPct: Math.max(0, recommended),
+    winLossRatio,
+    edgePct: (p * winLossRatio - q) * 100,
+    drawdownFactor,
+    note,
+  };
+}
+
+function emptyKellyResult(note) {
+  return {
+    fullKellyPct: null,
+    halfKellyPct: null,
+    quarterKellyPct: null,
+    recommendedPct: null,
+    winLossRatio: null,
+    edgePct: null,
+    drawdownFactor: null,
+    note,
+  };
+}
+
+function clamp(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.min(max, Math.max(min, number));
+}
+
 function applyTranslations() {
   document.documentElement.lang = state.language;
   document.querySelectorAll("[data-i18n]").forEach((element) => {
@@ -877,6 +1064,7 @@ function applyTranslations() {
   updateThemeButton();
   renderSummary(state.summary);
   renderUserAttention();
+  renderKellyCalculator();
 }
 
 function applyTheme() {
@@ -2998,6 +3186,11 @@ function formatPercent(value) {
   return `${Number(value).toFixed(1)}%`;
 }
 
+function formatKellyPercent(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "-";
+  return `${Number(value).toFixed(2)}%`;
+}
+
 function formatSignedPercent(value) {
   if (value === null || value === undefined) return "-";
   const number = Number(value);
@@ -3095,6 +3288,8 @@ els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarke
 els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
+els.kellyForm.addEventListener("input", renderKellyCalculator);
+els.kellyForm.addEventListener("submit", (event) => event.preventDefault());
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);
@@ -3112,6 +3307,7 @@ window.addEventListener("resize", () => {
 });
 
 applyTheme();
+initializeKellyCalculator();
 applyTranslations();
 updateWatchlistControls();
 bootstrapAuth();

@@ -62,6 +62,7 @@
         <button class="tabButton" type="button" data-tab-target="derivatives" data-i18n="tabDerivatives">VN30 Derivatives</button>
         <button class="tabButton" type="button" data-tab-target="manualPortfolio" data-i18n="tabManualPortfolio">Manual Portfolio</button>
         <button class="tabButton" type="button" data-tab-target="performance" data-i18n="tabPerformance">Performance</button>
+        <button class="tabButton" type="button" data-tab-target="kelly" data-i18n="tabKelly">Kelly</button>
         <button class="tabButton" type="button" data-tab-target="dividends" data-i18n="tabDividends">Dividends</button>
         <button class="tabButton" type="button" data-tab-target="logs" data-i18n="tabLogs">Logs</button>
         <button class="tabButton" type="button" data-tab-target="admin">Quản trị</button>
@@ -587,6 +588,87 @@
               </thead>
               <tbody id="performanceClosedTradesTable"></tbody>
             </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="kelly">
+        <section class="kellyPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="kellyCalculator">Kelly Calculator</p>
+              <h2 data-i18n="kellyAllocation">Allocation by Modern Chart DCA Metrics</h2>
+            </div>
+          </div>
+          <div class="kellyGrid">
+            <form id="kellyForm" class="kellyForm">
+              <label>
+                <span data-i18n="kellyWinRate">Win Rate (%)</span>
+                <input id="kellyWinRate" min="0" max="100" step="0.01" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyWinningTrades">Winning Trades</span>
+                <input id="kellyWinningTrades" min="0" step="1" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyTotalTrades">Total Trades</span>
+                <input id="kellyTotalTrades" min="0" step="1" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyProfitFactor">Profit Factor</span>
+                <input id="kellyProfitFactor" min="0" step="0.001" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyMaxDrawdown">Max Drawdown (%)</span>
+                <input id="kellyMaxDrawdown" min="0" step="0.01" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyTargetDrawdown">Target Drawdown (%)</span>
+                <input id="kellyTargetDrawdown" min="0" step="0.01" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyFraction">Kelly Used (%)</span>
+                <input id="kellyFraction" min="0" max="100" step="1" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyMaxAllocation">Max Allocation Cap (%)</span>
+                <input id="kellyMaxAllocation" min="0" max="100" step="1" type="number" />
+              </label>
+            </form>
+
+            <div class="kellyOutputPanel">
+              <div class="kellyHeroResult">
+                <span data-i18n="kellyRecommended">Recommended Allocation</span>
+                <strong id="kellyRecommendedAllocation">-</strong>
+              </div>
+              <div class="kellyResultGrid">
+                <article>
+                  <span data-i18n="kellyFull">Full Kelly</span>
+                  <strong id="kellyFullKelly">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyHalf">1/2 Kelly</span>
+                  <strong id="kellyHalfKelly">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyQuarter">1/4 Kelly</span>
+                  <strong id="kellyQuarterKelly">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyWinLossRatio">Avg Win / Avg Loss</span>
+                  <strong id="kellyWinLossRatio">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyEdge">Edge</span>
+                  <strong id="kellyEdge">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyDrawdownFactor">Drawdown Factor</span>
+                  <strong id="kellyDrawdownFactor">-</strong>
+                </article>
+              </div>
+              <p id="kellyNote" class="kellyNote">-</p>
+            </div>
           </div>
         </section>
       </div>
