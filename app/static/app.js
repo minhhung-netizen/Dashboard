@@ -53,6 +53,7 @@ const els = {
   performanceSort: document.querySelector("#performanceSort"),
   performanceClosedTradesTable: document.querySelector("#performanceClosedTradesTable"),
   kellyForm: document.querySelector("#kellyForm"),
+  kellyTicker: document.querySelector("#kellyTicker"),
   kellyWinRate: document.querySelector("#kellyWinRate"),
   kellyWinningTrades: document.querySelector("#kellyWinningTrades"),
   kellyTotalTrades: document.querySelector("#kellyTotalTrades"),
@@ -61,6 +62,7 @@ const els = {
   kellyTargetDrawdown: document.querySelector("#kellyTargetDrawdown"),
   kellyFraction: document.querySelector("#kellyFraction"),
   kellyMaxAllocation: document.querySelector("#kellyMaxAllocation"),
+  saveKellyEntry: document.querySelector("#saveKellyEntry"),
   kellyRecommendedAllocation: document.querySelector("#kellyRecommendedAllocation"),
   kellyFullKelly: document.querySelector("#kellyFullKelly"),
   kellyHalfKelly: document.querySelector("#kellyHalfKelly"),
@@ -69,6 +71,7 @@ const els = {
   kellyEdge: document.querySelector("#kellyEdge"),
   kellyDrawdownFactor: document.querySelector("#kellyDrawdownFactor"),
   kellyNote: document.querySelector("#kellyNote"),
+  kellySavedTable: document.querySelector("#kellySavedTable"),
   languageSelect: document.querySelector("#languageSelect"),
   themeToggle: document.querySelector("#themeToggle"),
   tabButtons: document.querySelectorAll("[data-tab-target]"),
@@ -126,7 +129,9 @@ const els = {
 
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
 const KELLY_STORAGE_KEY = "dashboardKellyInputs";
+const KELLY_LIST_STORAGE_KEY = "dashboardKellyEntries";
 const DEFAULT_KELLY_INPUTS = {
+  ticker: "",
   winRate: 50.64,
   winningTrades: 79,
   totalTrades: 156,
@@ -804,6 +809,7 @@ Object.assign(translations.en, {
   tabKelly: "Kelly",
   kellyCalculator: "Kelly Calculator",
   kellyAllocation: "Allocation by Modern Chart DCA Metrics",
+  kellyTicker: "Ticker",
   kellyWinRate: "Win Rate (%)",
   kellyWinningTrades: "Winning Trades",
   kellyTotalTrades: "Total Trades",
@@ -819,7 +825,13 @@ Object.assign(translations.en, {
   kellyWinLossRatio: "Avg Win / Avg Loss",
   kellyEdge: "Edge",
   kellyDrawdownFactor: "Drawdown Factor",
+  saveKellyEntry: "Save ticker",
+  kellySavedList: "Saved Kelly List",
+  kellySavedByTicker: "Allocation by Ticker",
+  noKellyEntries: "No saved Kelly entries",
+  deleteKellyEntryConfirm: "Delete this Kelly entry?",
   kellyInvalidNote: "Enter a valid win rate and profit factor to calculate Kelly allocation.",
+  kellyMissingTickerNote: "Enter a ticker before saving this Kelly entry.",
   kellyNegativeNote: "Kelly is zero or negative, so this setup does not justify allocation by the formula.",
   kellyPositiveNote: "Recommendation uses fractional Kelly, max allocation cap, and drawdown adjustment.",
 });
@@ -831,6 +843,7 @@ Object.assign(translations.vi, {
   tabKelly: "Kelly",
   kellyCalculator: "Kelly",
   kellyAllocation: "Phân bổ theo chỉ số Modern Chart DCA",
+  kellyTicker: "Mã",
   kellyWinRate: "Tỷ lệ thắng (%)",
   kellyWinningTrades: "Giao dịch lãi",
   kellyTotalTrades: "Tổng giao dịch",
@@ -846,7 +859,13 @@ Object.assign(translations.vi, {
   kellyWinLossRatio: "Lãi TB / Lỗ TB",
   kellyEdge: "Lợi thế",
   kellyDrawdownFactor: "Hệ số drawdown",
+  saveKellyEntry: "Lưu mã",
+  kellySavedList: "Danh sách Kelly đã lưu",
+  kellySavedByTicker: "Phân bổ theo từng mã",
+  noKellyEntries: "Chưa có mã Kelly đã lưu",
+  deleteKellyEntryConfirm: "Xóa mã Kelly này?",
   kellyInvalidNote: "Nhập tỷ lệ thắng và hệ số lãi hợp lệ để tính phân bổ Kelly.",
+  kellyMissingTickerNote: "Nhập mã trước khi lưu Kelly.",
   kellyNegativeNote: "Kelly bằng 0 hoặc âm, công thức chưa ủng hộ phân bổ cho bộ chỉ số này.",
   kellyPositiveNote: "Khuyến nghị đã áp dụng Kelly phân đoạn, trần phân bổ và điều chỉnh drawdown.",
 });
@@ -936,8 +955,22 @@ function loadKellyInputs() {
   }
 }
 
+function loadKellyEntries() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(KELLY_LIST_STORAGE_KEY) || "[]");
+    return Array.isArray(entries) ? entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveKellyEntries(entries) {
+  localStorage.setItem(KELLY_LIST_STORAGE_KEY, JSON.stringify(entries));
+}
+
 function initializeKellyCalculator() {
   const values = loadKellyInputs();
+  els.kellyTicker.value = values.ticker || "";
   els.kellyWinRate.value = rawNumber(values.winRate);
   els.kellyWinningTrades.value = rawNumber(values.winningTrades);
   els.kellyTotalTrades.value = rawNumber(values.totalTrades);
@@ -947,10 +980,12 @@ function initializeKellyCalculator() {
   els.kellyFraction.value = rawNumber(values.fraction);
   els.kellyMaxAllocation.value = rawNumber(values.maxAllocation);
   renderKellyCalculator();
+  renderKellyEntries();
 }
 
 function readKellyInputs() {
   return {
+    ticker: els.kellyTicker.value.trim().toUpperCase(),
     winRate: optionalNumber(els.kellyWinRate.value),
     winningTrades: optionalNumber(els.kellyWinningTrades.value),
     totalTrades: optionalNumber(els.kellyTotalTrades.value),
@@ -975,6 +1010,93 @@ function renderKellyCalculator() {
   els.kellyEdge.innerHTML = formatSignedPercent(result.edgePct);
   els.kellyDrawdownFactor.textContent = formatRatio(result.drawdownFactor);
   els.kellyNote.textContent = result.note;
+}
+
+function saveCurrentKellyEntry() {
+  const inputs = readKellyInputs();
+  if (!inputs.ticker) {
+    window.alert(t("kellyMissingTickerNote"));
+    els.kellyTicker.focus();
+    return;
+  }
+  const result = calculateKelly(inputs);
+  const entry = {
+    ...inputs,
+    updatedAt: new Date().toISOString(),
+  };
+  const entries = loadKellyEntries();
+  const nextEntries = [
+    entry,
+    ...entries.filter((item) => String(item.ticker || "").toUpperCase() !== inputs.ticker),
+  ].sort((left, right) => String(left.ticker || "").localeCompare(String(right.ticker || "")));
+  saveKellyEntries(nextEntries);
+  renderKellyEntries();
+}
+
+function renderKellyEntries() {
+  const entries = loadKellyEntries();
+  if (!entries.length) {
+    els.kellySavedTable.innerHTML =
+      `<tr><td class="empty" colspan="8">${t("noKellyEntries")}</td></tr>`;
+    return;
+  }
+
+  els.kellySavedTable.innerHTML = entries
+    .map((entry) => {
+      const result = calculateKelly(entry);
+      return `
+        <tr class="clickableRow" data-kelly-load="${escapeHtml(entry.ticker)}">
+          <td><strong>${escapeHtml(entry.ticker || "-")}</strong></td>
+          <td>${formatKellyPercent(entry.winRate)}</td>
+          <td>${escapeHtml(entry.winningTrades ?? "-")}/${escapeHtml(entry.totalTrades ?? "-")}</td>
+          <td>${formatRatio(entry.profitFactor)}</td>
+          <td>${formatKellyPercent(entry.maxDrawdown)}</td>
+          <td>${formatSignedPercent(result.fullKellyPct)}</td>
+          <td>${formatKellyPercent(result.recommendedPct)}</td>
+          <td>
+            <button class="deleteButton" type="button" data-kelly-delete="${escapeHtml(entry.ticker)}">${escapeHtml(t("delete"))}</button>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  els.kellySavedTable.querySelectorAll("[data-kelly-load]").forEach((row) => {
+    row.addEventListener("click", () => loadKellyEntry(row.dataset.kellyLoad));
+  });
+  els.kellySavedTable.querySelectorAll("[data-kelly-delete]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteKellyEntry(button.dataset.kellyDelete);
+    });
+  });
+}
+
+function loadKellyEntry(ticker) {
+  const entry = loadKellyEntries().find(
+    (item) => String(item.ticker || "").toUpperCase() === String(ticker || "").toUpperCase()
+  );
+  if (!entry) return;
+  els.kellyTicker.value = entry.ticker || "";
+  els.kellyWinRate.value = rawNumber(entry.winRate);
+  els.kellyWinningTrades.value = rawNumber(entry.winningTrades);
+  els.kellyTotalTrades.value = rawNumber(entry.totalTrades);
+  els.kellyProfitFactor.value = rawNumber(entry.profitFactor);
+  els.kellyMaxDrawdown.value = rawNumber(entry.maxDrawdown);
+  els.kellyTargetDrawdown.value = rawNumber(entry.targetDrawdown);
+  els.kellyFraction.value = rawNumber(entry.fraction);
+  els.kellyMaxAllocation.value = rawNumber(entry.maxAllocation);
+  renderKellyCalculator();
+}
+
+function deleteKellyEntry(ticker) {
+  if (!window.confirm(t("deleteKellyEntryConfirm"))) return;
+  const normalizedTicker = String(ticker || "").toUpperCase();
+  const entries = loadKellyEntries().filter(
+    (entry) => String(entry.ticker || "").toUpperCase() !== normalizedTicker
+  );
+  saveKellyEntries(entries);
+  renderKellyEntries();
 }
 
 function calculateKelly(inputs) {
@@ -1065,6 +1187,7 @@ function applyTranslations() {
   renderSummary(state.summary);
   renderUserAttention();
   renderKellyCalculator();
+  renderKellyEntries();
 }
 
 function applyTheme() {
@@ -3290,6 +3413,7 @@ els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
 els.kellyForm.addEventListener("input", renderKellyCalculator);
 els.kellyForm.addEventListener("submit", (event) => event.preventDefault());
+els.saveKellyEntry.addEventListener("click", saveCurrentKellyEntry);
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);

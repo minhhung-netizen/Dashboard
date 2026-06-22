@@ -798,6 +798,15 @@ main {
   width: 100%;
 }
 
+.kellyFormActions {
+  align-items: end;
+  display: flex;
+}
+
+.kellyFormActions button {
+  width: 100%;
+}
+
 .kellyOutputPanel {
   display: grid;
   gap: 12px;
@@ -847,6 +856,14 @@ main {
 .kellyNote {
   color: var(--muted);
   font-size: 13px;
+}
+
+.kellySavedSection {
+  border-top: 1px solid var(--line);
+}
+
+.compactHead {
+  min-height: 58px;
 }
 
 .panelActions {

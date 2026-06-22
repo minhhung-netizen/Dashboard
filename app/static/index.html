@@ -603,6 +603,10 @@
           <div class="kellyGrid">
             <form id="kellyForm" class="kellyForm">
               <label>
+                <span data-i18n="kellyTicker">Ticker</span>
+                <input id="kellyTicker" autocomplete="off" placeholder="VPB" />
+              </label>
+              <label>
                 <span data-i18n="kellyWinRate">Win Rate (%)</span>
                 <input id="kellyWinRate" min="0" max="100" step="0.01" type="number" />
               </label>
@@ -634,6 +638,9 @@
                 <span data-i18n="kellyMaxAllocation">Max Allocation Cap (%)</span>
                 <input id="kellyMaxAllocation" min="0" max="100" step="1" type="number" />
               </label>
+              <div class="kellyFormActions">
+                <button id="saveKellyEntry" class="smallButton" type="button" data-i18n="saveKellyEntry">Save ticker</button>
+              </div>
             </form>
 
             <div class="kellyOutputPanel">
@@ -668,6 +675,31 @@
                 </article>
               </div>
               <p id="kellyNote" class="kellyNote">-</p>
+            </div>
+          </div>
+          <div class="kellySavedSection">
+            <div class="panelHead compactHead">
+              <div>
+                <p class="eyebrow" data-i18n="kellySavedList">Saved Kelly List</p>
+                <h2 data-i18n="kellySavedByTicker">Allocation by Ticker</h2>
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="kellyWinRate">Win Rate (%)</th>
+                    <th data-i18n="kellyWinningTrades">Winning Trades</th>
+                    <th data-i18n="kellyProfitFactor">Profit Factor</th>
+                    <th data-i18n="kellyMaxDrawdown">Max Drawdown (%)</th>
+                    <th data-i18n="kellyFull">Full Kelly</th>
+                    <th data-i18n="kellyRecommended">Recommended Allocation</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="kellySavedTable"></tbody>
+              </table>
             </div>
           </div>
         </section>
