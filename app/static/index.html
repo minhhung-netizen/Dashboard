@@ -75,6 +75,7 @@
         <div class="recentTradeMarquee">
           <div id="recentTradeBannerTrack" class="recentTradeBannerTrack"></div>
         </div>
+        <button id="recentTradeBannerToggle" class="bannerToggleButton" type="button" data-i18n="hideBanner">Hide</button>
       </section>
 
       <div class="tabPanel active" data-tab-panel="overview">
@@ -95,6 +96,46 @@
             <span id="metricTickerLabel" data-i18n="tickers">Tickers</span>
             <strong id="tickerCount">0</strong>
           </article>
+        </section>
+
+        <section class="overviewGrid">
+          <section class="riskPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="riskOverview">Risk Overview</p>
+                <h2 data-i18n="portfolioRisk">Portfolio Risk</h2>
+              </div>
+            </div>
+            <div class="riskMetrics">
+              <article>
+                <span data-i18n="totalExposure">Total exposure</span>
+                <strong id="riskTotalExposure">-</strong>
+              </article>
+              <article>
+                <span data-i18n="weightedOpenPl">Weighted open P/L</span>
+                <strong id="riskWeightedPl">-</strong>
+              </article>
+              <article>
+                <span data-i18n="topTickerExposure">Top ticker exposure</span>
+                <strong id="riskTopTicker">-</strong>
+              </article>
+              <article>
+                <span data-i18n="stressMinus5">Stress -5%</span>
+                <strong id="riskStressMinus5">-</strong>
+              </article>
+            </div>
+            <div id="riskStrategyBreakdown" class="riskBreakdown"></div>
+          </section>
+
+          <section class="alertCenterPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="alertCenter">Alert Center</p>
+                <h2 data-i18n="riskAlerts">Risk Alerts</h2>
+              </div>
+            </div>
+            <div id="riskAlertList" class="riskAlertList"></div>
+          </section>
         </section>
 
         <section id="userAttentionPanel" class="attentionPanel userOnly">
@@ -714,6 +755,7 @@
                     <th data-i18n="kellyMaxDrawdown">Max Drawdown (%)</th>
                     <th data-i18n="kellyFull">Full Kelly</th>
                     <th data-i18n="kellyRecommended">Recommended Allocation</th>
+                    <th data-i18n="kellyUsage">Usage</th>
                     <th></th>
                   </tr>
                 </thead>

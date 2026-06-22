@@ -509,6 +509,14 @@ main {
   display: none;
 }
 
+.recentTradeBanner.isCollapsed {
+  grid-template-columns: auto 1fr auto;
+}
+
+.recentTradeBanner.isCollapsed .recentTradeMarquee {
+  display: none;
+}
+
 .recentTradeBannerLabel {
   color: var(--muted);
   font-size: 11px;
@@ -598,6 +606,18 @@ main {
   font-size: 11px;
 }
 
+.bannerToggleButton {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+  height: 28px;
+  padding: 0 10px;
+}
+
+.bannerToggleButton:hover {
+  color: var(--ink);
+}
+
 @keyframes recent-trade-marquee {
   from {
     transform: translateX(0);
@@ -620,6 +640,144 @@ main {
   gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 16px;
+}
+
+.overviewGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+  margin-bottom: 16px;
+}
+
+.riskPanel,
+.alertCenterPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.riskMetrics {
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.riskMetrics article {
+  border-right: 1px solid var(--line-soft);
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.riskMetrics article:last-child {
+  border-right: 0;
+}
+
+.riskMetrics span,
+.riskBreakdownTitle {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 740;
+  text-transform: uppercase;
+}
+
+.riskMetrics strong {
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.riskBreakdown {
+  border-top: 1px solid var(--line-soft);
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px 16px;
+}
+
+.riskBreakdownRow {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  height: auto;
+  padding: 0;
+  position: relative;
+  text-align: left;
+}
+
+.riskBreakdownRow span,
+.riskBreakdownRow strong {
+  position: relative;
+  z-index: 1;
+}
+
+.riskBreakdownRow i {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 999px;
+  bottom: -3px;
+  display: block;
+  height: 5px;
+  left: 0;
+  position: absolute;
+}
+
+.riskAlertList {
+  display: grid;
+  max-height: 246px;
+  overflow: auto;
+}
+
+.riskAlertItem {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  height: auto;
+  justify-items: start;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.riskAlertItem:last-child {
+  border-bottom: 0;
+}
+
+.riskAlertItem:hover {
+  background: var(--field-hover);
+}
+
+.riskAlertItem span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.riskAlertItem strong {
+  font-size: 13px;
+}
+
+.riskAlertItem.danger strong {
+  color: var(--sell);
+}
+
+.riskAlertItem.warning strong {
+  color: var(--warning);
+}
+
+.riskAlertItem.info strong {
+  color: var(--accent);
 }
 
 .attentionPanel {
@@ -1398,6 +1556,7 @@ td strong {
   .workspace,
   .manualPortfolioGrid,
   .analyticsGrid,
+  .overviewGrid,
   .metrics {
     grid-template-columns: 1fr 1fr;
   }
@@ -1426,6 +1585,10 @@ td strong {
 
   .kellyGrid {
     grid-template-columns: 1fr;
+  }
+
+  .riskMetrics {
+    grid-template-columns: 1fr 1fr;
   }
 
   .recentTradeBanner {
@@ -1524,6 +1687,8 @@ td strong {
   .metrics,
   .analyticsGrid,
   .manualPortfolioGrid,
+  .overviewGrid,
+  .riskMetrics,
   .workspace {
     grid-template-columns: 1fr;
   }

@@ -10,6 +10,13 @@ const els = {
   syncStatus: document.querySelector("#syncStatus"),
   recentTradeBanner: document.querySelector("#recentTradeBanner"),
   recentTradeBannerTrack: document.querySelector("#recentTradeBannerTrack"),
+  recentTradeBannerToggle: document.querySelector("#recentTradeBannerToggle"),
+  riskTotalExposure: document.querySelector("#riskTotalExposure"),
+  riskWeightedPl: document.querySelector("#riskWeightedPl"),
+  riskTopTicker: document.querySelector("#riskTopTicker"),
+  riskStressMinus5: document.querySelector("#riskStressMinus5"),
+  riskStrategyBreakdown: document.querySelector("#riskStrategyBreakdown"),
+  riskAlertList: document.querySelector("#riskAlertList"),
   userAttentionPanel: document.querySelector("#userAttentionPanel"),
   userAttentionList: document.querySelector("#userAttentionList"),
   table: document.querySelector("#signalsTable"),
@@ -811,12 +818,54 @@ Object.assign(translations.en, {
   recentTradeBanner: "Recent trade alerts",
   recentOpened: "New buys",
   recentClosed: "New closes",
+  hideBanner: "Hide",
+  showBanner: "Show",
+  riskOverview: "Risk Overview",
+  portfolioRisk: "Portfolio Risk",
+  totalExposure: "Total exposure",
+  weightedOpenPl: "Weighted open P/L",
+  topTickerExposure: "Top ticker exposure",
+  stressMinus5: "Stress -5%",
+  strategyExposure: "Strategy exposure",
+  alertCenter: "Alert Center",
+  riskAlerts: "Risk Alerts",
+  noRiskAlerts: "No active risk alerts",
+  exposureAboveLimit: "Total exposure is above 100%",
+  concentrationAlert: "Ticker concentration is high",
+  strategyConcentrationAlert: "Strategy concentration is high",
+  webhookIssueAlert: "Webhook warnings need review",
+  dividendRiskAlert: "Upcoming ex-rights event",
+  lossRiskAlert: "Open position is below risk threshold",
+  newSellAlert: "Recently closed position",
+  kellyUsage: "Usage",
+  activePositions: "Active positions",
 });
 
 Object.assign(translations.vi, {
   recentTradeBanner: "Cảnh báo giao dịch mới",
   recentOpened: "Mới mở mua",
   recentClosed: "Mới đóng",
+  hideBanner: "Ẩn",
+  showBanner: "Hiện",
+  riskOverview: "Rủi ro",
+  portfolioRisk: "Rủi ro danh mục",
+  totalExposure: "Tổng tỷ trọng",
+  weightedOpenPl: "Lãi/lỗ theo tỷ trọng",
+  topTickerExposure: "Mã chiếm tỷ trọng cao nhất",
+  stressMinus5: "Giả định giảm 5%",
+  strategyExposure: "Tỷ trọng theo chiến lược",
+  alertCenter: "Trung tâm cảnh báo",
+  riskAlerts: "Cảnh báo rủi ro",
+  noRiskAlerts: "Chưa có cảnh báo rủi ro",
+  exposureAboveLimit: "Tổng tỷ trọng vượt 100%",
+  concentrationAlert: "Tỷ trọng theo mã đang cao",
+  strategyConcentrationAlert: "Tỷ trọng theo chiến lược đang cao",
+  webhookIssueAlert: "Có cảnh báo webhook cần kiểm tra",
+  dividendRiskAlert: "Sắp đến ngày GDKHQ",
+  lossRiskAlert: "Vị thế đang dưới ngưỡng rủi ro",
+  newSellAlert: "Vừa có vị thế đóng",
+  kellyUsage: "Đang dùng",
+  activePositions: "Vị thế đang mở",
 });
 
 Object.assign(translations.en, {
@@ -899,9 +948,11 @@ const state = {
   selectedTicker: "",
   watchlist: loadWatchlist(),
   watchlistOnly: localStorage.getItem("dashboardWatchlistOnly") === "true",
+  recentTradeBannerHidden: localStorage.getItem("dashboardRecentTradeBannerHidden") === "true",
   signals: [],
   openTrades: [],
   closedTrades: [],
+  invalidSignals: [],
   performanceStrategies: [],
   closedTradeFilter: null,
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
@@ -1086,13 +1137,14 @@ function renderKellyEntries() {
     : entries;
   if (!filteredEntries.length) {
     els.kellySavedTable.innerHTML =
-      `<tr><td class="empty" colspan="9">${t("noKellyEntries")}</td></tr>`;
+      `<tr><td class="empty" colspan="10">${t("noKellyEntries")}</td></tr>`;
     return;
   }
 
   els.kellySavedTable.innerHTML = filteredEntries
     .map((entry) => {
       const result = calculateKelly(entry);
+      const usageCount = kellyEntryUsageCount(entry);
       return `
         <tr class="clickableRow" data-kelly-load="${escapeHtml(kellyEntryKey(entry.ticker, entry.strategy))}">
           <td><strong>${escapeHtml(entry.ticker || "-")}</strong></td>
@@ -1103,6 +1155,7 @@ function renderKellyEntries() {
           <td>${formatKellyPercent(entry.maxDrawdown)}</td>
           <td>${formatSignedPercent(result.fullKellyPct)}</td>
           <td>${formatKellyPercent(result.recommendedPct)}</td>
+          <td>${usageCount ? `${usageCount} ${escapeHtml(t("activePositions"))}` : "-"}</td>
           <td>
             <button class="deleteButton" type="button" data-kelly-delete="${escapeHtml(kellyEntryKey(entry.ticker, entry.strategy))}">${escapeHtml(t("delete"))}</button>
           </td>
@@ -1120,6 +1173,16 @@ function renderKellyEntries() {
       deleteKellyEntry(button.dataset.kellyDelete);
     });
   });
+}
+
+function kellyEntryUsageCount(entry) {
+  const ticker = String(entry.ticker || "").trim().toUpperCase();
+  const strategy = String(entry.strategy || "").trim();
+  if (!ticker) return 0;
+  return state.openTrades.filter((trade) => {
+    if (String(trade.ticker || "").trim().toUpperCase() !== ticker) return false;
+    return strategy ? String(trade.strategy || "").trim() === strategy : true;
+  }).length;
 }
 
 function loadKellyEntry(entryKey) {
@@ -1242,6 +1305,8 @@ function applyTranslations() {
   renderSummary(state.summary);
   renderUserAttention();
   renderRecentTradeBanner();
+  renderRiskOverview();
+  renderRiskAlerts();
   renderKellyCalculator();
   renderKellyEntries();
 }
@@ -1622,14 +1687,15 @@ async function refresh() {
   if (state.activeTab === "performance") {
     drawEquityCurve(performancePayload.closed_trades || []);
   }
-  renderInvalidSignals([
+  state.invalidSignals = [
     ...(positionPayload.ignored_signals || []).map((item) => ({
       ...item,
       received_at: "",
       timeframe: "",
     })),
     ...(invalidPayload.invalid_signals || []),
-  ]);
+  ];
+  renderInvalidSignals(state.invalidSignals);
   renderPerformance(sortPerformance(performancePayload.strategies || []));
   renderPerformanceClosedTrades(performancePayload.closed_trades || []);
   state.manualPortfolio = manualPayload;
@@ -1640,6 +1706,9 @@ async function refresh() {
   renderExDateAlerts();
   renderSummary(summary);
   renderUserAttention();
+  renderRiskOverview();
+  renderRiskAlerts();
+  renderKellyEntries();
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
   state.lastRefreshAt = new Date();
@@ -2207,12 +2276,19 @@ function renderRecentTradeBanner() {
     return;
   }
 
+  els.recentTradeBanner.hidden = false;
+  els.recentTradeBanner.classList.toggle("isCollapsed", state.recentTradeBannerHidden);
+  els.recentTradeBannerToggle.textContent = state.recentTradeBannerHidden ? t("showBanner") : t("hideBanner");
+  if (state.recentTradeBannerHidden) {
+    els.recentTradeBannerTrack.innerHTML = "";
+    return;
+  }
+
   const groupHtml = [
     renderRecentTradeGroup(t("recentOpened"), opened, "entry_time", "buy"),
     renderRecentTradeGroup(t("recentClosed"), closed, "exit_time", "sell"),
   ].filter(Boolean).join("");
 
-  els.recentTradeBanner.hidden = false;
   els.recentTradeBannerTrack.innerHTML = `
     <div class="recentTradeGroupSet">${groupHtml}</div>
     <div class="recentTradeGroupSet" aria-hidden="true">${groupHtml}</div>
@@ -2246,6 +2322,156 @@ function renderRecentTradeGroup(label, trades, timeField, tone) {
         .join("")}
     </span>
   `;
+}
+
+function openTradeRiskRows() {
+  return state.openTrades.map((trade) => {
+    const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+    return {
+      trade,
+      weightPct,
+      allocatedPl: allocatedReturnPct(trade.return_pct, weightPct),
+    };
+  });
+}
+
+function aggregateRisk(rows, keyFn) {
+  const totals = new Map();
+  rows.forEach((row) => {
+    const key = keyFn(row.trade) || "-";
+    totals.set(key, (totals.get(key) || 0) + (Number(row.weightPct) || 0));
+  });
+  return [...totals.entries()]
+    .map(([key, value]) => ({ key, value }))
+    .sort((left, right) => right.value - left.value);
+}
+
+function renderRiskOverview() {
+  const rows = openTradeRiskRows();
+  if (!rows.length) {
+    els.riskTotalExposure.textContent = "-";
+    els.riskWeightedPl.textContent = "-";
+    els.riskTopTicker.textContent = "-";
+    els.riskStressMinus5.textContent = "-";
+    els.riskStrategyBreakdown.innerHTML = `<div class="empty">${escapeHtml(t("noOpenPositions"))}</div>`;
+    return;
+  }
+
+  const totalExposure = rows.reduce((sum, row) => sum + (Number(row.weightPct) || 0), 0);
+  const weightedPl = rows.reduce((sum, row) => {
+    const value = Number(row.allocatedPl);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+  const tickerExposure = aggregateRisk(rows, (trade) => trade.ticker);
+  const strategyExposure = aggregateRisk(rows, (trade) => trade.strategy);
+  const topTicker = tickerExposure[0];
+  const stressMinus5 = weightedPl - (totalExposure * 5) / 100;
+
+  els.riskTotalExposure.textContent = formatPercent(totalExposure);
+  els.riskWeightedPl.innerHTML = formatSignedPercent(weightedPl);
+  els.riskTopTicker.textContent = topTicker ? `${topTicker.key} ${formatPercent(topTicker.value)}` : "-";
+  els.riskStressMinus5.innerHTML = formatSignedPercent(stressMinus5);
+  els.riskStrategyBreakdown.innerHTML = `
+    <div class="riskBreakdownTitle">${escapeHtml(t("strategyExposure"))}</div>
+    ${strategyExposure.slice(0, 5).map((item) => {
+      const width = Math.min(100, Math.max(4, item.value));
+      return `
+        <button class="riskBreakdownRow" type="button" data-risk-strategy="${escapeHtml(item.key)}">
+          <span>${escapeHtml(item.key)}</span>
+          <strong>${formatPercent(item.value)}</strong>
+          <i style="width:${width}%"></i>
+        </button>
+      `;
+    }).join("")}
+  `;
+  els.riskStrategyBreakdown.querySelectorAll("[data-risk-strategy]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("positions");
+      els.openPositionStrategyFilter.value = button.dataset.riskStrategy;
+      renderOpenPositions();
+    });
+  });
+}
+
+function renderRiskAlerts() {
+  const rows = openTradeRiskRows();
+  const totalExposure = rows.reduce((sum, row) => sum + (Number(row.weightPct) || 0), 0);
+  const tickerExposure = aggregateRisk(rows, (trade) => trade.ticker);
+  const strategyExposure = aggregateRisk(rows, (trade) => trade.strategy);
+  const alerts = [];
+
+  if (totalExposure > 100) {
+    alerts.push({
+      level: "danger",
+      title: t("exposureAboveLimit"),
+      detail: formatPercent(totalExposure),
+    });
+  }
+  if (tickerExposure[0]?.value >= 20) {
+    alerts.push({
+      level: "warning",
+      title: t("concentrationAlert"),
+      detail: `${tickerExposure[0].key} ${formatPercent(tickerExposure[0].value)}`,
+      ticker: tickerExposure[0].key,
+    });
+  }
+  if (strategyExposure[0]?.value >= 50) {
+    alerts.push({
+      level: "warning",
+      title: t("strategyConcentrationAlert"),
+      detail: `${strategyExposure[0].key} ${formatPercent(strategyExposure[0].value)}`,
+    });
+  }
+  rows
+    .filter((row) => Number(row.trade.return_pct) <= -5)
+    .slice(0, 5)
+    .forEach((row) => alerts.push({
+      level: "danger",
+      title: t("lossRiskAlert"),
+      detail: `${row.trade.ticker} ${formatSignedPercent(row.trade.return_pct)}`,
+      ticker: row.trade.ticker,
+    }));
+  (state.dividendAlerts || []).slice(0, 5).forEach((alert) => {
+    alerts.push({
+      level: "warning",
+      title: t("dividendRiskAlert"),
+      detail: `${alert.ticker || alert.symbol || "-"} ${formatDateOnly(alert.ex_date || alert.date)}`,
+      ticker: alert.ticker || alert.symbol,
+    });
+  });
+  if (state.invalidSignals.length) {
+    alerts.push({
+      level: "warning",
+      title: t("webhookIssueAlert"),
+      detail: String(state.invalidSignals.length),
+    });
+  }
+  recentTrades(state.closedTrades, "exit_time", 3).forEach((trade) => {
+    alerts.push({
+      level: "info",
+      title: t("newSellAlert"),
+      detail: `${trade.ticker} ${trade.strategy || "-"} ${formatDateOnly(trade.exit_time)}`,
+      ticker: trade.ticker,
+    });
+  });
+
+  if (!alerts.length) {
+    els.riskAlertList.innerHTML = `<div class="empty">${escapeHtml(t("noRiskAlerts"))}</div>`;
+    return;
+  }
+
+  els.riskAlertList.innerHTML = alerts.slice(0, 10).map((alert) => `
+    <button class="riskAlertItem ${alert.level}" type="button" ${alert.ticker ? `data-risk-alert-ticker="${escapeHtml(alert.ticker)}"` : ""}>
+      <span>${escapeHtml(alert.title)}</span>
+      <strong>${alert.detail}</strong>
+    </button>
+  `).join("");
+  els.riskAlertList.querySelectorAll("[data-risk-alert-ticker]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("overview");
+      renderChart(button.dataset.riskAlertTicker);
+    });
+  });
 }
 
 function sortPerformance(strategies) {
@@ -2889,7 +3115,7 @@ function renderSummary(summary) {
   if (!els.total || !state.user) return;
   if (state.user.role !== "admin" && featureEnabled(["positions", "performance"])) {
     const openReturn = state.openTrades.reduce((sum, trade) => {
-      const value = allocatedReturnPct(trade.return_pct);
+      const value = allocatedReturnPct(trade.return_pct, kellyAllocationPct(trade.ticker, trade.strategy));
       return Number.isFinite(value) ? sum + value : sum;
     }, 0);
     const today = localMarketDate();
@@ -3558,6 +3784,11 @@ els.watchlistInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") updateWatchlistFromInput();
 });
 els.watchlistOnly.addEventListener("change", toggleWatchlistOnly);
+els.recentTradeBannerToggle.addEventListener("click", () => {
+  state.recentTradeBannerHidden = !state.recentTradeBannerHidden;
+  localStorage.setItem("dashboardRecentTradeBannerHidden", String(state.recentTradeBannerHidden));
+  renderRecentTradeBanner();
+});
 els.addTickerToWatchlist.addEventListener("click", addSelectedTickerToWatchlist);
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
 els.openPositionStrategyFilter.addEventListener("change", renderOpenPositions);
