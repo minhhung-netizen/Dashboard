@@ -135,6 +135,7 @@ const els = {
   newPassword: document.querySelector("#newPassword"),
   newUserRole: document.querySelector("#newUserRole"),
   newUserFeatures: document.querySelector("#newUserFeatures"),
+  newUserStrategies: document.querySelector("#newUserStrategies"),
   usersTable: document.querySelector("#usersTable"),
 };
 
@@ -941,6 +942,7 @@ Object.assign(translations.vi, {
 const state = {
   user: null,
   availableFeatures: Object.keys(FEATURE_LABELS),
+  availableStrategies: [],
   users: [],
   language: localStorage.getItem("dashboardLanguage") || "vi",
   theme: localStorage.getItem("dashboardTheme") || "light",
@@ -1399,16 +1401,17 @@ async function bootstrapAuth() {
       showLogin();
       return;
     }
-    setAuthenticatedUser(payload.user, payload.available_features || []);
+    setAuthenticatedUser(payload.user, payload.available_features || [], payload.available_strategies || []);
     await refresh();
   } catch (error) {
     showLogin();
   }
 }
 
-function setAuthenticatedUser(user, availableFeatures) {
+function setAuthenticatedUser(user, availableFeatures, availableStrategies = []) {
   state.user = user;
   state.availableFeatures = availableFeatures.length ? availableFeatures : Object.keys(FEATURE_LABELS);
+  state.availableStrategies = availableStrategies || [];
   els.loginScreen.hidden = true;
   els.currentUser.textContent = user.username;
   els.currentUser.dataset.initial = user.username.slice(0, 1).toUpperCase();
@@ -1416,6 +1419,7 @@ function setAuthenticatedUser(user, availableFeatures) {
   applyAccessControl();
   if (user.role === "admin") {
     renderFeatureSelector(els.newUserFeatures, state.availableFeatures);
+    renderStrategySelector(els.newUserStrategies);
     loadAdminUsers();
   }
 }
@@ -1445,7 +1449,7 @@ async function submitLogin(event) {
   }
   const payload = await response.json();
   const me = await fetchJson("/api/auth/me");
-  setAuthenticatedUser(payload.user, me.available_features || []);
+  setAuthenticatedUser(payload.user, me.available_features || [], me.available_strategies || []);
   await refresh();
 }
 
@@ -1498,11 +1502,38 @@ function selectedFeatures(container) {
   );
 }
 
+function renderStrategySelector(container, selectedStrategies = []) {
+  const selected = new Set((selectedStrategies || []).map((strategy) => String(strategy).toLowerCase()));
+  if (!state.availableStrategies.length) {
+    container.innerHTML = `<span class="selectorHint">Chưa có chiến lược. Không chọn = tất cả.</span>`;
+    return;
+  }
+  container.innerHTML = `
+    <span class="selectorHint">Chiến lược: không chọn = tất cả</span>
+    ${state.availableStrategies
+      .map((strategy) => `
+        <label class="featureOption">
+          <input type="checkbox" value="${escapeHtml(strategy)}" ${selected.has(String(strategy).toLowerCase()) ? "checked" : ""} />
+          <span>${escapeHtml(strategy)}</span>
+        </label>
+      `)
+      .join("")}
+  `;
+}
+
+function selectedStrategies(container) {
+  return [...container.querySelectorAll('input[type="checkbox"]:checked')].map(
+    (input) => input.value
+  );
+}
+
 async function loadAdminUsers() {
   if (state.user?.role !== "admin") return;
   const payload = await fetchJson("/api/admin/users");
   state.users = payload.users || [];
   state.availableFeatures = payload.available_features || state.availableFeatures;
+  state.availableStrategies = payload.available_strategies || state.availableStrategies;
+  renderStrategySelector(els.newUserStrategies);
   renderAdminUsers();
 }
 
@@ -1518,6 +1549,7 @@ function renderAdminUsers() {
           </select>
         </td>
         <td><div class="featureSelector" data-user-features></div></td>
+        <td><div class="strategySelector" data-user-strategies></div></td>
         <td>
           <label class="featureOption">
             <input data-user-active type="checkbox" ${user.active ? "checked" : ""} />
@@ -1536,6 +1568,7 @@ function renderAdminUsers() {
   state.users.forEach((user) => {
     const row = els.usersTable.querySelector(`[data-user-id="${user.id}"]`);
     renderFeatureSelector(row.querySelector("[data-user-features]"), user.features);
+    renderStrategySelector(row.querySelector("[data-user-strategies]"), user.strategies);
     row.querySelector("[data-user-save]").addEventListener("click", () => saveAdminUser(user.id));
     row.querySelector("[data-user-delete]")?.addEventListener("click", () => deleteAdminUser(user.id));
   });
@@ -1551,6 +1584,7 @@ async function createAdminUser(event) {
       password: els.newPassword.value,
       role: els.newUserRole.value,
       features: selectedFeatures(els.newUserFeatures),
+      strategies: selectedStrategies(els.newUserStrategies),
     }),
   });
   if (!response.ok) {
@@ -1559,6 +1593,7 @@ async function createAdminUser(event) {
   }
   els.userCreateForm.reset();
   renderFeatureSelector(els.newUserFeatures, state.availableFeatures);
+  renderStrategySelector(els.newUserStrategies);
   await loadAdminUsers();
 }
 
@@ -1569,6 +1604,7 @@ async function saveAdminUser(userId) {
     role: row.querySelector("[data-user-role]").value,
     active: row.querySelector("[data-user-active]").checked,
     features: selectedFeatures(row.querySelector("[data-user-features]")),
+    strategies: selectedStrategies(row.querySelector("[data-user-strategies]")),
   };
   if (password) body.password = password;
   const response = await fetch(`/api/admin/users/${userId}`, {

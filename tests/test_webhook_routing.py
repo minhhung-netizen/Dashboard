@@ -6,6 +6,7 @@ from app.main import (
     is_confirmation_signal,
     required_open_strategy_for_signal,
     signal_matches_strategy_filter,
+    visible_signals_for_user,
 )
 
 
@@ -68,6 +69,20 @@ class WebhookRoutingTest(unittest.TestCase):
                 "modern stock ema",
             )
         )
+
+    def test_user_strategy_visibility_filters_signals(self):
+        signals = [
+            {"ticker": "FPT", "strategy": "STxanhdo", "payload": {}},
+            {"ticker": "VCB", "strategy": "Modern Stock EMA", "payload": {}},
+            {"ticker": "HAG", "strategy": "HMA", "payload": {"base_strategy": "STxanhdo"}},
+        ]
+
+        visible = visible_signals_for_user(
+            signals,
+            {"role": "user", "strategies": ["STxanhdo"]},
+        )
+
+        self.assertEqual([signal["ticker"] for signal in visible], ["FPT", "HAG"])
 
 
 if __name__ == "__main__":

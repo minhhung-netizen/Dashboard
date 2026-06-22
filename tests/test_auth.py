@@ -29,6 +29,7 @@ class AuthTest(unittest.TestCase):
                 password_hash=hash_password("viewer-password"),
                 role="user",
                 features=["overview", "positions"],
+                strategies=["STxanhdo"],
             )
             token, token_hash, expires_at = new_session(30)
             store.create_session(
@@ -41,6 +42,8 @@ class AuthTest(unittest.TestCase):
 
             self.assertEqual(session_user["username"], "viewer")
             self.assertEqual(session_user["features"], ["overview", "positions"])
+            self.assertEqual(session_user["strategies"], ["STxanhdo"])
+            self.assertEqual(public_user(session_user)["strategies"], ["STxanhdo"])
             self.assertEqual(public_user(session_user)["role"], "user")
 
     def test_disabling_user_invalidates_session(self):

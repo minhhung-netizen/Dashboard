@@ -279,11 +279,13 @@ class UserCreatePayload(BaseModel):
     password: str = Field(..., min_length=8, max_length=256)
     role: str = "user"
     features: list[str] = Field(default_factory=list)
+    strategies: list[str] = Field(default_factory=list)
 
 
 class UserUpdatePayload(BaseModel):
     role: str | None = None
     features: list[str] | None = None
+    strategies: list[str] | None = None
     active: bool | None = None
     password: str | None = Field(default=None, min_length=8, max_length=256)
 
@@ -339,6 +341,7 @@ def auth_me(request: Request) -> dict[str, Any]:
     return {
         "user": public_user(user) if user else None,
         "available_features": ALL_FEATURES,
+        "available_strategies": available_signal_strategies(),
     }
 
 
@@ -347,6 +350,7 @@ def admin_users() -> dict[str, Any]:
     return {
         "users": [public_user(user) for user in store.list_users()],
         "available_features": ALL_FEATURES,
+        "available_strategies": available_signal_strategies(),
     }
 
 
@@ -354,6 +358,7 @@ def admin_users() -> dict[str, Any]:
 def create_dashboard_user(payload: UserCreatePayload) -> dict[str, Any]:
     role = validate_role(payload.role)
     features = validate_features(payload.features)
+    strategies = validate_strategies(payload.strategies)
     username = payload.username.strip()
     if len(username) < 3:
         raise HTTPException(status_code=422, detail="Username must have at least 3 characters")
@@ -363,6 +368,7 @@ def create_dashboard_user(payload: UserCreatePayload) -> dict[str, Any]:
             password_hash=hash_password(payload.password),
             role=role,
             features=features,
+            strategies=strategies,
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Username already exists") from exc
@@ -379,11 +385,13 @@ def update_dashboard_user(
     if user_id == request.state.user["id"] and role == "user":
         raise HTTPException(status_code=422, detail="Cannot remove your own admin role")
     features = validate_features(payload.features) if payload.features is not None else None
+    strategies = validate_strategies(payload.strategies) if payload.strategies is not None else None
     try:
         user = store.update_user(
             user_id,
             role=role,
             features=features,
+            strategies=strategies,
             active=payload.active,
             password_hash=hash_password(payload.password) if payload.password else None,
         )
@@ -413,6 +421,27 @@ def validate_features(features: list[str]) -> list[str]:
     if invalid:
         raise HTTPException(status_code=422, detail=f"Invalid features: {sorted(invalid)}")
     return [feature for feature in ALL_FEATURES if feature in set(features)]
+
+
+def validate_strategies(strategies: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for strategy in strategies:
+        value = str(strategy or "").strip()
+        key = value.lower()
+        if not value or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(value)
+    return normalized
+
+
+def available_signal_strategies() -> list[str]:
+    strategies = {
+        (signal.get("strategy") or DEFAULT_STRATEGY).strip()
+        for signal in store.list_all_signals()
+    }
+    return sorted((strategy for strategy in strategies if strategy), key=str.lower)
 
 
 @app.get("/api/settings")
@@ -627,8 +656,15 @@ def has_open_strategy(ticker: str, strategy: str) -> bool:
 
 
 @app.get("/api/signals")
-def list_signals(ticker: str | None = None, limit: int = 100) -> dict[str, Any]:
+def list_signals(request: Request, ticker: str | None = None, limit: int = 100) -> dict[str, Any]:
     normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    if strategy_restricted(request.state.user):
+        signals = visible_signals_for_user(
+            store.list_all_signals(ticker=normalized_ticker),
+            request.state.user,
+        )
+        signals = sorted(signals, key=lambda row: str(row.get("received_at") or ""), reverse=True)
+        return {"signals": signals[: max(1, min(limit, 500))]}
     return {"signals": store.list_signals(ticker=normalized_ticker, limit=limit)}
 
 
@@ -640,13 +676,15 @@ def delete_signal(signal_id: int) -> dict[str, Any]:
 
 
 @app.get("/api/summary")
-def summary() -> dict[str, Any]:
+def summary(request: Request) -> dict[str, Any]:
+    if strategy_restricted(request.state.user):
+        return summarize_signal_rows(visible_signals_for_user(store.list_all_signals(), request.state.user))
     return store.summary()
 
 
 @app.get("/api/export/signals.csv")
-def export_signals_csv() -> Response:
-    signals = store.list_all_signals()
+def export_signals_csv(request: Request) -> Response:
+    signals = visible_signals_for_user(store.list_all_signals(), request.state.user)
     return csv_response(
         "signals.csv",
         [
@@ -762,8 +800,12 @@ def export_database() -> FileResponse:
 
 
 @app.get("/api/performance")
-def performance(ticker: str | None = None, strategy: str | None = None) -> dict[str, Any]:
-    signals = filtered_performance_signals(ticker=ticker, strategy=strategy)
+def performance(request: Request, ticker: str | None = None, strategy: str | None = None) -> dict[str, Any]:
+    signals = filtered_performance_signals(
+        ticker=ticker,
+        strategy=strategy,
+        user=request.state.user,
+    )
     return build_performance(signals, store.list_dividend_events())
 
 
@@ -805,10 +847,11 @@ def confirmation_payload_strategy(signal: dict[str, Any]) -> str:
 
 
 def filtered_performance_signals(
-    *, ticker: str | None = None, strategy: str | None = None
+    *, ticker: str | None = None, strategy: str | None = None, user: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
     signals = store.list_all_signals(ticker=normalized_ticker)
+    signals = visible_signals_for_user(signals, user)
     if not strategy:
         return signals
     strategy_filter = strategy.strip().lower()
@@ -833,9 +876,49 @@ def signal_matches_strategy_filter(signal: dict[str, Any], strategy_filter: str)
     )
 
 
+def strategy_restricted(user: dict[str, Any] | None) -> bool:
+    if not user or user.get("role") == "admin":
+        return False
+    return bool(user.get("strategies"))
+
+
+def visible_signals_for_user(
+    signals: list[dict[str, Any]],
+    user: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not strategy_restricted(user):
+        return signals
+    allowed = [
+        str(strategy or "").strip().lower()
+        for strategy in user.get("strategies", [])
+        if str(strategy or "").strip()
+    ]
+    if not allowed:
+        return signals
+    return [
+        signal
+        for signal in signals
+        if any(signal_matches_strategy_filter(signal, strategy) for strategy in allowed)
+    ]
+
+
+def summarize_signal_rows(signals: list[dict[str, Any]]) -> dict[str, Any]:
+    latest = max((str(signal.get("received_at") or "") for signal in signals), default=None)
+    return {
+        "total": len(signals),
+        "buy_count": sum(1 for signal in signals if str(signal.get("action") or "").lower() == "buy"),
+        "sell_count": sum(1 for signal in signals if str(signal.get("action") or "").lower() == "sell"),
+        "tickers": len({signal.get("ticker") for signal in signals if signal.get("ticker")}),
+        "latest_received_at": latest,
+    }
+
+
 @app.get("/api/invalid-signals")
-def invalid_signals(limit: int = 100) -> dict[str, Any]:
-    return {"invalid_signals": store.list_invalid_signals(limit=limit)}
+def invalid_signals(request: Request, limit: int = 100) -> dict[str, Any]:
+    signals = store.list_invalid_signals(limit=limit)
+    if strategy_restricted(request.state.user):
+        signals = visible_signals_for_user(signals, request.state.user)
+    return {"invalid_signals": signals}
 
 
 @app.get("/api/manual-portfolio")

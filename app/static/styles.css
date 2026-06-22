@@ -146,7 +146,7 @@ body {
   border-bottom: 1px solid var(--line);
   display: grid;
   gap: 10px;
-  grid-template-columns: 170px 220px 150px minmax(320px, 1fr) auto;
+  grid-template-columns: 170px 220px 150px minmax(260px, 1fr) minmax(260px, 1fr) auto;
   padding: 14px 16px;
 }
 
@@ -155,19 +155,26 @@ body {
   text-transform: none;
 }
 
-.featureSelector {
+.featureSelector,
+.strategySelector {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 10px;
 }
 
-.featureOption {
+.featureOption,
+.selectorHint {
   align-items: center;
   color: var(--muted);
   display: inline-flex;
   font-size: 11px;
   gap: 5px;
   white-space: nowrap;
+}
+
+.selectorHint {
+  flex-basis: 100%;
+  font-weight: 720;
 }
 
 .featureOption input {

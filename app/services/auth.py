@@ -56,10 +56,12 @@ def hash_session_token(token: str) -> str:
 
 def public_user(user: dict) -> dict:
     features = ALL_FEATURES if user.get("role") == "admin" else user.get("features", [])
+    strategies = [] if user.get("role") == "admin" else user.get("strategies", [])
     return {
         "id": user["id"],
         "username": user["username"],
         "role": user["role"],
         "features": features,
+        "strategies": strategies,
         "active": bool(user.get("active", True)),
     }

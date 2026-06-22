@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     features_json TEXT NOT NULL DEFAULT '[]',
+    strategies_json TEXT NOT NULL DEFAULT '[]',
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -193,6 +194,7 @@ class SignalStore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._ensure_dividend_event_columns(conn)
+            self._ensure_user_columns(conn)
             conn.execute("UPDATE signals SET price = price / 1000 WHERE price >= 1000")
             self._normalize_signal_actions(conn)
 
@@ -216,6 +218,14 @@ class SignalStore:
             WHERE source IS NOT NULL AND external_id IS NOT NULL
             """
         )
+
+    def _ensure_user_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "strategies_json" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN strategies_json TEXT NOT NULL DEFAULT '[]'")
 
     def _normalize_signal_actions(self, conn: sqlite3.Connection) -> None:
         action_expr = """
@@ -271,6 +281,7 @@ class SignalStore:
         password_hash: str,
         role: str,
         features: list[str],
+        strategies: list[str] | None = None,
         active: bool = True,
     ) -> dict[str, Any]:
         now = utc_now_iso()
@@ -278,16 +289,17 @@ class SignalStore:
             cursor = conn.execute(
                 """
                 INSERT INTO users (
-                    username, password_hash, role, features_json, active,
+                    username, password_hash, role, features_json, strategies_json, active,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     username.strip(),
                     password_hash,
                     role,
                     json.dumps(features),
+                    json.dumps(strategies or []),
                     1 if active else 0,
                     now,
                     now,
@@ -333,6 +345,7 @@ class SignalStore:
             return None
         user = dict(row)
         user["features"] = json.loads(user.pop("features_json") or "[]")
+        user["strategies"] = json.loads(user.pop("strategies_json", "[]") or "[]")
         user["active"] = bool(user["active"])
         return user
 
@@ -349,6 +362,7 @@ class SignalStore:
         *,
         role: str | None = None,
         features: list[str] | None = None,
+        strategies: list[str] | None = None,
         active: bool | None = None,
         password_hash: str | None = None,
     ) -> dict[str, Any]:
@@ -360,6 +374,9 @@ class SignalStore:
         if features is not None:
             updates.append("features_json = ?")
             params.append(json.dumps(features))
+        if strategies is not None:
+            updates.append("strategies_json = ?")
+            params.append(json.dumps(strategies))
         if active is not None:
             updates.append("active = ?")
             params.append(1 if active else 0)
@@ -420,6 +437,7 @@ class SignalStore:
     def _user_row(row: sqlite3.Row) -> dict[str, Any]:
         user = dict(row)
         user["features"] = json.loads(user.pop("features_json") or "[]")
+        user["strategies"] = json.loads(user.pop("strategies_json", "[]") or "[]")
         user["active"] = bool(user["active"])
         user.pop("password_hash", None)
         return user
