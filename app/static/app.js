@@ -850,6 +850,8 @@ Object.assign(translations.en, {
   webhookIssueAlert: "Webhook warnings need review",
   dividendRiskAlert: "Upcoming ex-rights event",
   lossRiskAlert: "Open position is below risk threshold",
+  avgLossTouchAlert: "Touched strategy average loss",
+  avgLossShort: "Avg loss",
   newSellAlert: "Recently closed position",
   kellyUsage: "Usage",
   activePositions: "Active positions",
@@ -877,6 +879,8 @@ Object.assign(translations.vi, {
   webhookIssueAlert: "Có cảnh báo webhook cần kiểm tra",
   dividendRiskAlert: "Sắp đến ngày GDKHQ",
   lossRiskAlert: "Vị thế đang dưới ngưỡng rủi ro",
+  avgLossTouchAlert: "Chạm âm TB chiến lược",
+  avgLossShort: "Âm TB",
   newSellAlert: "Vừa có vị thế đóng",
   kellyUsage: "Đang dùng",
   activePositions: "Vị thế đang mở",
@@ -2590,6 +2594,24 @@ function openTradeRiskRows() {
   });
 }
 
+function backtestStatForTrade(trade) {
+  const targetKey = tickerStrategyKey(trade.ticker, trade.strategy);
+  return (state.backtestStats || []).find((stat) => {
+    const avgLoss = Number(stat.avg_loss_pct);
+    return (
+      tickerStrategyKey(stat.ticker, stat.strategy) === targetKey &&
+      Number.isFinite(avgLoss) &&
+      avgLoss !== 0
+    );
+  });
+}
+
+function averageLossThreshold(stat) {
+  const value = Number(stat?.avg_loss_pct);
+  if (!Number.isFinite(value) || value === 0) return null;
+  return value > 0 ? -value : value;
+}
+
 function aggregateRisk(rows, keyFn) {
   const totals = new Map();
   rows.forEach((row) => {
@@ -2677,6 +2699,25 @@ function renderRiskAlerts() {
       detail: `${strategyExposure[0].key} ${formatPercent(strategyExposure[0].value)}`,
     });
   }
+  rows
+    .map((row) => {
+      const stat = backtestStatForTrade(row.trade);
+      const threshold = averageLossThreshold(stat);
+      return { row, threshold };
+    })
+    .filter(({ row, threshold }) => (
+      threshold !== null &&
+      Number.isFinite(Number(row.trade.return_pct)) &&
+      Number(row.trade.return_pct) <= threshold
+    ))
+    .sort((left, right) => Number(left.row.trade.return_pct) - Number(right.row.trade.return_pct))
+    .slice(0, 5)
+    .forEach(({ row, threshold }) => alerts.push({
+      level: "warning",
+      title: t("avgLossTouchAlert"),
+      detail: `${row.trade.ticker} ${row.trade.strategy || "-"} ${formatSignedPercent(row.trade.return_pct)} / ${t("avgLossShort")} ${formatSignedPercent(threshold)}`,
+      ticker: row.trade.ticker,
+    }));
   rows
     .filter((row) => Number(row.trade.return_pct) <= -5)
     .slice(0, 5)
