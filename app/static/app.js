@@ -65,7 +65,6 @@ const els = {
   backtestTicker: document.querySelector("#backtestTicker"),
   backtestStrategy: document.querySelector("#backtestStrategy"),
   backtestTickerSearch: document.querySelector("#backtestTickerSearch"),
-  backtestMetricName: document.querySelector("#backtestMetricName"),
   backtestClosedTrades: document.querySelector("#backtestClosedTrades"),
   backtestNegativeTrades: document.querySelector("#backtestNegativeTrades"),
   backtestMaxLoss: document.querySelector("#backtestMaxLoss"),
@@ -2337,11 +2336,10 @@ function optionalInteger(value) {
 }
 
 function readBacktestStatsForm() {
-  const metricName = els.backtestMetricName.value.trim() || "Price Drawdown % From BUY";
   return {
     ticker: els.backtestTicker.value.trim().toUpperCase(),
     strategy: els.backtestStrategy.value.trim(),
-    metric_name: metricName,
+    metric_name: "Price Drawdown % From BUY",
     closed_trades: optionalInteger(els.backtestClosedTrades.value),
     negative_trades: optionalInteger(els.backtestNegativeTrades.value),
     max_loss_pct: optionalNumber(els.backtestMaxLoss.value),
@@ -2405,7 +2403,6 @@ function loadBacktestStatsToForm(stat) {
     stat.strategy || ""
   );
   els.backtestStrategy.value = stat.strategy || "";
-  els.backtestMetricName.value = stat.metric_name || "Price Drawdown % From BUY";
   els.backtestClosedTrades.value = rawNumber(stat.closed_trades);
   els.backtestNegativeTrades.value = rawNumber(stat.negative_trades);
   els.backtestMaxLoss.value = rawNumber(stat.max_loss_pct);
@@ -2836,7 +2833,7 @@ function renderPerformance(strategies) {
 function renderBacktestStats(stats) {
   if (!els.backtestStatsTable) return;
   if (!stats.length) {
-    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="12">${t("noBacktestStats")}</td></tr>`;
+    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noBacktestStats")}</td></tr>`;
     return;
   }
 
@@ -2845,7 +2842,6 @@ function renderBacktestStats(stats) {
       <tr class="clickableRow" data-backtest-stat-id="${escapeHtml(stat.id)}">
         <td><strong>${escapeHtml(stat.ticker || "-")}</strong></td>
         <td><strong>${escapeHtml(stat.strategy || "-")}</strong></td>
-        <td>${escapeHtml(stat.metric_name || "-")}</td>
         <td>${stat.closed_trades ?? "-"}</td>
         <td>${stat.negative_trades ?? "-"}</td>
         <td>${formatSignedPercent(stat.max_loss_pct)}</td>

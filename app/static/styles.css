@@ -1151,7 +1151,6 @@ main {
   text-transform: uppercase;
 }
 
-#backtestMetricName,
 #backtestNote {
   grid-column: span 2;
 }
@@ -1835,7 +1834,6 @@ td strong {
     width: 100%;
   }
 
-  #backtestMetricName,
   #backtestNote {
     grid-column: auto;
   }
