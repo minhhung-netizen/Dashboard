@@ -961,12 +961,13 @@ Object.assign(translations.en, {
   maxLoss: "Max Loss",
   minLoss: "Min Loss",
   avgLoss: "Avg Loss",
-  avgHoldBars: "Số nến giữ TB",
-  avgHoldDays: "Số ngày giữ TB",
+  avgHoldBars: "Avg Hold Bars",
+  avgHoldDays: "Avg Hold Days",
   noBacktestStats: "No saved backtest stats",
   backtestSaveFailed: "Could not save backtest stats",
   backtestDeleteConfirm: "Delete this backtest stats row?",
   backtestDeleteFailed: "Could not delete backtest stats",
+  duplicateTickerStrategy: "This ticker and strategy already exists",
 });
 
 Object.assign(translations.vi, {
@@ -978,12 +979,13 @@ Object.assign(translations.vi, {
   maxLoss: "Âm lớn nhất",
   minLoss: "Âm nhỏ nhất",
   avgLoss: "Âm trung bình",
-  avgHoldBars: "Avg Hold Bars",
-  avgHoldDays: "Avg Hold Days",
+  avgHoldBars: "Số nến giữ TB",
+  avgHoldDays: "Số ngày giữ TB",
   noBacktestStats: "Chưa có thống kê backtest đã lưu",
   backtestSaveFailed: "Không lưu được thống kê backtest",
   backtestDeleteConfirm: "Xóa dòng thống kê backtest này?",
   backtestDeleteFailed: "Không xóa được thống kê backtest",
+  duplicateTickerStrategy: "Mã và chiến lược này đã tồn tại",
 });
 
 const state = {
@@ -1004,6 +1006,9 @@ const state = {
   invalidSignals: [],
   performanceStrategies: [],
   backtestStats: [],
+  activeKellyEntryKey: "",
+  activeBacktestStatKey: "",
+  activeBacktestStatId: "",
   closedTradeFilter: null,
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
@@ -1048,6 +1053,10 @@ function allocatedReturnPct(returnPct, weightPct = state.defaultSignalWeightPct)
 
 function kellyEntryKey(ticker, strategy = "") {
   return `${String(ticker || "").trim().toUpperCase()}|${String(strategy || "").trim().toLowerCase()}`;
+}
+
+function tickerStrategyKey(ticker, strategy = "") {
+  return kellyEntryKey(ticker, strategy);
 }
 
 function findKellyEntry(ticker, strategy = "") {
@@ -1170,11 +1179,18 @@ function saveCurrentKellyEntry() {
   };
   const entries = loadKellyEntries();
   const entryKey = kellyEntryKey(inputs.ticker, inputs.strategy);
+  const duplicate = entries.find((item) => kellyEntryKey(item.ticker, item.strategy) === entryKey);
+  if (duplicate && state.activeKellyEntryKey !== entryKey) {
+    window.alert(t("duplicateTickerStrategy"));
+    els.kellyTicker.focus();
+    return;
+  }
   const nextEntries = [
     entry,
     ...entries.filter((item) => kellyEntryKey(item.ticker, item.strategy) !== entryKey),
   ].sort((left, right) => String(left.ticker || "").localeCompare(String(right.ticker || "")));
   saveKellyEntries(nextEntries);
+  state.activeKellyEntryKey = entryKey;
   renderKellyEntries();
   refresh();
 }
@@ -1240,6 +1256,7 @@ function loadKellyEntry(entryKey) {
     (item) => kellyEntryKey(item.ticker, item.strategy) === entryKey
   );
   if (!entry) return;
+  state.activeKellyEntryKey = entryKey;
   els.kellyTicker.value = entry.ticker || "";
   updateKellyStrategyOptions(
     (state.performanceStrategies || []).map((row) => row.strategy),
@@ -1263,6 +1280,9 @@ function deleteKellyEntry(entryKey) {
     (entry) => kellyEntryKey(entry.ticker, entry.strategy) !== entryKey
   );
   saveKellyEntries(entries);
+  if (state.activeKellyEntryKey === entryKey) {
+    state.activeKellyEntryKey = "";
+  }
   renderKellyEntries();
   refresh();
 }
@@ -1359,7 +1379,7 @@ function applyTranslations() {
   renderRiskAlerts();
   renderKellyCalculator();
   renderKellyEntries();
-  renderBacktestStats(state.backtestStats);
+  renderBacktestStats(filterBacktestStats(state.backtestStats));
 }
 
 function applyTheme() {
@@ -1711,7 +1731,7 @@ async function refresh() {
     featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio),
     featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] }),
     featureFetch("derivatives", "/api/derivatives", state.derivatives),
-    featureFetch("performance", `/api/backtest-stats${performanceQuery}`, { backtest_stats: [] }),
+    featureFetch("performance", "/api/backtest-stats", { backtest_stats: [] }),
   ]);
 
   const settingsPayload = settledPayload(
@@ -1790,7 +1810,7 @@ async function refresh() {
   renderPerformanceClosedTrades(performancePayload.closed_trades || []);
   state.backtestStats = backtestPayload.backtest_stats || [];
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
-  renderBacktestStats(state.backtestStats);
+  renderBacktestStats(filterBacktestStats(state.backtestStats));
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
@@ -2292,6 +2312,16 @@ function buildPerformanceQuery() {
   return query ? `?${query}` : "";
 }
 
+function filterBacktestStats(stats) {
+  const tickerFilter = els.performanceTickerFilter.value.trim().toUpperCase();
+  const strategyFilter = els.performanceStrategyFilter.value.trim();
+  return (stats || []).filter((stat) => {
+    const tickerMatches = !tickerFilter || String(stat.ticker || "").toUpperCase().includes(tickerFilter);
+    const strategyMatches = !strategyFilter || String(stat.strategy || "") === strategyFilter;
+    return tickerMatches && strategyMatches;
+  });
+}
+
 function optionalInteger(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -2317,12 +2347,26 @@ function readBacktestStatsForm() {
 
 function resetBacktestStatsForm() {
   els.backtestStatsForm.reset();
+  state.activeBacktestStatKey = "";
+  state.activeBacktestStatId = "";
 }
 
 async function saveBacktestStats(event) {
   event.preventDefault();
   const payload = readBacktestStatsForm();
   if (!payload.ticker || !payload.strategy) return;
+  const statKey = tickerStrategyKey(payload.ticker, payload.strategy);
+  const duplicate = state.backtestStats.find(
+    (stat) =>
+      tickerStrategyKey(stat.ticker, stat.strategy) === statKey &&
+      String(stat.id) !== String(state.activeBacktestStatId || "")
+  );
+  if (duplicate) {
+    window.alert(t("duplicateTickerStrategy"));
+    els.backtestTicker.focus();
+    return;
+  }
+  const previousStatId = state.activeBacktestStatId;
   const response = await fetch("/api/backtest-stats", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2332,12 +2376,21 @@ async function saveBacktestStats(event) {
     window.alert(t("backtestSaveFailed"));
     return;
   }
+  const result = await response.json();
+  const savedId = result.backtest_stat?.id;
+  if (previousStatId && savedId && String(previousStatId) !== String(savedId)) {
+    await fetch(`/api/backtest-stats/${encodeURIComponent(previousStatId)}`, {
+      method: "DELETE",
+    });
+  }
   resetBacktestStatsForm();
   await refresh();
 }
 
 function loadBacktestStatsToForm(stat) {
   if (state.user?.role !== "admin") return;
+  state.activeBacktestStatKey = tickerStrategyKey(stat.ticker, stat.strategy);
+  state.activeBacktestStatId = String(stat.id || "");
   els.backtestTicker.value = stat.ticker || "";
   els.backtestStrategy.value = stat.strategy || "";
   els.backtestMetricName.value = stat.metric_name || "Price Drawdown % From BUY";
@@ -2354,12 +2407,20 @@ function loadBacktestStatsToForm(stat) {
 
 async function deleteBacktestStats(statId) {
   if (!window.confirm(t("backtestDeleteConfirm"))) return;
+  const deleted = state.backtestStats.find((stat) => String(stat.id) === String(statId));
   const response = await fetch(`/api/backtest-stats/${encodeURIComponent(statId)}`, {
     method: "DELETE",
   });
   if (!response.ok) {
     window.alert(t("backtestDeleteFailed"));
     return;
+  }
+  if (
+    String(state.activeBacktestStatId || "") === String(statId) ||
+    (deleted && state.activeBacktestStatKey === tickerStrategyKey(deleted.ticker, deleted.strategy))
+  ) {
+    state.activeBacktestStatKey = "";
+    state.activeBacktestStatId = "";
   }
   await refresh();
 }
