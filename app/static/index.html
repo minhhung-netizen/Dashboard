@@ -78,6 +78,13 @@
         <button id="recentTradeBannerToggle" class="bannerToggleButton" type="button" data-i18n="hideBanner">Hide</button>
       </section>
 
+      <section id="avgLossBanner" class="recentTradeBanner avgLossBanner" hidden aria-live="polite">
+        <div class="recentTradeBannerLabel" data-i18n="avgLossBanner">Average loss alerts</div>
+        <div class="recentTradeMarquee">
+          <div id="avgLossBannerTrack" class="recentTradeBannerTrack"></div>
+        </div>
+      </section>
+
       <div class="tabPanel active" data-tab-panel="overview">
         <section class="metrics" aria-label="Signal summary">
           <article>

@@ -622,6 +622,11 @@ main {
   color: var(--sell);
 }
 
+.recentTradeGroup.avgLoss .recentTradeGroupLabel {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+
 .recentTradeChip {
   align-items: center;
   background: color-mix(in srgb, var(--panel) 82%, var(--field));
@@ -648,6 +653,10 @@ main {
   color: var(--sell);
 }
 
+.recentTradeChip.avgLoss strong {
+  color: var(--warning);
+}
+
 .recentTradeChip span {
   color: var(--muted);
   font-size: 11px;
@@ -663,6 +672,11 @@ main {
 
 .bannerToggleButton:hover {
   color: var(--ink);
+}
+
+.avgLossBanner {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--line));
+  margin-top: -10px;
 }
 
 @keyframes recent-trade-marquee {
@@ -1560,6 +1574,12 @@ td strong {
   color: var(--muted);
   font-size: 10px;
   font-weight: 650;
+}
+
+.confirmBadge.avgLossBadge {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 36%, var(--line));
+  color: var(--warning);
 }
 
 .dividendBadge {
