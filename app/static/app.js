@@ -856,6 +856,7 @@ Object.assign(translations.en, {
   avgLossTouchAlert: "Touched strategy average loss",
   avgLossSignal: "Touched avg loss",
   avgLossShort: "Avg loss",
+  maxLossShort: "Max loss",
   newSellAlert: "Recently closed position",
   kellyUsage: "Usage",
   activePositions: "Active positions",
@@ -887,6 +888,7 @@ Object.assign(translations.vi, {
   avgLossTouchAlert: "Chạm âm TB chiến lược",
   avgLossSignal: "Chạm âm TB",
   avgLossShort: "Âm TB",
+  maxLossShort: "Âm lớn nhất",
   newSellAlert: "Vừa có vị thế đóng",
   kellyUsage: "Đang dùng",
   activePositions: "Vị thế đang mở",
@@ -2587,10 +2589,10 @@ function renderAverageLossBanner() {
             class="recentTradeChip avgLoss"
             type="button"
             data-avg-loss-ticker="${escapeHtml(trade.ticker)}"
-            title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${t("avgLossShort")} ${stripHtml(formatSignedPercent(signal.threshold))}`)}"
+            title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${stripHtml(averageLossSignalDetail(signal))}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")} · ${stripHtml(formatSignedPercent(signal.returnPct))}</span>
+            <span>${escapeHtml(trade.strategy || "-")} · ${stripHtml(averageLossSignalDetail(signal))}</span>
           </button>
         `)
         .join("")}
@@ -2660,9 +2662,16 @@ function averageLossThreshold(stat) {
   return value > 0 ? -value : value;
 }
 
+function maxLossThreshold(stat) {
+  const value = Number(stat?.max_loss_pct);
+  if (!Number.isFinite(value) || value === 0) return null;
+  return value > 0 ? -value : value;
+}
+
 function averageLossSignalForTrade(trade) {
   const stat = backtestStatForTrade(trade);
   const threshold = averageLossThreshold(stat);
+  const maxLoss = maxLossThreshold(stat);
   const returnPct = Number(trade?.return_pct);
   if (threshold === null || !Number.isFinite(returnPct) || returnPct > threshold) {
     return null;
@@ -2673,6 +2682,7 @@ function averageLossSignalForTrade(trade) {
     price: trade.exit_price,
     returnPct,
     threshold,
+    maxLoss,
   };
 }
 
@@ -2681,6 +2691,17 @@ function averageLossSignals() {
     .map((trade) => ({ trade, signal: averageLossSignalForTrade(trade) }))
     .filter((item) => item.signal)
     .sort((left, right) => Number(left.signal.returnPct) - Number(right.signal.returnPct));
+}
+
+function averageLossSignalDetail(signal) {
+  const parts = [
+    formatSignedPercent(signal.returnPct),
+    `${t("avgLossShort")} ${formatSignedPercent(signal.threshold)}`,
+  ];
+  if (signal.maxLoss !== null) {
+    parts.push(`${t("maxLossShort")} ${formatSignedPercent(signal.maxLoss)}`);
+  }
+  return parts.join(" / ");
 }
 
 function aggregateRisk(rows, keyFn) {
@@ -2775,7 +2796,7 @@ function renderRiskAlerts() {
     .forEach(({ trade, signal }) => alerts.push({
       level: "warning",
       title: t("avgLossTouchAlert"),
-      detail: `${trade.ticker} ${trade.strategy || "-"} ${formatSignedPercent(signal.returnPct)} / ${t("avgLossShort")} ${formatSignedPercent(signal.threshold)}`,
+      detail: `${trade.ticker} ${trade.strategy || "-"} ${averageLossSignalDetail(signal)}`,
       ticker: trade.ticker,
     }));
   rows
@@ -3105,7 +3126,7 @@ function positionSignals(trade) {
       action: "avg_loss",
       price: trade.exit_price,
       time: new Date().toISOString(),
-      detail: `${formatSignedPercent(avgLossSignal.returnPct)} / ${t("avgLossShort")} ${formatSignedPercent(avgLossSignal.threshold)}`,
+      detail: averageLossSignalDetail(avgLossSignal),
     });
   }
   return confirmations;
