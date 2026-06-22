@@ -54,6 +54,7 @@ const els = {
   performanceClosedTradesTable: document.querySelector("#performanceClosedTradesTable"),
   kellyForm: document.querySelector("#kellyForm"),
   kellyTicker: document.querySelector("#kellyTicker"),
+  kellyStrategy: document.querySelector("#kellyStrategy"),
   kellyWinRate: document.querySelector("#kellyWinRate"),
   kellyWinningTrades: document.querySelector("#kellyWinningTrades"),
   kellyTotalTrades: document.querySelector("#kellyTotalTrades"),
@@ -133,6 +134,7 @@ const KELLY_STORAGE_KEY = "dashboardKellyInputs";
 const KELLY_LIST_STORAGE_KEY = "dashboardKellyEntries";
 const DEFAULT_KELLY_INPUTS = {
   ticker: "",
+  strategy: "",
   winRate: 50.64,
   winningTrades: 79,
   totalTrades: 156,
@@ -921,11 +923,34 @@ function numberValue(value) {
     : Number(value);
 }
 
-function allocatedReturnPct(returnPct) {
+function allocatedReturnPct(returnPct, weightPct = state.defaultSignalWeightPct) {
   const value = Number(returnPct);
+  const weight = Number(weightPct);
   return Number.isFinite(value)
-    ? (value * state.defaultSignalWeightPct) / 100
+    ? (value * (Number.isFinite(weight) ? weight : state.defaultSignalWeightPct)) / 100
     : null;
+}
+
+function kellyEntryKey(ticker, strategy = "") {
+  return `${String(ticker || "").trim().toUpperCase()}|${String(strategy || "").trim().toLowerCase()}`;
+}
+
+function findKellyEntry(ticker, strategy = "") {
+  const entries = loadKellyEntries();
+  const exactKey = kellyEntryKey(ticker, strategy);
+  const fallbackKey = kellyEntryKey(ticker, "");
+  return (
+    entries.find((entry) => kellyEntryKey(entry.ticker, entry.strategy) === exactKey) ||
+    entries.find((entry) => kellyEntryKey(entry.ticker, entry.strategy) === fallbackKey) ||
+    null
+  );
+}
+
+function kellyAllocationPct(ticker, strategy = "") {
+  const entry = findKellyEntry(ticker, strategy);
+  if (!entry) return state.defaultSignalWeightPct;
+  const recommended = calculateKelly(entry).recommendedPct;
+  return Number.isFinite(Number(recommended)) ? Number(recommended) : state.defaultSignalWeightPct;
 }
 
 function loadWatchlist() {
@@ -974,6 +999,7 @@ function saveKellyEntries(entries) {
 function initializeKellyCalculator() {
   const values = loadKellyInputs();
   els.kellyTicker.value = values.ticker || "";
+  els.kellyStrategy.value = values.strategy || "";
   els.kellyWinRate.value = rawNumber(values.winRate);
   els.kellyWinningTrades.value = rawNumber(values.winningTrades);
   els.kellyTotalTrades.value = rawNumber(values.totalTrades);
@@ -989,6 +1015,7 @@ function initializeKellyCalculator() {
 function readKellyInputs() {
   return {
     ticker: els.kellyTicker.value.trim().toUpperCase(),
+    strategy: els.kellyStrategy.value.trim(),
     winRate: optionalNumber(els.kellyWinRate.value),
     winningTrades: optionalNumber(els.kellyWinningTrades.value),
     totalTrades: optionalNumber(els.kellyTotalTrades.value),
@@ -1022,18 +1049,19 @@ function saveCurrentKellyEntry() {
     els.kellyTicker.focus();
     return;
   }
-  const result = calculateKelly(inputs);
   const entry = {
     ...inputs,
     updatedAt: new Date().toISOString(),
   };
   const entries = loadKellyEntries();
+  const entryKey = kellyEntryKey(inputs.ticker, inputs.strategy);
   const nextEntries = [
     entry,
-    ...entries.filter((item) => String(item.ticker || "").toUpperCase() !== inputs.ticker),
+    ...entries.filter((item) => kellyEntryKey(item.ticker, item.strategy) !== entryKey),
   ].sort((left, right) => String(left.ticker || "").localeCompare(String(right.ticker || "")));
   saveKellyEntries(nextEntries);
   renderKellyEntries();
+  refresh();
 }
 
 function renderKellyEntries() {
@@ -1044,7 +1072,7 @@ function renderKellyEntries() {
     : entries;
   if (!filteredEntries.length) {
     els.kellySavedTable.innerHTML =
-      `<tr><td class="empty" colspan="8">${t("noKellyEntries")}</td></tr>`;
+      `<tr><td class="empty" colspan="9">${t("noKellyEntries")}</td></tr>`;
     return;
   }
 
@@ -1052,8 +1080,9 @@ function renderKellyEntries() {
     .map((entry) => {
       const result = calculateKelly(entry);
       return `
-        <tr class="clickableRow" data-kelly-load="${escapeHtml(entry.ticker)}">
+        <tr class="clickableRow" data-kelly-load="${escapeHtml(kellyEntryKey(entry.ticker, entry.strategy))}">
           <td><strong>${escapeHtml(entry.ticker || "-")}</strong></td>
+          <td>${escapeHtml(entry.strategy || t("allStrategies"))}</td>
           <td>${formatKellyPercent(entry.winRate)}</td>
           <td>${escapeHtml(entry.winningTrades ?? "-")}/${escapeHtml(entry.totalTrades ?? "-")}</td>
           <td>${formatRatio(entry.profitFactor)}</td>
@@ -1061,7 +1090,7 @@ function renderKellyEntries() {
           <td>${formatSignedPercent(result.fullKellyPct)}</td>
           <td>${formatKellyPercent(result.recommendedPct)}</td>
           <td>
-            <button class="deleteButton" type="button" data-kelly-delete="${escapeHtml(entry.ticker)}">${escapeHtml(t("delete"))}</button>
+            <button class="deleteButton" type="button" data-kelly-delete="${escapeHtml(kellyEntryKey(entry.ticker, entry.strategy))}">${escapeHtml(t("delete"))}</button>
           </td>
         </tr>
       `;
@@ -1079,12 +1108,13 @@ function renderKellyEntries() {
   });
 }
 
-function loadKellyEntry(ticker) {
+function loadKellyEntry(entryKey) {
   const entry = loadKellyEntries().find(
-    (item) => String(item.ticker || "").toUpperCase() === String(ticker || "").toUpperCase()
+    (item) => kellyEntryKey(item.ticker, item.strategy) === entryKey
   );
   if (!entry) return;
   els.kellyTicker.value = entry.ticker || "";
+  els.kellyStrategy.value = entry.strategy || "";
   els.kellyWinRate.value = rawNumber(entry.winRate);
   els.kellyWinningTrades.value = rawNumber(entry.winningTrades);
   els.kellyTotalTrades.value = rawNumber(entry.totalTrades);
@@ -1096,14 +1126,14 @@ function loadKellyEntry(ticker) {
   renderKellyCalculator();
 }
 
-function deleteKellyEntry(ticker) {
+function deleteKellyEntry(entryKey) {
   if (!window.confirm(t("deleteKellyEntryConfirm"))) return;
-  const normalizedTicker = String(ticker || "").toUpperCase();
   const entries = loadKellyEntries().filter(
-    (entry) => String(entry.ticker || "").toUpperCase() !== normalizedTicker
+    (entry) => kellyEntryKey(entry.ticker, entry.strategy) !== entryKey
   );
   saveKellyEntries(entries);
   renderKellyEntries();
+  refresh();
 }
 
 function calculateKelly(inputs) {
@@ -2192,19 +2222,22 @@ function renderPerformance(strategies) {
   }
 
   els.performanceTable.innerHTML = strategies
-    .map((strategy) => `
-      <tr class="clickableRow" data-performance-ticker="${escapeHtml(strategy.ticker)}" data-performance-strategy="${escapeHtml(strategy.strategy)}">
-        <td><strong>${escapeHtml(strategy.ticker)}</strong></td>
-        <td><strong>${escapeHtml(strategy.strategy)}</strong></td>
-        <td>${formatPercent(state.defaultSignalWeightPct)}</td>
-        <td>${strategy.closed_trades}</td>
-        <td>${strategy.open_trades}</td>
-        <td>${formatPercent(strategy.win_rate_pct)}</td>
-        <td>${formatSignedPercent(strategy.closed_trades ? allocatedReturnPct(strategy.realized_return_pct) : null)}</td>
-        <td>${formatSignedPercent(strategy.open_trades ? allocatedReturnPct(strategy.open_return_avg_pct) : null)}</td>
-        <td>${formatSignedPercent(allocatedReturnPct(strategy.current_return_pct))}</td>
-      </tr>
-    `)
+    .map((strategy) => {
+      const weightPct = kellyAllocationPct(strategy.ticker, strategy.strategy);
+      return `
+        <tr class="clickableRow" data-performance-ticker="${escapeHtml(strategy.ticker)}" data-performance-strategy="${escapeHtml(strategy.strategy)}">
+          <td><strong>${escapeHtml(strategy.ticker)}</strong></td>
+          <td><strong>${escapeHtml(strategy.strategy)}</strong></td>
+          <td>${formatKellyPercent(weightPct)}</td>
+          <td>${strategy.closed_trades}</td>
+          <td>${strategy.open_trades}</td>
+          <td>${formatPercent(strategy.win_rate_pct)}</td>
+          <td>${formatSignedPercent(strategy.closed_trades ? allocatedReturnPct(strategy.realized_return_pct, weightPct) : null)}</td>
+          <td>${formatSignedPercent(strategy.open_trades ? allocatedReturnPct(strategy.open_return_avg_pct, weightPct) : null)}</td>
+          <td>${formatSignedPercent(allocatedReturnPct(strategy.current_return_pct, weightPct))}</td>
+        </tr>
+      `;
+    })
     .join("");
 
   els.performanceTable.querySelectorAll("[data-performance-ticker]").forEach((row) => {
@@ -2226,20 +2259,23 @@ function renderPerformanceClosedTrades(closedTrades) {
   }
 
   els.performanceClosedTradesTable.innerHTML = sorted
-    .map((trade) => `
-      <tr data-performance-history-ticker="${escapeHtml(trade.ticker)}">
-        <td><strong>${escapeHtml(trade.ticker)}</strong></td>
-        <td><strong>${escapeHtml(trade.strategy)}</strong></td>
-        <td>${escapeHtml(trade.timeframe || "-")}</td>
-        <td>${formatPrice(trade.entry_price)}</td>
-        <td>${formatPrice(trade.exit_price)}</td>
-        <td>${formatSignedPercent(trade.return_pct)}</td>
-        <td>${formatPercent(state.defaultSignalWeightPct)}</td>
-        <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
-        <td>${formatDuration(trade.holding_seconds)}</td>
-        <td>${formatDate(trade.exit_time)}</td>
-      </tr>
-    `)
+    .map((trade) => {
+      const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+      return `
+        <tr data-performance-history-ticker="${escapeHtml(trade.ticker)}">
+          <td><strong>${escapeHtml(trade.ticker)}</strong></td>
+          <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+          <td>${escapeHtml(trade.timeframe || "-")}</td>
+          <td>${formatPrice(trade.entry_price)}</td>
+          <td>${formatPrice(trade.exit_price)}</td>
+          <td>${formatSignedPercent(trade.return_pct)}</td>
+          <td>${formatKellyPercent(weightPct)}</td>
+          <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct, weightPct))}</td>
+          <td>${formatDuration(trade.holding_seconds)}</td>
+          <td>${formatDate(trade.exit_time)}</td>
+        </tr>
+      `;
+    })
     .join("");
 
   els.performanceClosedTradesTable
@@ -2550,7 +2586,8 @@ function drawEquityCurve(closedTrades) {
   const points = [{ value: 100, label: "Start" }];
   sorted.forEach((trade) => {
     const previous = points[points.length - 1].value;
-    const allocatedReturn = allocatedReturnPct(trade.return_pct) || 0;
+    const allocatedReturn =
+      allocatedReturnPct(trade.return_pct, kellyAllocationPct(trade.ticker, trade.strategy)) || 0;
     points.push({
       value: previous * (1 + allocatedReturn / 100),
       label: trade.ticker,
