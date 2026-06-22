@@ -143,6 +143,27 @@ CREATE TABLE IF NOT EXISTS dividend_events (
 CREATE INDEX IF NOT EXISTS idx_dividend_events_ticker_date
 ON dividend_events (ticker, ex_date ASC);
 
+CREATE TABLE IF NOT EXISTS strategy_backtest_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    metric_name TEXT NOT NULL,
+    closed_trades INTEGER,
+    negative_trades INTEGER,
+    max_loss_pct REAL,
+    min_loss_pct REAL,
+    avg_loss_pct REAL,
+    avg_hold_bars REAL,
+    avg_hold_days REAL,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(ticker, strategy, metric_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_strategy_backtest_stats_lookup
+ON strategy_backtest_stats (strategy, ticker);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -910,6 +931,113 @@ class SignalStore:
             cursor = conn.execute(
                 "DELETE FROM manual_daily_performance WHERE trade_date = ?",
                 (trade_date,),
+            )
+            return cursor.rowcount > 0
+
+    def upsert_strategy_backtest_stat(
+        self,
+        *,
+        ticker: str,
+        strategy: str,
+        metric_name: str,
+        closed_trades: int | None,
+        negative_trades: int | None,
+        max_loss_pct: float | None,
+        min_loss_pct: float | None,
+        avg_loss_pct: float | None,
+        avg_hold_bars: float | None,
+        avg_hold_days: float | None,
+        note: str | None,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        normalized_ticker = ticker.strip().upper()
+        normalized_strategy = strategy.strip()
+        normalized_metric = metric_name.strip()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO strategy_backtest_stats (
+                    ticker, strategy, metric_name, closed_trades, negative_trades,
+                    max_loss_pct, min_loss_pct, avg_loss_pct, avg_hold_bars,
+                    avg_hold_days, note, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ticker, strategy, metric_name) DO UPDATE SET
+                    closed_trades = excluded.closed_trades,
+                    negative_trades = excluded.negative_trades,
+                    max_loss_pct = excluded.max_loss_pct,
+                    min_loss_pct = excluded.min_loss_pct,
+                    avg_loss_pct = excluded.avg_loss_pct,
+                    avg_hold_bars = excluded.avg_hold_bars,
+                    avg_hold_days = excluded.avg_hold_days,
+                    note = excluded.note,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    normalized_ticker,
+                    normalized_strategy,
+                    normalized_metric,
+                    closed_trades,
+                    negative_trades,
+                    max_loss_pct,
+                    min_loss_pct,
+                    avg_loss_pct,
+                    avg_hold_bars,
+                    avg_hold_days,
+                    note,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_strategy_backtest_stat(
+            ticker=normalized_ticker,
+            strategy=normalized_strategy,
+            metric_name=normalized_metric,
+        )
+
+    def get_strategy_backtest_stat(
+        self, *, ticker: str, strategy: str, metric_name: str
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM strategy_backtest_stats
+                WHERE ticker = ? AND strategy = ? AND metric_name = ?
+                """,
+                (ticker.strip().upper(), strategy.strip(), metric_name.strip()),
+            ).fetchone()
+        if row is None:
+            raise KeyError("Strategy backtest stat was not found")
+        return dict(row)
+
+    def list_strategy_backtest_stats(
+        self, *, ticker: str | None = None, strategy: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if ticker:
+            clauses.append("ticker = ?")
+            params.append(ticker.strip().upper())
+        if strategy:
+            clauses.append("strategy = ?")
+            params.append(strategy.strip())
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM strategy_backtest_stats
+                {where}
+                ORDER BY strategy ASC, ticker ASC, metric_name ASC
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_strategy_backtest_stat(self, stat_id: int) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM strategy_backtest_stats WHERE id = ?",
+                (stat_id,),
             )
             return cursor.rowcount > 0
 

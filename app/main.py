@@ -154,7 +154,7 @@ FEATURE_PATHS = {
     "positions": ("/api/performance",),
     "derivatives": ("/api/derivatives",),
     "manualPortfolio": ("/api/manual-portfolio",),
-    "performance": ("/api/performance",),
+    "performance": ("/api/performance", "/api/backtest-stats"),
     "dividends": ("/api/dividend-events",),
     "logs": ("/api/invalid-signals", "/api/export/"),
 }
@@ -267,6 +267,24 @@ class DividendEventPayload(BaseModel):
 
 class DerivativeCapitalPayload(BaseModel):
     initial_capital: float = Field(..., gt=0, examples=[100000000])
+
+
+class StrategyBacktestStatsPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    strategy: str = Field(..., min_length=1, max_length=120, examples=["STxanhdo"])
+    metric_name: str = Field(
+        default="Price Drawdown % From BUY",
+        min_length=1,
+        max_length=160,
+    )
+    closed_trades: int | None = Field(default=None, ge=0)
+    negative_trades: int | None = Field(default=None, ge=0)
+    max_loss_pct: float | None = None
+    min_loss_pct: float | None = None
+    avg_loss_pct: float | None = None
+    avg_hold_bars: float | None = Field(default=None, ge=0)
+    avg_hold_days: float | None = Field(default=None, ge=0)
+    note: str | None = None
 
 
 class LoginPayload(BaseModel):
@@ -441,6 +459,8 @@ def available_signal_strategies() -> list[str]:
         (signal.get("strategy") or DEFAULT_STRATEGY).strip()
         for signal in store.list_all_signals()
     }
+    for stat in store.list_strategy_backtest_stats():
+        strategies.add((stat.get("strategy") or "").strip())
     return sorted((strategy for strategy in strategies if strategy), key=str.lower)
 
 
@@ -807,6 +827,57 @@ def performance(request: Request, ticker: str | None = None, strategy: str | Non
         user=request.state.user,
     )
     return build_performance(signals, store.list_dividend_events())
+
+
+@app.get("/api/backtest-stats")
+def backtest_stats(
+    request: Request,
+    ticker: str | None = None,
+    strategy: str | None = None,
+) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    rows = store.list_strategy_backtest_stats(
+        ticker=normalized_ticker,
+        strategy=strategy,
+    )
+    if strategy_restricted(request.state.user):
+        allowed = {
+            str(item or "").strip().lower()
+            for item in request.state.user.get("strategies", [])
+            if str(item or "").strip()
+        }
+        rows = [
+            row
+            for row in rows
+            if (row.get("strategy") or "").strip().lower() in allowed
+        ]
+    return {"backtest_stats": rows}
+
+
+@app.post("/api/backtest-stats")
+def upsert_backtest_stat(payload: StrategyBacktestStatsPayload) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    stat = store.upsert_strategy_backtest_stat(
+        ticker=ticker,
+        strategy=payload.strategy,
+        metric_name=payload.metric_name,
+        closed_trades=payload.closed_trades,
+        negative_trades=payload.negative_trades,
+        max_loss_pct=payload.max_loss_pct,
+        min_loss_pct=payload.min_loss_pct,
+        avg_loss_pct=payload.avg_loss_pct,
+        avg_hold_bars=payload.avg_hold_bars,
+        avg_hold_days=payload.avg_hold_days,
+        note=payload.note,
+    )
+    return {"status": "saved", "backtest_stat": stat}
+
+
+@app.delete("/api/backtest-stats/{stat_id}")
+def delete_backtest_stat(stat_id: int) -> dict[str, Any]:
+    if not store.delete_strategy_backtest_stat(stat_id):
+        raise HTTPException(status_code=404, detail="Backtest stats not found")
+    return {"status": "deleted", "stat_id": stat_id}
 
 
 @app.get("/api/derivatives")

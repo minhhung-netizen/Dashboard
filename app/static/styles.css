@@ -908,6 +908,7 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .performanceHistoryPanel,
+.backtestStatsPanel,
 .kellyPanel,
 .timelinePanel,
 .exportPanel,
@@ -997,6 +998,7 @@ main {
 .invalidSignalsPanel,
 .performancePanel,
 .performanceHistoryPanel,
+.backtestStatsPanel,
 .kellyPanel,
 .timelinePanel,
 .exportPanel,
@@ -1024,6 +1026,7 @@ main {
 .tabPanel > .manualPortfolioGrid,
 .tabPanel > .manualDailyPanel,
 .tabPanel > .performanceHistoryPanel,
+.tabPanel > .backtestStatsPanel,
 .tabPanel > .kellyPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
@@ -1037,6 +1040,7 @@ main {
 .tabPanel > .exportPanel + .invalidSignalsPanel,
 .tabPanel > .manualDailyPanel,
 .tabPanel > .performanceHistoryPanel,
+.tabPanel > .backtestStatsPanel,
 .tabPanel > .kellyPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
@@ -1111,6 +1115,33 @@ main {
 
 .dailyPerformanceStatus strong {
   color: var(--ink);
+}
+
+.backtestStatsForm {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.backtestStatsForm input,
+.backtestStatsForm button {
+  max-width: none;
+  width: 100%;
+}
+
+.backtestStatsForm input {
+  text-transform: none;
+}
+
+#backtestTicker {
+  text-transform: uppercase;
+}
+
+#backtestMetricName,
+#backtestNote {
+  grid-column: span 2;
 }
 
 .kellyGrid {
@@ -1771,6 +1802,7 @@ td strong {
 
   .performanceControls,
   .derivativeCapitalForm,
+  .backtestStatsForm,
   .panelActions {
     display: grid;
     grid-template-columns: 1fr;
@@ -1780,11 +1812,18 @@ td strong {
   select,
   .performanceControls input,
   .performanceControls select,
+  .backtestStatsForm input,
+  .backtestStatsForm button,
   .positionControls input,
   .positionControls select,
   .derivativeCapitalForm input {
     max-width: none;
     width: 100%;
+  }
+
+  #backtestMetricName,
+  #backtestNote {
+    grid-column: auto;
   }
 
   .userCreateForm {

@@ -61,6 +61,19 @@ const els = {
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
   performanceSort: document.querySelector("#performanceSort"),
   performanceClosedTradesTable: document.querySelector("#performanceClosedTradesTable"),
+  backtestStatsForm: document.querySelector("#backtestStatsForm"),
+  backtestTicker: document.querySelector("#backtestTicker"),
+  backtestStrategy: document.querySelector("#backtestStrategy"),
+  backtestMetricName: document.querySelector("#backtestMetricName"),
+  backtestClosedTrades: document.querySelector("#backtestClosedTrades"),
+  backtestNegativeTrades: document.querySelector("#backtestNegativeTrades"),
+  backtestMaxLoss: document.querySelector("#backtestMaxLoss"),
+  backtestMinLoss: document.querySelector("#backtestMinLoss"),
+  backtestAvgLoss: document.querySelector("#backtestAvgLoss"),
+  backtestAvgHoldBars: document.querySelector("#backtestAvgHoldBars"),
+  backtestAvgHoldDays: document.querySelector("#backtestAvgHoldDays"),
+  backtestNote: document.querySelector("#backtestNote"),
+  backtestStatsTable: document.querySelector("#backtestStatsTable"),
   kellyForm: document.querySelector("#kellyForm"),
   kellyTicker: document.querySelector("#kellyTicker"),
   kellyStrategy: document.querySelector("#kellyStrategy"),
@@ -939,6 +952,40 @@ Object.assign(translations.vi, {
   kellyPositiveNote: "Khuyến nghị đã áp dụng Kelly phân đoạn, trần phân bổ và điều chỉnh drawdown.",
 });
 
+Object.assign(translations.en, {
+  backtestStats: "Backtest Stats",
+  strategyBacktestStats: "Manual Strategy Backtest Stats",
+  metric: "Metric",
+  closedTrades: "Closed Trades",
+  negativeTrades: "Negative Trades",
+  maxLoss: "Max Loss",
+  minLoss: "Min Loss",
+  avgLoss: "Avg Loss",
+  avgHoldBars: "Số nến giữ TB",
+  avgHoldDays: "Số ngày giữ TB",
+  noBacktestStats: "No saved backtest stats",
+  backtestSaveFailed: "Could not save backtest stats",
+  backtestDeleteConfirm: "Delete this backtest stats row?",
+  backtestDeleteFailed: "Could not delete backtest stats",
+});
+
+Object.assign(translations.vi, {
+  backtestStats: "Thống kê backtest",
+  strategyBacktestStats: "Thống kê backtest nhập tay theo mã và chiến lược",
+  metric: "Chỉ số",
+  closedTrades: "Lệnh đã đóng",
+  negativeTrades: "Lệnh âm",
+  maxLoss: "Âm lớn nhất",
+  minLoss: "Âm nhỏ nhất",
+  avgLoss: "Âm trung bình",
+  avgHoldBars: "Avg Hold Bars",
+  avgHoldDays: "Avg Hold Days",
+  noBacktestStats: "Chưa có thống kê backtest đã lưu",
+  backtestSaveFailed: "Không lưu được thống kê backtest",
+  backtestDeleteConfirm: "Xóa dòng thống kê backtest này?",
+  backtestDeleteFailed: "Không xóa được thống kê backtest",
+});
+
 const state = {
   user: null,
   availableFeatures: Object.keys(FEATURE_LABELS),
@@ -956,6 +1003,7 @@ const state = {
   closedTrades: [],
   invalidSignals: [],
   performanceStrategies: [],
+  backtestStats: [],
   closedTradeFilter: null,
   defaultSignalWeightPct: FALLBACK_SIGNAL_WEIGHT_PCT,
   manualPortfolio: { positions: [], equity_curve: [], summary: {} },
@@ -1295,7 +1343,7 @@ function applyTranslations() {
   els.openPositionTickerFilter.placeholder = t("openPositionTickerPlaceholder");
   updateOpenPositionStrategyFilterOptions(state.openTrades);
   els.performanceTickerFilter.placeholder = t("performanceTickerPlaceholder");
-  updatePerformanceStrategyFilterOptions(state.performanceStrategies);
+  updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
   if (!state.selectedTicker) {
     els.chartTitle.textContent = t("noTickerSelected");
   }
@@ -1311,6 +1359,7 @@ function applyTranslations() {
   renderRiskAlerts();
   renderKellyCalculator();
   renderKellyEntries();
+  renderBacktestStats(state.backtestStats);
 }
 
 function applyTheme() {
@@ -1662,6 +1711,7 @@ async function refresh() {
     featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio),
     featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] }),
     featureFetch("derivatives", "/api/derivatives", state.derivatives),
+    featureFetch("performance", `/api/backtest-stats${performanceQuery}`, { backtest_stats: [] }),
   ]);
 
   const settingsPayload = settledPayload(
@@ -1707,6 +1757,11 @@ async function refresh() {
     state.derivatives,
     "derivatives"
   );
+  const backtestPayload = settledPayload(
+    results[9],
+    { backtest_stats: state.backtestStats },
+    "backtest stats"
+  );
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.summary = summary;
@@ -1715,7 +1770,6 @@ async function refresh() {
   state.openTrades = positionPayload.open_trades || [];
   updateOpenPositionStrategyFilterOptions(state.openTrades);
   state.performanceStrategies = positionPayload.strategies || [];
-  updatePerformanceStrategyFilterOptions(state.performanceStrategies);
   renderOpenPositions();
   state.closedTrades = positionPayload.closed_trades || [];
   renderClosedTrades(state.closedTrades);
@@ -1734,6 +1788,9 @@ async function refresh() {
   renderInvalidSignals(state.invalidSignals);
   renderPerformance(sortPerformance(performancePayload.strategies || []));
   renderPerformanceClosedTrades(performancePayload.closed_trades || []);
+  state.backtestStats = backtestPayload.backtest_stats || [];
+  updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
+  renderBacktestStats(state.backtestStats);
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
@@ -2235,6 +2292,78 @@ function buildPerformanceQuery() {
   return query ? `?${query}` : "";
 }
 
+function optionalInteger(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : null;
+}
+
+function readBacktestStatsForm() {
+  const metricName = els.backtestMetricName.value.trim() || "Price Drawdown % From BUY";
+  return {
+    ticker: els.backtestTicker.value.trim().toUpperCase(),
+    strategy: els.backtestStrategy.value.trim(),
+    metric_name: metricName,
+    closed_trades: optionalInteger(els.backtestClosedTrades.value),
+    negative_trades: optionalInteger(els.backtestNegativeTrades.value),
+    max_loss_pct: optionalNumber(els.backtestMaxLoss.value),
+    min_loss_pct: optionalNumber(els.backtestMinLoss.value),
+    avg_loss_pct: optionalNumber(els.backtestAvgLoss.value),
+    avg_hold_bars: optionalNumber(els.backtestAvgHoldBars.value),
+    avg_hold_days: optionalNumber(els.backtestAvgHoldDays.value),
+    note: els.backtestNote.value.trim() || null,
+  };
+}
+
+function resetBacktestStatsForm() {
+  els.backtestStatsForm.reset();
+}
+
+async function saveBacktestStats(event) {
+  event.preventDefault();
+  const payload = readBacktestStatsForm();
+  if (!payload.ticker || !payload.strategy) return;
+  const response = await fetch("/api/backtest-stats", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    window.alert(t("backtestSaveFailed"));
+    return;
+  }
+  resetBacktestStatsForm();
+  await refresh();
+}
+
+function loadBacktestStatsToForm(stat) {
+  if (state.user?.role !== "admin") return;
+  els.backtestTicker.value = stat.ticker || "";
+  els.backtestStrategy.value = stat.strategy || "";
+  els.backtestMetricName.value = stat.metric_name || "Price Drawdown % From BUY";
+  els.backtestClosedTrades.value = rawNumber(stat.closed_trades);
+  els.backtestNegativeTrades.value = rawNumber(stat.negative_trades);
+  els.backtestMaxLoss.value = rawNumber(stat.max_loss_pct);
+  els.backtestMinLoss.value = rawNumber(stat.min_loss_pct);
+  els.backtestAvgLoss.value = rawNumber(stat.avg_loss_pct);
+  els.backtestAvgHoldBars.value = rawNumber(stat.avg_hold_bars);
+  els.backtestAvgHoldDays.value = rawNumber(stat.avg_hold_days);
+  els.backtestNote.value = stat.note || "";
+  els.backtestTicker.focus();
+}
+
+async function deleteBacktestStats(statId) {
+  if (!window.confirm(t("backtestDeleteConfirm"))) return;
+  const response = await fetch(`/api/backtest-stats/${encodeURIComponent(statId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    window.alert(t("backtestDeleteFailed"));
+    return;
+  }
+  await refresh();
+}
+
 function updateOpenPositionStrategyFilterOptions(openTrades) {
   const currentValue = els.openPositionStrategyFilter.value;
   const strategies = [
@@ -2608,6 +2737,46 @@ function renderPerformance(strategies) {
     row.addEventListener("click", () => {
       applyClosedTradeFilter(row.dataset.performanceTicker, row.dataset.performanceStrategy);
     });
+  });
+}
+
+function renderBacktestStats(stats) {
+  if (!els.backtestStatsTable) return;
+  if (!stats.length) {
+    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="12">${t("noBacktestStats")}</td></tr>`;
+    return;
+  }
+
+  els.backtestStatsTable.innerHTML = stats
+    .map((stat) => `
+      <tr class="clickableRow" data-backtest-stat-id="${escapeHtml(stat.id)}">
+        <td><strong>${escapeHtml(stat.ticker || "-")}</strong></td>
+        <td><strong>${escapeHtml(stat.strategy || "-")}</strong></td>
+        <td>${escapeHtml(stat.metric_name || "-")}</td>
+        <td>${stat.closed_trades ?? "-"}</td>
+        <td>${stat.negative_trades ?? "-"}</td>
+        <td>${formatSignedPercent(stat.max_loss_pct)}</td>
+        <td>${formatSignedPercent(stat.min_loss_pct)}</td>
+        <td>${formatSignedPercent(stat.avg_loss_pct)}</td>
+        <td>${formatPrice(stat.avg_hold_bars)}</td>
+        <td>${formatPrice(stat.avg_hold_days)}</td>
+        <td>${escapeHtml(stat.note || "-")}</td>
+        <td class="adminOnly">
+          <button class="deleteButton" type="button" data-backtest-delete="${escapeHtml(stat.id)}">${escapeHtml(t("delete"))}</button>
+        </td>
+      </tr>
+    `)
+    .join("");
+
+  els.backtestStatsTable.querySelectorAll("[data-backtest-stat-id]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("[data-backtest-delete]")) return;
+      const stat = state.backtestStats.find((item) => String(item.id) === row.dataset.backtestStatId);
+      if (stat) loadBacktestStatsToForm(stat);
+    });
+  });
+  els.backtestStatsTable.querySelectorAll("[data-backtest-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteBacktestStats(button.dataset.backtestDelete));
   });
 }
 
@@ -3834,6 +4003,7 @@ els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarke
 els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
+els.backtestStatsForm.addEventListener("submit", saveBacktestStats);
 els.kellyForm.addEventListener("input", renderKellyCalculator);
 els.kellyForm.addEventListener("change", renderKellyCalculator);
 els.kellyForm.addEventListener("submit", (event) => event.preventDefault());

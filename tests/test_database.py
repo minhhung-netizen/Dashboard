@@ -345,6 +345,46 @@ class SignalStoreTest(unittest.TestCase):
             self.assertFalse(store.delete_manual_daily_performance("2026-05-25"))
             self.assertEqual(store.list_manual_daily_performance(), [])
 
+    def test_upserts_strategy_backtest_stats_by_ticker_strategy_metric(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            first = store.upsert_strategy_backtest_stat(
+                ticker="vpb",
+                strategy="STxanhdo",
+                metric_name="Price Drawdown % From BUY",
+                closed_trades=100,
+                negative_trades=40,
+                max_loss_pct=-12.2,
+                min_loss_pct=-0.56,
+                avg_loss_pct=-4.39,
+                avg_hold_bars=91.44,
+                avg_hold_days=26.47,
+                note="initial backtest",
+            )
+            second = store.upsert_strategy_backtest_stat(
+                ticker="VPB",
+                strategy="STxanhdo",
+                metric_name="Price Drawdown % From BUY",
+                closed_trades=120,
+                negative_trades=45,
+                max_loss_pct=-10,
+                min_loss_pct=-0.5,
+                avg_loss_pct=-3.9,
+                avg_hold_bars=80,
+                avg_hold_days=20,
+                note="updated backtest",
+            )
+            rows = store.list_strategy_backtest_stats(ticker="VPB", strategy="STxanhdo")
+
+            self.assertEqual(first["ticker"], "VPB")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(second["id"], rows[0]["id"])
+            self.assertEqual(rows[0]["closed_trades"], 120)
+            self.assertAlmostEqual(rows[0]["avg_loss_pct"], -3.9)
+            self.assertEqual(rows[0]["note"], "updated backtest")
+            self.assertTrue(store.delete_strategy_backtest_stat(rows[0]["id"]))
+            self.assertFalse(store.delete_strategy_backtest_stat(rows[0]["id"]))
+
     def test_dividend_event_lifecycle(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")
