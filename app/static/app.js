@@ -64,6 +64,7 @@ const els = {
   backtestStatsForm: document.querySelector("#backtestStatsForm"),
   backtestTicker: document.querySelector("#backtestTicker"),
   backtestStrategy: document.querySelector("#backtestStrategy"),
+  backtestTickerSearch: document.querySelector("#backtestTickerSearch"),
   backtestMetricName: document.querySelector("#backtestMetricName"),
   backtestClosedTrades: document.querySelector("#backtestClosedTrades"),
   backtestNegativeTrades: document.querySelector("#backtestNegativeTrades"),
@@ -968,6 +969,7 @@ Object.assign(translations.en, {
   backtestDeleteConfirm: "Delete this backtest stats row?",
   backtestDeleteFailed: "Could not delete backtest stats",
   duplicateTickerStrategy: "This ticker and strategy already exists",
+  backtestSearchPlaceholder: "Search ticker",
 });
 
 Object.assign(translations.vi, {
@@ -986,6 +988,7 @@ Object.assign(translations.vi, {
   backtestDeleteConfirm: "Xóa dòng thống kê backtest này?",
   backtestDeleteFailed: "Không xóa được thống kê backtest",
   duplicateTickerStrategy: "Mã và chiến lược này đã tồn tại",
+  backtestSearchPlaceholder: "Tìm mã",
 });
 
 const state = {
@@ -1363,6 +1366,7 @@ function applyTranslations() {
   els.openPositionTickerFilter.placeholder = t("openPositionTickerPlaceholder");
   updateOpenPositionStrategyFilterOptions(state.openTrades);
   els.performanceTickerFilter.placeholder = t("performanceTickerPlaceholder");
+  els.backtestTickerSearch.placeholder = t("backtestSearchPlaceholder");
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
   if (!state.selectedTicker) {
     els.chartTitle.textContent = t("noTickerSelected");
@@ -2314,9 +2318,13 @@ function buildPerformanceQuery() {
 
 function filterBacktestStats(stats) {
   const tickerFilter = els.performanceTickerFilter.value.trim().toUpperCase();
+  const backtestTickerSearch = els.backtestTickerSearch.value.trim().toUpperCase();
   const strategyFilter = els.performanceStrategyFilter.value.trim();
   return (stats || []).filter((stat) => {
-    const tickerMatches = !tickerFilter || String(stat.ticker || "").toUpperCase().includes(tickerFilter);
+    const ticker = String(stat.ticker || "").toUpperCase();
+    const tickerMatches =
+      (!tickerFilter || ticker.includes(tickerFilter)) &&
+      (!backtestTickerSearch || ticker.includes(backtestTickerSearch));
     const strategyMatches = !strategyFilter || String(stat.strategy || "") === strategyFilter;
     return tickerMatches && strategyMatches;
   });
@@ -2392,6 +2400,10 @@ function loadBacktestStatsToForm(stat) {
   state.activeBacktestStatKey = tickerStrategyKey(stat.ticker, stat.strategy);
   state.activeBacktestStatId = String(stat.id || "");
   els.backtestTicker.value = stat.ticker || "";
+  updateBacktestStrategyOptions(
+    [...state.performanceStrategies, ...state.backtestStats].map((row) => row.strategy),
+    stat.strategy || ""
+  );
   els.backtestStrategy.value = stat.strategy || "";
   els.backtestMetricName.value = stat.metric_name || "Price Drawdown % From BUY";
   els.backtestClosedTrades.value = rawNumber(stat.closed_trades);
@@ -2460,6 +2472,26 @@ function updatePerformanceStrategyFilterOptions(strategyRows) {
   });
   els.performanceStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
   updateKellyStrategyOptions(strategies);
+  updateBacktestStrategyOptions(strategies);
+}
+
+function updateBacktestStrategyOptions(strategies, preferredValue = els.backtestStrategy.value) {
+  const normalizedStrategies = [...new Set(strategies || [])]
+    .map((strategy) => String(strategy || "").trim())
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+
+  els.backtestStrategy.replaceChildren();
+  els.backtestStrategy.append(new Option(t("strategy"), ""));
+  normalizedStrategies.forEach((strategy) => {
+    els.backtestStrategy.append(new Option(strategy, strategy));
+  });
+  if (preferredValue && !normalizedStrategies.includes(preferredValue)) {
+    els.backtestStrategy.append(new Option(preferredValue, preferredValue));
+  }
+  els.backtestStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
+    ? preferredValue
+    : "";
 }
 
 function updateKellyStrategyOptions(strategies, preferredValue = els.kellyStrategy.value) {
@@ -4064,6 +4096,7 @@ els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarke
 els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
+els.backtestTickerSearch.addEventListener("input", () => renderBacktestStats(filterBacktestStats(state.backtestStats)));
 els.backtestStatsForm.addEventListener("submit", saveBacktestStats);
 els.kellyForm.addEventListener("input", renderKellyCalculator);
 els.kellyForm.addEventListener("change", renderKellyCalculator);

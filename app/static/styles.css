@@ -1126,13 +1126,25 @@ main {
 }
 
 .backtestStatsForm input,
+.backtestStatsForm select,
 .backtestStatsForm button {
   max-width: none;
   width: 100%;
 }
 
-.backtestStatsForm input {
+.backtestStatsForm input,
+.backtestStatsForm select {
   text-transform: none;
+}
+
+.backtestControls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.backtestControls input {
+  max-width: 220px;
+  text-transform: uppercase;
 }
 
 #backtestTicker {
@@ -1813,7 +1825,9 @@ td strong {
   .performanceControls input,
   .performanceControls select,
   .backtestStatsForm input,
+  .backtestStatsForm select,
   .backtestStatsForm button,
+  .backtestControls input,
   .positionControls input,
   .positionControls select,
   .derivativeCapitalForm input {
@@ -1824,6 +1838,10 @@ td strong {
   #backtestMetricName,
   #backtestNote {
     grid-column: auto;
+  }
+
+  .backtestControls {
+    justify-content: flex-start;
   }
 
   .userCreateForm {

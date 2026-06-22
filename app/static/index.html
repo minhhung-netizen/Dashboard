@@ -619,10 +619,15 @@
               <p class="eyebrow" data-i18n="backtestStats">Backtest Stats</p>
               <h2 data-i18n="strategyBacktestStats">Strategy Backtest Stats</h2>
             </div>
+            <div class="backtestControls">
+              <input id="backtestTickerSearch" autocomplete="off" placeholder="Search ticker" />
+            </div>
           </div>
           <form id="backtestStatsForm" class="backtestStatsForm adminOnly">
             <input id="backtestTicker" autocomplete="off" required placeholder="Ticker" />
-            <input id="backtestStrategy" autocomplete="off" required placeholder="Strategy" />
+            <select id="backtestStrategy" required>
+              <option value="" data-i18n="strategy">Strategy</option>
+            </select>
             <input id="backtestMetricName" autocomplete="off" placeholder="Price Drawdown % From BUY" />
             <input id="backtestClosedTrades" min="0" step="1" type="number" placeholder="Closed Trades" />
             <input id="backtestNegativeTrades" min="0" step="1" type="number" placeholder="Negative Trades" />
