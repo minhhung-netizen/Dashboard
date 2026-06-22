@@ -12,14 +12,14 @@
   --line-soft: #e9eff6;
   --buy: #008a6a;
   --sell: #d14343;
-  --accent: #2f6fed;
+  --accent: #7c3aed;
   --accent-ink: #ffffff;
   --warning: #b77912;
-  --table-head: #f6f9fd;
-  --row-hover: #f4f8ff;
+  --table-head: #faf7ff;
+  --row-hover: #f5efff;
   --shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 10px 24px rgb(15 23 42 / 4%);
   --shadow-strong: 0 16px 36px rgb(15 23 42 / 12%);
-  --focus: 0 0 0 3px rgb(47 111 237 / 18%);
+  --focus: 0 0 0 3px rgb(124 58 237 / 20%);
 }
 
 [data-theme="dark"] {
@@ -36,14 +36,14 @@
   --line-soft: #1e2a3a;
   --buy: #34c69a;
   --sell: #ff6b6b;
-  --accent: #77a9ff;
-  --accent-ink: #08111d;
+  --accent: #a78bfa;
+  --accent-ink: #180b35;
   --warning: #e0ad3f;
-  --table-head: #162131;
-  --row-hover: #17263a;
+  --table-head: #201733;
+  --row-hover: #261a3f;
   --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 34px rgb(0 0 0 / 20%);
   --shadow-strong: 0 18px 42px rgb(0 0 0 / 32%);
-  --focus: 0 0 0 3px rgb(119 169 255 / 20%);
+  --focus: 0 0 0 3px rgb(167 139 250 / 22%);
 }
 
 * {
