@@ -471,7 +471,7 @@ const translations = {
     realized: "Đã chốt",
     openPl: "Lãi/lỗ mở",
     current: "Hiện tại",
-    openUnrealizedPl: "Lãi/lỗ tạm tính (5%/mã)",
+    openUnrealizedPl: "Lãi/lỗ tạm tính",
     openPositions: "Vị thế đang mở",
     currentHoldings: "Danh mục hiện tại",
     entryPrice: "Giá vào",
@@ -2316,7 +2316,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="12">${t("noOpenPositions")}</td></tr>`;
     els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
@@ -2325,6 +2325,8 @@ function renderOpenPositions() {
     .map((trade) => {
       const tickerClass = trade.has_confirm_buy ? "confirmedTicker" : "";
       const confirmTitle = trade.has_confirm_buy ? t("confirmBuyTitle") : "";
+      const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+      const allocatedPl = allocatedReturnPct(trade.return_pct, weightPct);
       return `
       <tr data-ticker="${escapeHtml(trade.ticker)}">
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
@@ -2333,6 +2335,8 @@ function renderOpenPositions() {
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
+        <td>${formatKellyPercent(weightPct)}</td>
+        <td>${formatSignedPercent(allocatedPl)}</td>
         <td>${renderConfirmations(trade.confirmations || [])}</td>
         <td>${renderDividendNotes(trade.dividend_notes || [])}</td>
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
@@ -2342,7 +2346,10 @@ function renderOpenPositions() {
     })
     .join("");
   els.openPositionCards.innerHTML = openTrades
-    .map((trade) => `
+    .map((trade) => {
+      const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+      const allocatedPl = allocatedReturnPct(trade.return_pct, weightPct);
+      return `
       <article class="positionCard" data-card-ticker="${escapeHtml(trade.ticker)}">
         <div class="positionCardHead">
           <div>
@@ -2354,6 +2361,8 @@ function renderOpenPositions() {
         <div class="positionCardMetrics">
           <div><span>${escapeHtml(t("entryShort"))}</span><strong>${formatPrice(trade.entry_price)}</strong></div>
           <div><span>${escapeHtml(t("currentShort"))}</span><strong>${formatPrice(trade.exit_price)}</strong></div>
+          <div><span>${escapeHtml(t("allocationWeight"))}</span><strong>${formatKellyPercent(weightPct)}</strong></div>
+          <div><span>${escapeHtml(t("portfolioPl"))}</span><strong>${formatSignedPercent(allocatedPl)}</strong></div>
           <div><span>${escapeHtml(t("daysShort"))}</span><strong>${formatHoldingDaysBetween(trade.entry_time)}</strong></div>
         </div>
         <div class="positionCardSignal">
@@ -2365,7 +2374,8 @@ function renderOpenPositions() {
             : ""}
         </div>
       </article>
-    `)
+    `;
+    })
     .join("");
 
   els.openPositionsTable.querySelectorAll("[data-ticker]").forEach((row) => {
@@ -2431,7 +2441,7 @@ function renderDividendNotes(notes) {
 
 function renderOpenPositionsTotalReturn(openTrades) {
   const totalReturn = openTrades.reduce((sum, trade) => {
-    const value = allocatedReturnPct(trade.return_pct);
+    const value = allocatedReturnPct(trade.return_pct, kellyAllocationPct(trade.ticker, trade.strategy));
     return Number.isFinite(value) ? sum + value : sum;
   }, 0);
   els.openPositionsTotalReturn.innerHTML = openTrades.length
