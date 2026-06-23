@@ -75,11 +75,8 @@ const els = {
   backtestMaxGain: document.querySelector("#backtestMaxGain"),
   backtestAvgGain: document.querySelector("#backtestAvgGain"),
   backtestTp1Hits: document.querySelector("#backtestTp1Hits"),
-  backtestTp1Total: document.querySelector("#backtestTp1Total"),
   backtestTp2Hits: document.querySelector("#backtestTp2Hits"),
-  backtestTp2Total: document.querySelector("#backtestTp2Total"),
   backtestTp3Hits: document.querySelector("#backtestTp3Hits"),
-  backtestTp3Total: document.querySelector("#backtestTp3Total"),
   backtestAvgHoldBars: document.querySelector("#backtestAvgHoldBars"),
   backtestAvgHoldDays: document.querySelector("#backtestAvgHoldDays"),
   backtestNote: document.querySelector("#backtestNote"),
@@ -2480,11 +2477,12 @@ function optionalInteger(value) {
 }
 
 function readBacktestStatsForm() {
+  const closedTrades = optionalInteger(els.backtestClosedTrades.value);
   return {
     ticker: els.backtestTicker.value.trim().toUpperCase(),
     strategy: els.backtestStrategy.value.trim(),
     metric_name: "Price Drawdown % From BUY",
-    closed_trades: optionalInteger(els.backtestClosedTrades.value),
+    closed_trades: closedTrades,
     negative_trades: optionalInteger(els.backtestNegativeTrades.value),
     max_loss_pct: optionalNumber(els.backtestMaxLoss.value),
     min_loss_pct: optionalNumber(els.backtestMinLoss.value),
@@ -2492,11 +2490,11 @@ function readBacktestStatsForm() {
     max_gain_pct: optionalNumber(els.backtestMaxGain.value),
     avg_gain_pct: optionalNumber(els.backtestAvgGain.value),
     tp1_hits: optionalInteger(els.backtestTp1Hits.value),
-    tp1_total: optionalInteger(els.backtestTp1Total.value),
+    tp1_total: closedTrades,
     tp2_hits: optionalInteger(els.backtestTp2Hits.value),
-    tp2_total: optionalInteger(els.backtestTp2Total.value),
+    tp2_total: closedTrades,
     tp3_hits: optionalInteger(els.backtestTp3Hits.value),
-    tp3_total: optionalInteger(els.backtestTp3Total.value),
+    tp3_total: closedTrades,
     avg_hold_bars: optionalNumber(els.backtestAvgHoldBars.value),
     avg_hold_days: optionalNumber(els.backtestAvgHoldDays.value),
     note: els.backtestNote.value.trim() || null,
@@ -2563,11 +2561,8 @@ function loadBacktestStatsToForm(stat) {
   els.backtestMaxGain.value = rawNumber(stat.max_gain_pct);
   els.backtestAvgGain.value = rawNumber(stat.avg_gain_pct);
   els.backtestTp1Hits.value = rawNumber(stat.tp1_hits);
-  els.backtestTp1Total.value = rawNumber(stat.tp1_total);
   els.backtestTp2Hits.value = rawNumber(stat.tp2_hits);
-  els.backtestTp2Total.value = rawNumber(stat.tp2_total);
   els.backtestTp3Hits.value = rawNumber(stat.tp3_hits);
-  els.backtestTp3Total.value = rawNumber(stat.tp3_total);
   els.backtestAvgHoldBars.value = rawNumber(stat.avg_hold_bars);
   els.backtestAvgHoldDays.value = rawNumber(stat.avg_hold_days);
   els.backtestNote.value = stat.note || "";
@@ -3131,9 +3126,9 @@ function renderBacktestStats(stats) {
         <td>${formatSignedPercent(stat.avg_loss_pct)}</td>
         <td>${formatSignedPercent(stat.max_gain_pct)}</td>
         <td>${formatSignedPercent(stat.avg_gain_pct)}</td>
-        <td>${formatHitRate(stat.tp1_hits, stat.tp1_total)}</td>
-        <td>${formatHitRate(stat.tp2_hits, stat.tp2_total)}</td>
-        <td>${formatHitRate(stat.tp3_hits, stat.tp3_total)}</td>
+        <td>${formatHitRate(stat.tp1_hits, stat.tp1_total ?? stat.closed_trades)}</td>
+        <td>${formatHitRate(stat.tp2_hits, stat.tp2_total ?? stat.closed_trades)}</td>
+        <td>${formatHitRate(stat.tp3_hits, stat.tp3_total ?? stat.closed_trades)}</td>
         <td>${formatPrice(stat.avg_hold_bars)}</td>
         <td>${formatPrice(stat.avg_hold_days)}</td>
         <td>${escapeHtml(stat.note || "-")}</td>

@@ -881,6 +881,7 @@ def backtest_stats(
 @app.post("/api/backtest-stats")
 def upsert_backtest_stat(payload: StrategyBacktestStatsPayload) -> dict[str, Any]:
     ticker = normalize_ticker(payload.ticker)[0]
+    tp_total = payload.closed_trades
     stat = store.upsert_strategy_backtest_stat(
         ticker=ticker,
         strategy=payload.strategy,
@@ -893,11 +894,11 @@ def upsert_backtest_stat(payload: StrategyBacktestStatsPayload) -> dict[str, Any
         max_gain_pct=payload.max_gain_pct,
         avg_gain_pct=payload.avg_gain_pct,
         tp1_hits=payload.tp1_hits,
-        tp1_total=payload.tp1_total,
+        tp1_total=payload.tp1_total if payload.tp1_total is not None else tp_total,
         tp2_hits=payload.tp2_hits,
-        tp2_total=payload.tp2_total,
+        tp2_total=payload.tp2_total if payload.tp2_total is not None else tp_total,
         tp3_hits=payload.tp3_hits,
-        tp3_total=payload.tp3_total,
+        tp3_total=payload.tp3_total if payload.tp3_total is not None else tp_total,
         avg_hold_bars=payload.avg_hold_bars,
         avg_hold_days=payload.avg_hold_days,
         note=payload.note,
