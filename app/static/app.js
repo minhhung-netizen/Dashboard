@@ -1020,6 +1020,8 @@ const state = {
   invalidSignals: [],
   performanceStrategies: [],
   backtestStats: [],
+  kellyEntries: [],
+  kellyMigrationDone: false,
   activeKellyEntryKey: "",
   activeBacktestStatKey: "",
   activeBacktestStatId: "",
@@ -1122,6 +1124,10 @@ function loadKellyInputs() {
 }
 
 function loadKellyEntries() {
+  return state.kellyEntries || [];
+}
+
+function loadLocalKellyEntries() {
   try {
     const entries = JSON.parse(localStorage.getItem(KELLY_LIST_STORAGE_KEY) || "[]");
     return Array.isArray(entries) ? entries : [];
@@ -1131,7 +1137,24 @@ function loadKellyEntries() {
 }
 
 function saveKellyEntries(entries) {
-  localStorage.setItem(KELLY_LIST_STORAGE_KEY, JSON.stringify(entries));
+  state.kellyEntries = entries;
+}
+
+function normalizeKellyEntry(entry) {
+  return {
+    id: entry.id,
+    ticker: String(entry.ticker || "").trim().toUpperCase(),
+    strategy: String(entry.strategy || "").trim(),
+    winRate: optionalNumber(entry.winRate ?? entry.win_rate),
+    winningTrades: optionalNumber(entry.winningTrades ?? entry.winning_trades),
+    totalTrades: optionalNumber(entry.totalTrades ?? entry.total_trades),
+    profitFactor: optionalNumber(entry.profitFactor ?? entry.profit_factor),
+    maxDrawdown: optionalNumber(entry.maxDrawdown ?? entry.max_drawdown),
+    targetDrawdown: optionalNumber(entry.targetDrawdown ?? entry.target_drawdown),
+    fraction: optionalNumber(entry.fraction),
+    maxAllocation: optionalNumber(entry.maxAllocation ?? entry.max_allocation),
+    updatedAt: entry.updatedAt || entry.updated_at || new Date().toISOString(),
+  };
 }
 
 function initializeKellyCalculator() {
@@ -1180,7 +1203,43 @@ function renderKellyCalculator() {
   els.kellyNote.textContent = result.note;
 }
 
-function saveCurrentKellyEntry() {
+async function migrateLocalKellyEntriesToDatabase(serverEntries) {
+  if (state.kellyMigrationDone || state.user?.role !== "admin") {
+    return serverEntries;
+  }
+  state.kellyMigrationDone = true;
+  const localEntries = loadLocalKellyEntries().map(normalizeKellyEntry).filter((entry) => entry.ticker);
+  if (!localEntries.length) return serverEntries;
+
+  const serverKeys = new Set(serverEntries.map((entry) => kellyEntryKey(entry.ticker, entry.strategy)));
+  const entriesToUpload = localEntries.filter(
+    (entry) => !serverKeys.has(kellyEntryKey(entry.ticker, entry.strategy))
+  );
+  if (!entriesToUpload.length) {
+    localStorage.removeItem(KELLY_LIST_STORAGE_KEY);
+    return serverEntries;
+  }
+
+  const uploaded = [];
+  for (const entry of entriesToUpload) {
+    const response = await fetch("/api/kelly-entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    if (!response.ok) {
+      state.kellyMigrationDone = false;
+      return serverEntries;
+    }
+    const payload = await response.json();
+    uploaded.push(normalizeKellyEntry(payload.kelly_entry || entry));
+  }
+  localStorage.removeItem(KELLY_LIST_STORAGE_KEY);
+  return [...uploaded, ...serverEntries]
+    .sort((left, right) => String(left.ticker || "").localeCompare(String(right.ticker || "")));
+}
+
+async function saveCurrentKellyEntry() {
   const inputs = readKellyInputs();
   if (!inputs.ticker) {
     window.alert(t("kellyMissingTickerNote"));
@@ -1203,7 +1262,22 @@ function saveCurrentKellyEntry() {
     entry,
     ...entries.filter((item) => kellyEntryKey(item.ticker, item.strategy) !== entryKey),
   ].sort((left, right) => String(left.ticker || "").localeCompare(String(right.ticker || "")));
+  const response = await fetch("/api/kelly-entries", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  if (!response.ok) {
+    window.alert(t("backtestSaveFailed"));
+    return;
+  }
+  const payload = await response.json();
+  const savedEntry = normalizeKellyEntry(payload.kelly_entry || entry);
   saveKellyEntries(nextEntries);
+  state.kellyEntries = [
+    savedEntry,
+    ...state.kellyEntries.filter((item) => kellyEntryKey(item.ticker, item.strategy) !== entryKey),
+  ].sort((left, right) => String(left.ticker || "").localeCompare(String(right.ticker || "")));
   state.activeKellyEntryKey = entryKey;
   renderKellyEntries();
   refresh();
@@ -1288,8 +1362,17 @@ function loadKellyEntry(entryKey) {
   renderKellyCalculator();
 }
 
-function deleteKellyEntry(entryKey) {
+async function deleteKellyEntry(entryKey) {
   if (!window.confirm(t("deleteKellyEntryConfirm"))) return;
+  const entry = loadKellyEntries().find(
+    (item) => kellyEntryKey(item.ticker, item.strategy) === entryKey
+  );
+  if (entry?.id) {
+    const response = await fetch(`/api/kelly-entries/${encodeURIComponent(entry.id)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) return;
+  }
   const entries = loadKellyEntries().filter(
     (entry) => kellyEntryKey(entry.ticker, entry.strategy) !== entryKey
   );
@@ -1748,6 +1831,7 @@ async function refresh() {
     featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] }),
     featureFetch("derivatives", "/api/derivatives", state.derivatives),
     featureFetch("performance", "/api/backtest-stats", { backtest_stats: [] }),
+    featureFetch(["positions", "performance", "kelly"], "/api/kelly-entries", { kelly_entries: state.kellyEntries }),
   ]);
 
   const settingsPayload = settledPayload(
@@ -1798,12 +1882,20 @@ async function refresh() {
     { backtest_stats: state.backtestStats },
     "backtest stats"
   );
+  const kellyPayload = settledPayload(
+    results[10],
+    { kelly_entries: state.kellyEntries },
+    "kelly entries"
+  );
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.summary = summary;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
   renderSignals();
   state.backtestStats = backtestPayload.backtest_stats || [];
+  state.kellyEntries = await migrateLocalKellyEntriesToDatabase(
+    (kellyPayload.kelly_entries || []).map(normalizeKellyEntry)
+  );
   state.openTrades = positionPayload.open_trades || [];
   updateOpenPositionStrategyFilterOptions(state.openTrades);
   state.performanceStrategies = positionPayload.strategies || [];

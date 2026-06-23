@@ -385,6 +385,43 @@ class SignalStoreTest(unittest.TestCase):
             self.assertTrue(store.delete_strategy_backtest_stat(rows[0]["id"]))
             self.assertFalse(store.delete_strategy_backtest_stat(rows[0]["id"]))
 
+    def test_upserts_kelly_entries_by_ticker_and_strategy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            first = store.upsert_kelly_entry(
+                ticker="vpb",
+                strategy="STxanhdo",
+                win_rate=40.11,
+                winning_trades=73,
+                total_trades=182,
+                profit_factor=1.616,
+                max_drawdown=5.83,
+                target_drawdown=3,
+                fraction=50,
+                max_allocation=10,
+            )
+            second = store.upsert_kelly_entry(
+                ticker="VPB",
+                strategy="STxanhdo",
+                win_rate=45,
+                winning_trades=80,
+                total_trades=190,
+                profit_factor=1.7,
+                max_drawdown=6,
+                target_drawdown=3,
+                fraction=40,
+                max_allocation=12,
+            )
+            rows = store.list_kelly_entries(ticker="VPB", strategy="STxanhdo")
+
+            self.assertEqual(first["ticker"], "VPB")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(second["id"], rows[0]["id"])
+            self.assertAlmostEqual(rows[0]["win_rate"], 45)
+            self.assertAlmostEqual(rows[0]["max_allocation"], 12)
+            self.assertTrue(store.delete_kelly_entry(rows[0]["id"]))
+            self.assertFalse(store.delete_kelly_entry(rows[0]["id"]))
+
     def test_dividend_event_lifecycle(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

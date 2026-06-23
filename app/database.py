@@ -164,6 +164,26 @@ CREATE TABLE IF NOT EXISTS strategy_backtest_stats (
 CREATE INDEX IF NOT EXISTS idx_strategy_backtest_stats_lookup
 ON strategy_backtest_stats (strategy, ticker);
 
+CREATE TABLE IF NOT EXISTS kelly_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    win_rate REAL,
+    winning_trades REAL,
+    total_trades REAL,
+    profit_factor REAL,
+    max_drawdown REAL,
+    target_drawdown REAL,
+    fraction REAL,
+    max_allocation REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(ticker, strategy)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kelly_entries_lookup
+ON kelly_entries (strategy, ticker);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -1038,6 +1058,104 @@ class SignalStore:
             cursor = conn.execute(
                 "DELETE FROM strategy_backtest_stats WHERE id = ?",
                 (stat_id,),
+            )
+            return cursor.rowcount > 0
+
+    def upsert_kelly_entry(
+        self,
+        *,
+        ticker: str,
+        strategy: str,
+        win_rate: float | None,
+        winning_trades: float | None,
+        total_trades: float | None,
+        profit_factor: float | None,
+        max_drawdown: float | None,
+        target_drawdown: float | None,
+        fraction: float | None,
+        max_allocation: float | None,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        normalized_ticker = ticker.strip().upper()
+        normalized_strategy = strategy.strip()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO kelly_entries (
+                    ticker, strategy, win_rate, winning_trades, total_trades,
+                    profit_factor, max_drawdown, target_drawdown, fraction,
+                    max_allocation, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ticker, strategy) DO UPDATE SET
+                    win_rate = excluded.win_rate,
+                    winning_trades = excluded.winning_trades,
+                    total_trades = excluded.total_trades,
+                    profit_factor = excluded.profit_factor,
+                    max_drawdown = excluded.max_drawdown,
+                    target_drawdown = excluded.target_drawdown,
+                    fraction = excluded.fraction,
+                    max_allocation = excluded.max_allocation,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    normalized_ticker,
+                    normalized_strategy,
+                    win_rate,
+                    winning_trades,
+                    total_trades,
+                    profit_factor,
+                    max_drawdown,
+                    target_drawdown,
+                    fraction,
+                    max_allocation,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_kelly_entry(ticker=normalized_ticker, strategy=normalized_strategy)
+
+    def get_kelly_entry(self, *, ticker: str, strategy: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM kelly_entries
+                WHERE ticker = ? AND strategy = ?
+                """,
+                (ticker.strip().upper(), strategy.strip()),
+            ).fetchone()
+        if row is None:
+            raise KeyError("Kelly entry was not found")
+        return dict(row)
+
+    def list_kelly_entries(
+        self, *, ticker: str | None = None, strategy: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if ticker:
+            clauses.append("ticker = ?")
+            params.append(ticker.strip().upper())
+        if strategy:
+            clauses.append("strategy = ?")
+            params.append(strategy.strip())
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM kelly_entries
+                {where}
+                ORDER BY strategy ASC, ticker ASC
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_kelly_entry(self, entry_id: int) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM kelly_entries WHERE id = ?",
+                (entry_id,),
             )
             return cursor.rowcount > 0
 

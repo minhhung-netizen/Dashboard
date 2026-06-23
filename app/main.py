@@ -151,10 +151,11 @@ app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), nam
 
 FEATURE_PATHS = {
     "overview": ("/api/summary", "/api/signals", "/api/chart/"),
-    "positions": ("/api/performance",),
+    "positions": ("/api/performance", "/api/kelly-entries"),
     "derivatives": ("/api/derivatives",),
     "manualPortfolio": ("/api/manual-portfolio",),
-    "performance": ("/api/performance", "/api/backtest-stats"),
+    "performance": ("/api/performance", "/api/backtest-stats", "/api/kelly-entries"),
+    "kelly": ("/api/kelly-entries",),
     "dividends": ("/api/dividend-events",),
     "logs": ("/api/invalid-signals", "/api/export/"),
 }
@@ -285,6 +286,19 @@ class StrategyBacktestStatsPayload(BaseModel):
     avg_hold_bars: float | None = Field(default=None, ge=0)
     avg_hold_days: float | None = Field(default=None, ge=0)
     note: str | None = None
+
+
+class KellyEntryPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    strategy: str = Field(default="", max_length=120, examples=["STxanhdo"])
+    winRate: float | None = Field(default=None, ge=0, le=100)
+    winningTrades: float | None = Field(default=None, ge=0)
+    totalTrades: float | None = Field(default=None, ge=0)
+    profitFactor: float | None = Field(default=None, ge=0)
+    maxDrawdown: float | None = Field(default=None, ge=0)
+    targetDrawdown: float | None = Field(default=None, ge=0)
+    fraction: float | None = Field(default=None, ge=0, le=100)
+    maxAllocation: float | None = Field(default=None, ge=0, le=100)
 
 
 class LoginPayload(BaseModel):
@@ -461,6 +475,8 @@ def available_signal_strategies() -> list[str]:
     }
     for stat in store.list_strategy_backtest_stats():
         strategies.add((stat.get("strategy") or "").strip())
+    for entry in store.list_kelly_entries():
+        strategies.add((entry.get("strategy") or "").strip())
     return sorted((strategy for strategy in strategies if strategy), key=str.lower)
 
 
@@ -878,6 +894,54 @@ def delete_backtest_stat(stat_id: int) -> dict[str, Any]:
     if not store.delete_strategy_backtest_stat(stat_id):
         raise HTTPException(status_code=404, detail="Backtest stats not found")
     return {"status": "deleted", "stat_id": stat_id}
+
+
+@app.get("/api/kelly-entries")
+def kelly_entries(
+    request: Request,
+    ticker: str | None = None,
+    strategy: str | None = None,
+) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    rows = store.list_kelly_entries(ticker=normalized_ticker, strategy=strategy)
+    if strategy_restricted(request.state.user):
+        allowed = {
+            str(item or "").strip().lower()
+            for item in request.state.user.get("strategies", [])
+            if str(item or "").strip()
+        }
+        rows = [
+            row
+            for row in rows
+            if not (row.get("strategy") or "").strip()
+            or (row.get("strategy") or "").strip().lower() in allowed
+        ]
+    return {"kelly_entries": rows}
+
+
+@app.post("/api/kelly-entries")
+def upsert_kelly_entry(payload: KellyEntryPayload) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    entry = store.upsert_kelly_entry(
+        ticker=ticker,
+        strategy=payload.strategy or "",
+        win_rate=payload.winRate,
+        winning_trades=payload.winningTrades,
+        total_trades=payload.totalTrades,
+        profit_factor=payload.profitFactor,
+        max_drawdown=payload.maxDrawdown,
+        target_drawdown=payload.targetDrawdown,
+        fraction=payload.fraction,
+        max_allocation=payload.maxAllocation,
+    )
+    return {"status": "saved", "kelly_entry": entry}
+
+
+@app.delete("/api/kelly-entries/{entry_id}")
+def delete_kelly_entry(entry_id: int) -> dict[str, Any]:
+    if not store.delete_kelly_entry(entry_id):
+        raise HTTPException(status_code=404, detail="Kelly entry not found")
+    return {"status": "deleted", "entry_id": entry_id}
 
 
 @app.get("/api/derivatives")
