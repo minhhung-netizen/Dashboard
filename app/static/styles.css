@@ -1601,6 +1601,13 @@ td strong {
   color: var(--accent);
 }
 
+.dividendBadge.today {
+  background: color-mix(in srgb, var(--sell) 15%, transparent);
+  border-color: color-mix(in srgb, var(--sell) 48%, var(--line));
+  color: #ff8f94;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sell) 12%, transparent);
+}
+
 .dividendBadge small {
   color: var(--muted);
   font-size: 10px;
@@ -1664,14 +1671,19 @@ td strong {
 }
 
 .exDateAlerts {
-  background: color-mix(in srgb, var(--warning) 12%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--line));
-  border-left: 4px solid var(--warning);
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--sell) 16%, var(--panel)),
+      color-mix(in srgb, var(--warning) 12%, var(--panel)));
+  border: 1px solid color-mix(in srgb, var(--sell) 42%, var(--line));
+  border-left: 5px solid var(--sell);
   border-radius: 7px;
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--sell) 10%, transparent);
   color: var(--ink);
-  font-weight: 680;
+  display: grid;
+  gap: 10px;
   margin-bottom: 16px;
-  padding: 12px 14px;
+  padding: 14px 16px;
 }
 
 .exDateAlerts[hidden] {
@@ -1679,7 +1691,41 @@ td strong {
 }
 
 .exDateAlerts strong {
-  color: var(--warning);
+  color: #ff9ca1;
+}
+
+.exDateAlertHeader {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.exDateAlertHeader span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.exDateAlertChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exDateAlertChip {
+  background: color-mix(in srgb, var(--sell) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--sell) 46%, var(--line));
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 820;
+  padding: 6px 12px;
+}
+
+.exDateAlertChip:hover {
+  background: color-mix(in srgb, var(--sell) 28%, var(--surface));
+  transform: translateY(-1px);
 }
 
 .exDateRow {

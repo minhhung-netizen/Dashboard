@@ -272,6 +272,7 @@ const translations = {
     dividendSaveFailed: "Could not save dividend event",
     dividendDeleteFailed: "Could not delete dividend event",
     exDateToday: "Ex-date today",
+    exDateTodayShort: "Ex-rights today",
     exDateAlertMessage: "Ex-rights date today for open positions",
     openPositions: "Open Positions",
     currentHoldings: "Current Holdings",
@@ -673,6 +674,7 @@ Object.assign(translations.vi, {
   dividendSaveFailed: "Không thể lưu sự kiện cổ tức",
   dividendDeleteFailed: "Không thể xóa sự kiện cổ tức",
   exDateToday: "Hôm nay là ngày GDKHQ",
+  exDateTodayShort: "GDKHQ hôm nay",
   exDateAlertMessage: "Cảnh báo ngày giao dịch không hưởng quyền cho vị thế đang mở",
   baseStrategyNotOpen: "Chiến lược gốc chưa mở",
   openPositions: "Vị thế đang mở",
@@ -2343,8 +2345,26 @@ function renderExDateAlerts() {
 
   const tickers = [...new Set(events.map((event) => String(event.ticker || "").toUpperCase()))].sort();
   const message = `${t("exDateAlertMessage")}: ${tickers.join(", ")}`;
-  els.exDateAlerts.innerHTML = `<strong>${escapeHtml(t("exDateToday"))}</strong>: ${escapeHtml(tickers.join(", "))}`;
+  els.exDateAlerts.innerHTML = `
+    <div class="exDateAlertHeader">
+      <strong>${escapeHtml(t("exDateToday"))}</strong>
+      <span>${escapeHtml(t("exDateAlertMessage"))}</span>
+    </div>
+    <div class="exDateAlertChips">
+      ${tickers.map((ticker) => `
+        <button class="exDateAlertChip" type="button" data-ex-date-ticker="${escapeHtml(ticker)}">
+          ${escapeHtml(ticker)}
+        </button>
+      `).join("")}
+    </div>
+  `;
   els.exDateAlerts.hidden = false;
+  els.exDateAlerts.querySelectorAll("[data-ex-date-ticker]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("overview");
+      renderChart(button.dataset.exDateTicker);
+    });
+  });
 
   const alertKey = `dividendExDateAlert:${localMarketDate()}:${tickers.join(",")}`;
   if (localStorage.getItem(alertKey) !== "shown") {
@@ -2883,6 +2903,17 @@ function renderRiskAlerts() {
       detail: `${strategyExposure[0].key} ${formatPercent(strategyExposure[0].value)}`,
     });
   }
+  (state.dividendAlerts || [])
+    .filter((alert) => alert.alert_status === "ex_date_today")
+    .slice(0, 5)
+    .forEach((alert) => {
+      alerts.push({
+        level: "danger",
+        title: t("exDateToday"),
+        detail: `${alert.ticker || alert.symbol || "-"} ${formatDateOnly(alert.ex_date || alert.date)}`,
+        ticker: alert.ticker || alert.symbol,
+      });
+    });
   averageLossSignals()
     .slice(0, 5)
     .forEach(({ trade, signal }) => alerts.push({
@@ -2900,14 +2931,17 @@ function renderRiskAlerts() {
       detail: `${row.trade.ticker} ${formatSignedPercent(row.trade.return_pct)}`,
       ticker: row.trade.ticker,
     }));
-  (state.dividendAlerts || []).slice(0, 5).forEach((alert) => {
-    alerts.push({
-      level: "warning",
-      title: t("dividendRiskAlert"),
-      detail: `${alert.ticker || alert.symbol || "-"} ${formatDateOnly(alert.ex_date || alert.date)}`,
-      ticker: alert.ticker || alert.symbol,
+  (state.dividendAlerts || [])
+    .filter((alert) => alert.alert_status !== "ex_date_today")
+    .slice(0, 5)
+    .forEach((alert) => {
+      alerts.push({
+        level: "warning",
+        title: t("dividendRiskAlert"),
+        detail: `${alert.ticker || alert.symbol || "-"} ${formatDateOnly(alert.ex_date || alert.date)}`,
+        ticker: alert.ticker || alert.symbol,
+      });
     });
-  });
   if (state.invalidSignals.length) {
     alerts.push({
       level: "warning",
@@ -3163,6 +3197,10 @@ function renderOpenPositions() {
       const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
       const allocatedPl = allocatedReturnPct(trade.return_pct, weightPct);
       const signals = positionSignals(trade);
+      const dividendToday = (trade.dividend_notes || []).some((note) =>
+        note.status === "upcoming" && Number(note.days_until) === 0
+      );
+      const dividendUpcoming = (trade.dividend_notes || []).some((note) => note.status === "upcoming");
       return `
       <article class="positionCard" data-card-ticker="${escapeHtml(trade.ticker)}">
         <div class="positionCardHead">
@@ -3186,8 +3224,8 @@ function renderOpenPositions() {
           ${averageLossSignalForTrade(trade)
             ? `<span class="confirmBadge avgLossBadge">${escapeHtml(t("avgLossSignal"))}</span>`
             : ""}
-          ${(trade.dividend_notes || []).some((note) => note.status === "upcoming")
-            ? `<span class="dividendBadge">${escapeHtml(t("upcomingDividend"))}</span>`
+          ${dividendUpcoming
+            ? `<span class="dividendBadge ${dividendToday ? "today" : "upcoming"}">${escapeHtml(dividendToday ? t("exDateTodayShort") : t("upcomingDividend"))}</span>`
             : ""}
         </div>
       </article>
@@ -3256,7 +3294,9 @@ function renderDividendNotes(notes) {
       ${notes
         .map((note) => {
           const isApplied = note.status === "applied";
-          const label = isApplied ? t("appliedDividend") : t("upcomingDividend");
+          const isToday = !isApplied && Number(note.days_until) === 0;
+          const label = isApplied ? t("appliedDividend") : isToday ? t("exDateTodayShort") : t("upcomingDividend");
+          const badgeClass = isApplied ? "applied" : isToday ? "today" : "upcoming";
           const detail = [
             note.cash_amount ? `${formatPrice(note.cash_amount)} cash` : "",
             note.stock_ratio_pct ? `${formatPercent(note.stock_ratio_pct)} stock` : "",
@@ -3265,7 +3305,7 @@ function renderDividendNotes(notes) {
             note.days_until !== undefined ? `${note.days_until}d` : "",
           ].filter(Boolean).join(" · ");
           return `
-            <span class="dividendBadge ${isApplied ? "applied" : "upcoming"}" title="${escapeHtml(note.note || "")}">
+            <span class="dividendBadge ${badgeClass}" title="${escapeHtml(note.note || "")}">
               ${escapeHtml(label)}
               <small>${escapeHtml(formatDateOnly(note.ex_date))}${detail ? ` · ${escapeHtml(detail)}` : ""}</small>
             </span>
