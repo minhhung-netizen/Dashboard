@@ -357,6 +357,14 @@ class SignalStoreTest(unittest.TestCase):
                 max_loss_pct=-12.2,
                 min_loss_pct=-0.56,
                 avg_loss_pct=-4.39,
+                max_gain_pct=47.59,
+                avg_gain_pct=16.64,
+                tp1_hits=1,
+                tp1_total=7,
+                tp2_hits=1,
+                tp2_total=7,
+                tp3_hits=1,
+                tp3_total=7,
                 avg_hold_bars=91.44,
                 avg_hold_days=26.47,
                 note="initial backtest",
@@ -370,6 +378,14 @@ class SignalStoreTest(unittest.TestCase):
                 max_loss_pct=-10,
                 min_loss_pct=-0.5,
                 avg_loss_pct=-3.9,
+                max_gain_pct=50,
+                avg_gain_pct=18.2,
+                tp1_hits=2,
+                tp1_total=8,
+                tp2_hits=1,
+                tp2_total=8,
+                tp3_hits=1,
+                tp3_total=8,
                 avg_hold_bars=80,
                 avg_hold_days=20,
                 note="updated backtest",
@@ -381,6 +397,9 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(second["id"], rows[0]["id"])
             self.assertEqual(rows[0]["closed_trades"], 120)
             self.assertAlmostEqual(rows[0]["avg_loss_pct"], -3.9)
+            self.assertAlmostEqual(rows[0]["max_gain_pct"], 50)
+            self.assertEqual(rows[0]["tp1_hits"], 2)
+            self.assertEqual(rows[0]["tp1_total"], 8)
             self.assertEqual(rows[0]["note"], "updated backtest")
             self.assertTrue(store.delete_strategy_backtest_stat(rows[0]["id"]))
             self.assertFalse(store.delete_strategy_backtest_stat(rows[0]["id"]))

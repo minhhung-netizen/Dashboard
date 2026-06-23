@@ -72,6 +72,14 @@ const els = {
   backtestMaxLoss: document.querySelector("#backtestMaxLoss"),
   backtestMinLoss: document.querySelector("#backtestMinLoss"),
   backtestAvgLoss: document.querySelector("#backtestAvgLoss"),
+  backtestMaxGain: document.querySelector("#backtestMaxGain"),
+  backtestAvgGain: document.querySelector("#backtestAvgGain"),
+  backtestTp1Hits: document.querySelector("#backtestTp1Hits"),
+  backtestTp1Total: document.querySelector("#backtestTp1Total"),
+  backtestTp2Hits: document.querySelector("#backtestTp2Hits"),
+  backtestTp2Total: document.querySelector("#backtestTp2Total"),
+  backtestTp3Hits: document.querySelector("#backtestTp3Hits"),
+  backtestTp3Total: document.querySelector("#backtestTp3Total"),
   backtestAvgHoldBars: document.querySelector("#backtestAvgHoldBars"),
   backtestAvgHoldDays: document.querySelector("#backtestAvgHoldDays"),
   backtestNote: document.querySelector("#backtestNote"),
@@ -975,6 +983,11 @@ Object.assign(translations.en, {
   maxLoss: "Max Loss",
   minLoss: "Min Loss",
   avgLoss: "Avg Loss",
+  maxGain: "Max Gain",
+  avgGain: "Avg Gain",
+  tp1HitRate: "TP1 / Trades",
+  tp2HitRate: "TP2 / Trades",
+  tp3HitRate: "TP3 / Trades",
   avgHoldBars: "Avg Hold Bars",
   avgHoldDays: "Avg Hold Days",
   noBacktestStats: "No saved backtest stats",
@@ -994,6 +1007,11 @@ Object.assign(translations.vi, {
   maxLoss: "Âm lớn nhất",
   minLoss: "Âm nhỏ nhất",
   avgLoss: "Âm trung bình",
+  maxGain: "Tăng lớn nhất",
+  avgGain: "Tăng trung bình",
+  tp1HitRate: "TP1 đạt / Tổng trade",
+  tp2HitRate: "TP2 đạt / Tổng trade",
+  tp3HitRate: "TP3 đạt / Tổng trade",
   avgHoldBars: "Số nến giữ TB",
   avgHoldDays: "Số ngày giữ TB",
   noBacktestStats: "Chưa có thống kê backtest đã lưu",
@@ -2471,6 +2489,14 @@ function readBacktestStatsForm() {
     max_loss_pct: optionalNumber(els.backtestMaxLoss.value),
     min_loss_pct: optionalNumber(els.backtestMinLoss.value),
     avg_loss_pct: optionalNumber(els.backtestAvgLoss.value),
+    max_gain_pct: optionalNumber(els.backtestMaxGain.value),
+    avg_gain_pct: optionalNumber(els.backtestAvgGain.value),
+    tp1_hits: optionalInteger(els.backtestTp1Hits.value),
+    tp1_total: optionalInteger(els.backtestTp1Total.value),
+    tp2_hits: optionalInteger(els.backtestTp2Hits.value),
+    tp2_total: optionalInteger(els.backtestTp2Total.value),
+    tp3_hits: optionalInteger(els.backtestTp3Hits.value),
+    tp3_total: optionalInteger(els.backtestTp3Total.value),
     avg_hold_bars: optionalNumber(els.backtestAvgHoldBars.value),
     avg_hold_days: optionalNumber(els.backtestAvgHoldDays.value),
     note: els.backtestNote.value.trim() || null,
@@ -2534,6 +2560,14 @@ function loadBacktestStatsToForm(stat) {
   els.backtestMaxLoss.value = rawNumber(stat.max_loss_pct);
   els.backtestMinLoss.value = rawNumber(stat.min_loss_pct);
   els.backtestAvgLoss.value = rawNumber(stat.avg_loss_pct);
+  els.backtestMaxGain.value = rawNumber(stat.max_gain_pct);
+  els.backtestAvgGain.value = rawNumber(stat.avg_gain_pct);
+  els.backtestTp1Hits.value = rawNumber(stat.tp1_hits);
+  els.backtestTp1Total.value = rawNumber(stat.tp1_total);
+  els.backtestTp2Hits.value = rawNumber(stat.tp2_hits);
+  els.backtestTp2Total.value = rawNumber(stat.tp2_total);
+  els.backtestTp3Hits.value = rawNumber(stat.tp3_hits);
+  els.backtestTp3Total.value = rawNumber(stat.tp3_total);
   els.backtestAvgHoldBars.value = rawNumber(stat.avg_hold_bars);
   els.backtestAvgHoldDays.value = rawNumber(stat.avg_hold_days);
   els.backtestNote.value = stat.note || "";
@@ -3081,7 +3115,7 @@ function renderPerformance(strategies) {
 function renderBacktestStats(stats) {
   if (!els.backtestStatsTable) return;
   if (!stats.length) {
-    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noBacktestStats")}</td></tr>`;
+    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="16">${t("noBacktestStats")}</td></tr>`;
     return;
   }
 
@@ -3095,6 +3129,11 @@ function renderBacktestStats(stats) {
         <td>${formatSignedPercent(stat.max_loss_pct)}</td>
         <td>${formatSignedPercent(stat.min_loss_pct)}</td>
         <td>${formatSignedPercent(stat.avg_loss_pct)}</td>
+        <td>${formatSignedPercent(stat.max_gain_pct)}</td>
+        <td>${formatSignedPercent(stat.avg_gain_pct)}</td>
+        <td>${formatHitRate(stat.tp1_hits, stat.tp1_total)}</td>
+        <td>${formatHitRate(stat.tp2_hits, stat.tp2_total)}</td>
+        <td>${formatHitRate(stat.tp3_hits, stat.tp3_total)}</td>
         <td>${formatPrice(stat.avg_hold_bars)}</td>
         <td>${formatPrice(stat.avg_hold_days)}</td>
         <td>${escapeHtml(stat.note || "-")}</td>
@@ -4275,6 +4314,17 @@ function formatSignedPercent(value) {
   const className = number >= 0 ? "positive" : "negative";
   const sign = number > 0 ? "+" : "";
   return `<span class="${className}">${sign}${number.toFixed(2)}%</span>`;
+}
+
+function formatHitRate(hits, total) {
+  if (hits === null || hits === undefined || total === null || total === undefined) return "-";
+  const hitCount = Number(hits);
+  const totalCount = Number(total);
+  if (!Number.isFinite(hitCount) || !Number.isFinite(totalCount) || totalCount <= 0) {
+    return "-";
+  }
+  const rate = hitCount / totalCount * 100;
+  return `${hitCount}/${totalCount} (${rate.toFixed(2)}%)`;
 }
 
 function formatSignedNumber(value) {

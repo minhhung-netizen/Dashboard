@@ -283,6 +283,14 @@ class StrategyBacktestStatsPayload(BaseModel):
     max_loss_pct: float | None = None
     min_loss_pct: float | None = None
     avg_loss_pct: float | None = None
+    max_gain_pct: float | None = None
+    avg_gain_pct: float | None = None
+    tp1_hits: int | None = Field(default=None, ge=0)
+    tp1_total: int | None = Field(default=None, ge=0)
+    tp2_hits: int | None = Field(default=None, ge=0)
+    tp2_total: int | None = Field(default=None, ge=0)
+    tp3_hits: int | None = Field(default=None, ge=0)
+    tp3_total: int | None = Field(default=None, ge=0)
     avg_hold_bars: float | None = Field(default=None, ge=0)
     avg_hold_days: float | None = Field(default=None, ge=0)
     note: str | None = None
@@ -882,6 +890,14 @@ def upsert_backtest_stat(payload: StrategyBacktestStatsPayload) -> dict[str, Any
         max_loss_pct=payload.max_loss_pct,
         min_loss_pct=payload.min_loss_pct,
         avg_loss_pct=payload.avg_loss_pct,
+        max_gain_pct=payload.max_gain_pct,
+        avg_gain_pct=payload.avg_gain_pct,
+        tp1_hits=payload.tp1_hits,
+        tp1_total=payload.tp1_total,
+        tp2_hits=payload.tp2_hits,
+        tp2_total=payload.tp2_total,
+        tp3_hits=payload.tp3_hits,
+        tp3_total=payload.tp3_total,
         avg_hold_bars=payload.avg_hold_bars,
         avg_hold_days=payload.avg_hold_days,
         note=payload.note,

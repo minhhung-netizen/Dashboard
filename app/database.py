@@ -153,6 +153,14 @@ CREATE TABLE IF NOT EXISTS strategy_backtest_stats (
     max_loss_pct REAL,
     min_loss_pct REAL,
     avg_loss_pct REAL,
+    max_gain_pct REAL,
+    avg_gain_pct REAL,
+    tp1_hits INTEGER,
+    tp1_total INTEGER,
+    tp2_hits INTEGER,
+    tp2_total INTEGER,
+    tp3_hits INTEGER,
+    tp3_total INTEGER,
     avg_hold_bars REAL,
     avg_hold_days REAL,
     note TEXT,
@@ -235,6 +243,7 @@ class SignalStore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._ensure_dividend_event_columns(conn)
+            self._ensure_strategy_backtest_stat_columns(conn)
             self._ensure_user_columns(conn)
             conn.execute("UPDATE signals SET price = price / 1000 WHERE price >= 1000")
             self._normalize_signal_actions(conn)
@@ -259,6 +268,26 @@ class SignalStore:
             WHERE source IS NOT NULL AND external_id IS NOT NULL
             """
         )
+
+    def _ensure_strategy_backtest_stat_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(strategy_backtest_stats)").fetchall()
+        }
+        for column_name, column_type in {
+            "max_gain_pct": "REAL",
+            "avg_gain_pct": "REAL",
+            "tp1_hits": "INTEGER",
+            "tp1_total": "INTEGER",
+            "tp2_hits": "INTEGER",
+            "tp2_total": "INTEGER",
+            "tp3_hits": "INTEGER",
+            "tp3_total": "INTEGER",
+        }.items():
+            if column_name not in columns:
+                conn.execute(
+                    f"ALTER TABLE strategy_backtest_stats ADD COLUMN {column_name} {column_type}"
+                )
 
     def _ensure_user_columns(self, conn: sqlite3.Connection) -> None:
         columns = {
@@ -965,6 +994,14 @@ class SignalStore:
         max_loss_pct: float | None,
         min_loss_pct: float | None,
         avg_loss_pct: float | None,
+        max_gain_pct: float | None,
+        avg_gain_pct: float | None,
+        tp1_hits: int | None,
+        tp1_total: int | None,
+        tp2_hits: int | None,
+        tp2_total: int | None,
+        tp3_hits: int | None,
+        tp3_total: int | None,
         avg_hold_bars: float | None,
         avg_hold_days: float | None,
         note: str | None,
@@ -978,16 +1015,26 @@ class SignalStore:
                 """
                 INSERT INTO strategy_backtest_stats (
                     ticker, strategy, metric_name, closed_trades, negative_trades,
-                    max_loss_pct, min_loss_pct, avg_loss_pct, avg_hold_bars,
-                    avg_hold_days, note, created_at, updated_at
+                    max_loss_pct, min_loss_pct, avg_loss_pct, max_gain_pct,
+                    avg_gain_pct, tp1_hits, tp1_total, tp2_hits, tp2_total,
+                    tp3_hits, tp3_total, avg_hold_bars, avg_hold_days, note,
+                    created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ticker, strategy, metric_name) DO UPDATE SET
                     closed_trades = excluded.closed_trades,
                     negative_trades = excluded.negative_trades,
                     max_loss_pct = excluded.max_loss_pct,
                     min_loss_pct = excluded.min_loss_pct,
                     avg_loss_pct = excluded.avg_loss_pct,
+                    max_gain_pct = excluded.max_gain_pct,
+                    avg_gain_pct = excluded.avg_gain_pct,
+                    tp1_hits = excluded.tp1_hits,
+                    tp1_total = excluded.tp1_total,
+                    tp2_hits = excluded.tp2_hits,
+                    tp2_total = excluded.tp2_total,
+                    tp3_hits = excluded.tp3_hits,
+                    tp3_total = excluded.tp3_total,
                     avg_hold_bars = excluded.avg_hold_bars,
                     avg_hold_days = excluded.avg_hold_days,
                     note = excluded.note,
@@ -1002,6 +1049,14 @@ class SignalStore:
                     max_loss_pct,
                     min_loss_pct,
                     avg_loss_pct,
+                    max_gain_pct,
+                    avg_gain_pct,
+                    tp1_hits,
+                    tp1_total,
+                    tp2_hits,
+                    tp2_total,
+                    tp3_hits,
+                    tp3_total,
                     avg_hold_bars,
                     avg_hold_days,
                     note,
