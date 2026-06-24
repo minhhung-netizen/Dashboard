@@ -181,8 +181,8 @@ def _trade_record(
 ) -> dict[str, Any]:
     direction = 1 if position.side == "long" else -1
     points_per_contract = (mark_price - position.average_price) * direction
-    pnl_points = points_per_contract * position.quantity
-    pnl_vnd = pnl_points * position.contract_multiplier
+    pnl_points = points_per_contract
+    pnl_vnd = points_per_contract * position.quantity * position.contract_multiplier
     payload = exit_event.get("payload") if exit_event else position.latest_payload
     return {
         "symbol": position.symbol,

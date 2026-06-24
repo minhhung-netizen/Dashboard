@@ -51,7 +51,7 @@ class DerivativePerformanceTest(unittest.TestCase):
         self.assertEqual(position["quantity"], 4)
         self.assertEqual(position["layer_count"], 3)
         self.assertAlmostEqual(position["average_price"], 1290)
-        self.assertAlmostEqual(position["pnl_points"], -40)
+        self.assertAlmostEqual(position["pnl_points"], -10)
         self.assertAlmostEqual(position["pnl_vnd"], -4000000)
 
     def test_closes_short_position_and_calculates_realized_pnl(self):
@@ -66,7 +66,7 @@ class DerivativePerformanceTest(unittest.TestCase):
         trade = result["closed_trades"][0]
         self.assertEqual(result["open_positions"], [])
         self.assertAlmostEqual(trade["average_price"], 1305)
-        self.assertAlmostEqual(trade["pnl_points"], 30)
+        self.assertAlmostEqual(trade["pnl_points"], 15)
         self.assertAlmostEqual(trade["pnl_vnd"], 3000000)
         self.assertEqual(trade["exit_reason"], "TP")
         self.assertEqual(result["summary"]["wins"], 1)
