@@ -1401,16 +1401,10 @@ function renderKellyEntries() {
 
 function updateKellySavedStrategyFilterOptions(entries) {
   const currentValue = els.kellyStrategyFilter.value;
-  const strategies = [
-    ...new Set(
-      [
-        ...(entries || []).map((entry) => entry.strategy),
-        ...state.performanceStrategies,
-      ]
-        .map((strategy) => String(strategy || "").trim())
-        .filter(Boolean)
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+  const strategies = uniqueStrategyNames([
+    ...(entries || []).map((entry) => entry.strategy),
+    ...state.performanceStrategies,
+  ]);
 
   els.kellyStrategyFilter.replaceChildren();
   els.kellyStrategyFilter.append(new Option(t("allStrategies"), ""));
@@ -1437,10 +1431,7 @@ function loadKellyEntry(entryKey) {
   if (!entry) return;
   state.activeKellyEntryKey = entryKey;
   els.kellyTicker.value = entry.ticker || "";
-  updateKellyStrategyOptions(
-    (state.performanceStrategies || []).map((row) => row.strategy),
-    entry.strategy || ""
-  );
+  updateKellyStrategyOptions(state.performanceStrategies, entry.strategy || "");
   els.kellyStrategy.value = entry.strategy || "";
   els.kellyWinRate.value = rawNumber(entry.winRate);
   els.kellyWinningTrades.value = rawNumber(entry.winningTrades);
@@ -2633,10 +2624,7 @@ function loadBacktestStatsToForm(stat) {
   state.activeBacktestStatKey = tickerStrategyKey(stat.ticker, stat.strategy);
   state.activeBacktestStatId = String(stat.id || "");
   els.backtestTicker.value = stat.ticker || "";
-  updateBacktestStrategyOptions(
-    [...state.performanceStrategies, ...state.backtestStats].map((row) => row.strategy),
-    stat.strategy || ""
-  );
+  updateBacktestStrategyOptions([...state.performanceStrategies, ...state.backtestStats], stat.strategy || "");
   els.backtestStrategy.value = stat.strategy || "";
   els.backtestClosedTrades.value = rawNumber(stat.closed_trades);
   els.backtestNegativeTrades.value = rawNumber(stat.negative_trades);
@@ -2674,6 +2662,19 @@ async function deleteBacktestStats(statId) {
   await refresh();
 }
 
+function strategyNameFrom(value) {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value).trim();
+  }
+  if (!value || typeof value !== "object") return "";
+  return String(value.strategy || value.name || value.label || value.value || "").trim();
+}
+
+function uniqueStrategyNames(items) {
+  return [...new Set((items || []).map(strategyNameFrom).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function updateOpenPositionStrategyFilterOptions(openTrades) {
   const currentValue = els.openPositionStrategyFilter.value;
   const strategies = [
@@ -2694,13 +2695,7 @@ function updateOpenPositionStrategyFilterOptions(openTrades) {
 
 function updatePerformanceStrategyFilterOptions(strategyRows) {
   const currentValue = els.performanceStrategyFilter.value;
-  const strategies = [
-    ...new Set(
-      (strategyRows || [])
-        .map((row) => String(row.strategy || "").trim())
-        .filter(Boolean)
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+  const strategies = uniqueStrategyNames(strategyRows);
 
   els.performanceStrategyFilter.replaceChildren();
   els.performanceStrategyFilter.append(new Option(t("allStrategies"), ""));
@@ -2713,10 +2708,7 @@ function updatePerformanceStrategyFilterOptions(strategyRows) {
 }
 
 function updateBacktestStrategyOptions(strategies, preferredValue = els.backtestStrategy.value) {
-  const normalizedStrategies = [...new Set(strategies || [])]
-    .map((strategy) => String(strategy || "").trim())
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right));
+  const normalizedStrategies = uniqueStrategyNames(strategies);
 
   els.backtestStrategy.replaceChildren();
   els.backtestStrategy.append(new Option(t("strategy"), ""));
@@ -2732,10 +2724,7 @@ function updateBacktestStrategyOptions(strategies, preferredValue = els.backtest
 }
 
 function updateKellyStrategyOptions(strategies, preferredValue = els.kellyStrategy.value) {
-  const normalizedStrategies = [...new Set(strategies || [])]
-    .map((strategy) => String(strategy || "").trim())
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right));
+  const normalizedStrategies = uniqueStrategyNames(strategies);
 
   els.kellyStrategy.replaceChildren();
   els.kellyStrategy.append(new Option(t("allStrategies"), ""));
@@ -3235,16 +3224,10 @@ function renderBacktestStats(stats) {
 
 function updateBacktestSavedStrategyFilterOptions(stats) {
   const currentValue = els.backtestStrategyFilter.value;
-  const strategies = [
-    ...new Set(
-      [
-        ...(stats || []).map((stat) => stat.strategy),
-        ...state.performanceStrategies,
-      ]
-        .map((strategy) => String(strategy || "").trim())
-        .filter(Boolean)
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+  const strategies = uniqueStrategyNames([
+    ...(stats || []).map((stat) => stat.strategy),
+    ...state.performanceStrategies,
+  ]);
 
   els.backtestStrategyFilter.replaceChildren();
   els.backtestStrategyFilter.append(new Option(t("allStrategies"), ""));
