@@ -32,7 +32,7 @@
         <span id="syncStatus" class="syncStatus">Đang đồng bộ...</span>
       </div>
       <div class="actions">
-        <input id="watchlistInput" name="watchlist-symbols" type="search" autocomplete="new-password" autocapitalize="characters" spellcheck="false" aria-label="Watchlist symbols" placeholder="VPB,TCB,FPT" />
+        <input id="watchlistInput" name="watchlist-symbols" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Watchlist symbols" placeholder="VPB,TCB,FPT" />
         <label class="checkboxControl">
           <input id="watchlistOnly" type="checkbox" />
           <span data-i18n="watchlistOnly">Watchlist only</span>
@@ -227,7 +227,7 @@
             <div class="positionControls">
               <span class="positionTotal"><span data-i18n="openUnrealizedPl">Unrealized P/L</span>: <strong id="openPositionsTotalReturn">-</strong></span>
               <button id="openPositionRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
-              <input id="openPositionTickerFilter" name="open-position-ticker-filter" type="search" autocomplete="new-password" autocapitalize="characters" spellcheck="false" aria-label="Open position ticker filter" placeholder="Ticker" />
+              <input id="openPositionTickerFilter" name="open-position-ticker-filter" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Open position ticker filter" placeholder="Ticker" />
               <select id="openPositionStrategyFilter" aria-label="Open position strategy filter">
                 <option value="" data-i18n="allStrategies">All strategies</option>
               </select>
@@ -475,7 +475,7 @@
               </div>
             </div>
             <form id="manualPositionForm" class="manualForm" autocomplete="off">
-              <input id="manualTicker" name="manual-ticker-symbol" required autocomplete="new-password" autocapitalize="characters" spellcheck="false" aria-label="Manual ticker" placeholder="Ticker" />
+              <input id="manualTicker" name="manual-ticker-symbol" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Manual ticker" placeholder="Ticker" />
               <input id="manualWeight" required min="0.01" step="0.01" type="number" aria-label="Manual weight" placeholder="Weight %" />
               <input id="manualEntryPrice" required min="0.001" step="0.001" type="number" aria-label="Manual entry price" placeholder="Entry" />
               <input id="manualCurrentPrice" disabled aria-label="Manual current price" placeholder="Auto market price" />
@@ -584,7 +584,7 @@
                 <h2 data-i18n="buyToSellResults">Buy to Sell Results</h2>
               </div>
               <div class="performanceControls">
-                <input id="performanceTickerFilter" name="performance-ticker-filter" type="search" autocomplete="new-password" autocapitalize="characters" spellcheck="false" aria-label="Performance ticker filter" placeholder="Ticker" />
+                <input id="performanceTickerFilter" name="performance-ticker-filter" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Performance ticker filter" placeholder="Ticker" />
                 <select id="performanceStrategyFilter" aria-label="Performance strategy filter">
                   <option value="" data-i18n="allStrategies">All strategies</option>
                 </select>
@@ -627,11 +627,11 @@
               <h2 data-i18n="strategyBacktestStats">Strategy Backtest Stats</h2>
             </div>
             <div class="backtestControls">
-              <input id="backtestTickerSearch" name="backtest-ticker-search" type="search" autocomplete="new-password" autocapitalize="characters" spellcheck="false" placeholder="Search ticker" />
+              <input id="backtestTickerSearch" name="backtest-ticker-search" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="Search ticker" />
             </div>
           </div>
           <form id="backtestStatsForm" class="backtestStatsForm adminOnly" autocomplete="off">
-            <input id="backtestTicker" name="backtest-ticker-symbol" autocomplete="new-password" autocapitalize="characters" spellcheck="false" required placeholder="Ticker" />
+            <input id="backtestTicker" name="backtest-ticker-symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore required placeholder="Ticker" />
             <select id="backtestStrategy" required>
               <option value="" data-i18n="strategy">Strategy</option>
             </select>
@@ -718,7 +718,7 @@
             <form id="kellyForm" class="kellyForm">
               <label>
                 <span data-i18n="kellyTicker">Ticker</span>
-                <input id="kellyTicker" name="kelly-ticker-symbol" autocomplete="new-password" autocapitalize="characters" spellcheck="false" placeholder="VPB" />
+                <input id="kellyTicker" name="kelly-ticker-symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="VPB" />
               </label>
               <label>
                 <span data-i18n="strategy">Strategy</span>
@@ -804,7 +804,7 @@
                 <h2 data-i18n="kellySavedByTicker">Allocation by Ticker</h2>
               </div>
               <div class="kellySavedControls">
-                <input id="kellySearch" name="kelly-ticker-search" type="search" autocomplete="new-password" autocapitalize="characters" spellcheck="false" aria-label="Kelly ticker search" data-i18n-placeholder="kellySearchPlaceholder" placeholder="Search ticker" />
+                <input id="kellySearch" name="kelly-ticker-search" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Kelly ticker search" data-i18n-placeholder="kellySearchPlaceholder" placeholder="Search ticker" />
               </div>
             </div>
             <div class="tableWrap">
@@ -839,7 +839,7 @@
             </div>
           </div>
           <form id="dividendEventForm" class="manualForm dividendForm" autocomplete="off">
-            <input id="dividendTicker" name="dividend-ticker-symbol" required autocomplete="new-password" autocapitalize="characters" spellcheck="false" aria-label="Dividend ticker" placeholder="Ticker" />
+            <input id="dividendTicker" name="dividend-ticker-symbol" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Dividend ticker" placeholder="Ticker" />
             <input id="dividendExDate" required type="date" aria-label="Dividend ex date" />
             <input id="dividendCashAmount" min="0" step="0.001" type="number" aria-label="Cash dividend" placeholder="Cash / share, e.g. 1000" />
             <input id="dividendStockRatio" min="0" step="0.01" type="number" aria-label="Stock dividend ratio" placeholder="Stock %" />
