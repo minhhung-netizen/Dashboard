@@ -1153,11 +1153,16 @@ main {
 
 .backtestControls {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
 }
 
-.backtestControls input {
+.backtestControls input,
+.backtestControls select {
   max-width: 220px;
+}
+
+.backtestControls input {
   text-transform: uppercase;
 }
 
@@ -1263,10 +1268,12 @@ main {
 
 .kellySavedControls {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
 }
 
-.kellySavedControls input {
+.kellySavedControls input,
+.kellySavedControls select {
   max-width: 210px;
 }
 
@@ -2019,6 +2026,7 @@ td strong {
   .backtestStatsForm select,
   .backtestStatsForm button,
   .backtestControls input,
+  .backtestControls select,
   .positionControls input,
   .positionControls select,
   .derivativeCapitalForm input {

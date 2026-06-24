@@ -627,6 +627,9 @@
               <h2 data-i18n="strategyBacktestStats">Strategy Backtest Stats</h2>
             </div>
             <div class="backtestControls">
+              <select id="backtestStrategyFilter" aria-label="Backtest strategy filter">
+                <option value="" data-i18n="allStrategies">All strategies</option>
+              </select>
               <input id="backtestTickerSearch" name="backtest-ticker-search" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="Search ticker" />
             </div>
           </div>
@@ -804,6 +807,9 @@
                 <h2 data-i18n="kellySavedByTicker">Allocation by Ticker</h2>
               </div>
               <div class="kellySavedControls">
+                <select id="kellyStrategyFilter" aria-label="Kelly strategy filter">
+                  <option value="" data-i18n="allStrategies">All strategies</option>
+                </select>
                 <input id="kellySearch" name="kelly-ticker-search" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Kelly ticker search" data-i18n-placeholder="kellySearchPlaceholder" placeholder="Search ticker" />
               </div>
             </div>

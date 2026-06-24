@@ -66,6 +66,7 @@ const els = {
   backtestStatsForm: document.querySelector("#backtestStatsForm"),
   backtestTicker: document.querySelector("#backtestTicker"),
   backtestStrategy: document.querySelector("#backtestStrategy"),
+  backtestStrategyFilter: document.querySelector("#backtestStrategyFilter"),
   backtestTickerSearch: document.querySelector("#backtestTickerSearch"),
   backtestClosedTrades: document.querySelector("#backtestClosedTrades"),
   backtestNegativeTrades: document.querySelector("#backtestNegativeTrades"),
@@ -108,6 +109,7 @@ const els = {
   kellyEdge: document.querySelector("#kellyEdge"),
   kellyDrawdownFactor: document.querySelector("#kellyDrawdownFactor"),
   kellyNote: document.querySelector("#kellyNote"),
+  kellyStrategyFilter: document.querySelector("#kellyStrategyFilter"),
   kellySearch: document.querySelector("#kellySearch"),
   kellySavedTable: document.querySelector("#kellySavedTable"),
   languageSelect: document.querySelector("#languageSelect"),
@@ -1349,10 +1351,14 @@ async function saveCurrentKellyEntry() {
 
 function renderKellyEntries() {
   const entries = loadKellyEntries();
+  updateKellySavedStrategyFilterOptions(entries);
   const search = els.kellySearch.value.trim().toUpperCase();
-  const filteredEntries = search
-    ? entries.filter((entry) => String(entry.ticker || "").toUpperCase().includes(search))
-    : entries;
+  const strategyFilter = els.kellyStrategyFilter.value;
+  const filteredEntries = entries.filter((entry) => {
+    const tickerMatches = !search || String(entry.ticker || "").toUpperCase().includes(search);
+    const strategyMatches = !strategyFilter || String(entry.strategy || "") === strategyFilter;
+    return tickerMatches && strategyMatches;
+  });
   if (!filteredEntries.length) {
     els.kellySavedTable.innerHTML =
       `<tr><td class="empty" colspan="10">${t("noKellyEntries")}</td></tr>`;
@@ -1391,6 +1397,27 @@ function renderKellyEntries() {
       deleteKellyEntry(button.dataset.kellyDelete);
     });
   });
+}
+
+function updateKellySavedStrategyFilterOptions(entries) {
+  const currentValue = els.kellyStrategyFilter.value;
+  const strategies = [
+    ...new Set(
+      [
+        ...(entries || []).map((entry) => entry.strategy),
+        ...state.performanceStrategies,
+      ]
+        .map((strategy) => String(strategy || "").trim())
+        .filter(Boolean)
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  els.kellyStrategyFilter.replaceChildren();
+  els.kellyStrategyFilter.append(new Option(t("allStrategies"), ""));
+  strategies.forEach((strategy) => {
+    els.kellyStrategyFilter.append(new Option(strategy, strategy));
+  });
+  els.kellyStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
 
 function kellyEntryUsageCount(entry) {
@@ -2514,12 +2541,16 @@ function filterBacktestStats(stats) {
   const tickerFilter = els.performanceTickerFilter.value.trim().toUpperCase();
   const backtestTickerSearch = els.backtestTickerSearch.value.trim().toUpperCase();
   const strategyFilter = els.performanceStrategyFilter.value.trim();
+  const backtestStrategyFilter = els.backtestStrategyFilter.value;
   return (stats || []).filter((stat) => {
     const ticker = String(stat.ticker || "").toUpperCase();
+    const strategy = String(stat.strategy || "");
     const tickerMatches =
       (!tickerFilter || ticker.includes(tickerFilter)) &&
       (!backtestTickerSearch || ticker.includes(backtestTickerSearch));
-    const strategyMatches = !strategyFilter || String(stat.strategy || "") === strategyFilter;
+    const strategyMatches =
+      (!strategyFilter || strategy === strategyFilter) &&
+      (!backtestStrategyFilter || strategy === backtestStrategyFilter);
     return tickerMatches && strategyMatches;
   });
 }
@@ -3159,6 +3190,7 @@ function renderPerformance(strategies) {
 
 function renderBacktestStats(stats) {
   if (!els.backtestStatsTable) return;
+  updateBacktestSavedStrategyFilterOptions(state.backtestStats);
   if (!stats.length) {
     els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="16">${t("noBacktestStats")}</td></tr>`;
     return;
@@ -3199,6 +3231,27 @@ function renderBacktestStats(stats) {
   els.backtestStatsTable.querySelectorAll("[data-backtest-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteBacktestStats(button.dataset.backtestDelete));
   });
+}
+
+function updateBacktestSavedStrategyFilterOptions(stats) {
+  const currentValue = els.backtestStrategyFilter.value;
+  const strategies = [
+    ...new Set(
+      [
+        ...(stats || []).map((stat) => stat.strategy),
+        ...state.performanceStrategies,
+      ]
+        .map((strategy) => String(strategy || "").trim())
+        .filter(Boolean)
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  els.backtestStrategyFilter.replaceChildren();
+  els.backtestStrategyFilter.append(new Option(t("allStrategies"), ""));
+  strategies.forEach((strategy) => {
+    els.backtestStrategyFilter.append(new Option(strategy, strategy));
+  });
+  els.backtestStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
 
 function renderPerformanceClosedTrades(closedTrades) {
@@ -4582,12 +4635,14 @@ els.positionInsightChart.addEventListener("click", () => {
 els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
+els.backtestStrategyFilter.addEventListener("change", () => renderBacktestStats(filterBacktestStats(state.backtestStats)));
 els.backtestTickerSearch.addEventListener("input", () => renderBacktestStats(filterBacktestStats(state.backtestStats)));
 els.backtestStatsForm.addEventListener("submit", saveBacktestStats);
 els.kellyForm.addEventListener("input", renderKellyCalculator);
 els.kellyForm.addEventListener("change", renderKellyCalculator);
 els.kellyForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveKellyEntry.addEventListener("click", saveCurrentKellyEntry);
+els.kellyStrategyFilter.addEventListener("change", renderKellyEntries);
 els.kellySearch.addEventListener("input", renderKellyEntries);
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
