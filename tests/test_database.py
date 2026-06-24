@@ -92,6 +92,39 @@ class SignalStoreTest(unittest.TestCase):
             migrated = SignalStore(db_path).get_signal(signal["id"])
             self.assertEqual(migrated["price"], 74.4)
 
+    def test_init_keeps_and_repairs_vnindex_point_prices(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "signals.db"
+            store = SignalStore(db_path)
+            normalized = store.insert_signal(
+                ticker="VNINDEX",
+                exchange="HOSE",
+                action="buy",
+                price=1.876,
+                timeframe="60",
+                strategy="Modern Stock EMA",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+            raw = store.insert_signal(
+                ticker="VNINDEX",
+                exchange="HOSE",
+                action="sell",
+                price=1876.75,
+                timeframe="60",
+                strategy="Modern Stock EMA",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+
+            migrated_store = SignalStore(db_path)
+            self.assertEqual(migrated_store.get_signal(normalized["id"])["price"], 1876)
+            self.assertEqual(migrated_store.get_signal(raw["id"])["price"], 1876.75)
+
     def test_init_normalizes_existing_malformed_confirm_actions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "signals.db"

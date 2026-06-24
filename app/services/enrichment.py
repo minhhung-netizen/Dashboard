@@ -24,6 +24,7 @@ from app.config import PROJECT_ROOT
 
 
 EXCHANGE_PREFIXES = {"HOSE", "HNX", "UPCOM", "VNINDEX", "INDEX"}
+INDEX_TICKERS = {"VNINDEX"}
 
 
 def normalize_ticker(raw_ticker: Any) -> tuple[str, str | None]:
@@ -75,10 +76,23 @@ def coerce_float(value: Any) -> float | None:
         return None
 
 
-def normalize_stock_price(value: Any) -> float | None:
+def is_index_ticker(ticker: Any = None, exchange: str | None = None) -> bool:
+    symbol = str(ticker or "").strip().upper()
+    market = str(exchange or "").strip().upper()
+    return symbol in INDEX_TICKERS or market in {"VNINDEX", "INDEX"}
+
+
+def normalize_stock_price(
+    value: Any,
+    *,
+    ticker: Any = None,
+    exchange: str | None = None,
+) -> float | None:
     price = coerce_float(value)
     if price is None:
         return None
+    if is_index_ticker(ticker, exchange):
+        return price
     return price / 1000 if abs(price) >= 1000 else price
 
 

@@ -245,7 +245,23 @@ class SignalStore:
             self._ensure_dividend_event_columns(conn)
             self._ensure_strategy_backtest_stat_columns(conn)
             self._ensure_user_columns(conn)
-            conn.execute("UPDATE signals SET price = price / 1000 WHERE price >= 1000")
+            conn.execute(
+                """
+                UPDATE signals
+                SET price = price * 1000
+                WHERE UPPER(ticker) = 'VNINDEX'
+                  AND price > 0
+                  AND price < 10
+                """
+            )
+            conn.execute(
+                """
+                UPDATE signals
+                SET price = price / 1000
+                WHERE price >= 1000
+                  AND UPPER(ticker) != 'VNINDEX'
+                """
+            )
             self._normalize_signal_actions(conn)
 
     def _ensure_dividend_event_columns(self, conn: sqlite3.Connection) -> None:

@@ -579,7 +579,7 @@ async def receive_webhook(
         ticker=ticker,
         exchange=exchange,
         action=action,
-        price=normalize_stock_price(payload.price),
+        price=normalize_stock_price(payload.price, ticker=ticker, exchange=exchange),
         timeframe=payload.timeframe,
         strategy=payload.strategy,
         note=payload.note,

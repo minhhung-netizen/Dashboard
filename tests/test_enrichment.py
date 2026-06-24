@@ -53,6 +53,14 @@ class EnrichmentHelpersTest(unittest.TestCase):
         self.assertEqual(normalize_stock_price("74400"), 74.4)
         self.assertEqual(normalize_stock_price("13.95"), 13.95)
 
+    def test_normalize_stock_price_keeps_vnindex_points(self):
+        self.assertEqual(normalize_stock_price("1876", ticker="VNINDEX"), 1876)
+        self.assertEqual(
+            normalize_stock_price("1876.75", ticker="VNINDEX", exchange="HOSE"),
+            1876.75,
+        )
+        self.assertEqual(normalize_stock_price("1876", exchange="VNINDEX"), 1876)
+
     def test_enricher_handles_non_exception_vnstock_failures(self):
         class ExplodingEnricher(VnstockEnricher):
             def _enrich_with_vnstock(self, ticker):
