@@ -1741,7 +1741,7 @@ function renderAdminUsers() {
             <span>Hoạt động</span>
           </label>
         </td>
-        <td><input data-user-password type="password" minlength="8" placeholder="Để trống nếu giữ nguyên" /></td>
+        <td><input data-user-password name="admin-user-new-password-${user.id}" type="password" minlength="8" autocomplete="new-password" placeholder="Để trống nếu giữ nguyên" /></td>
         <td>
           <button class="smallButton" type="button" data-user-save>Lưu</button>
           ${user.id === state.user.id ? "" : `<button class="deleteButton" type="button" data-user-delete>Xóa</button>`}
