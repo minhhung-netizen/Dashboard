@@ -1914,7 +1914,7 @@ async function refresh() {
     (kellyPayload.kelly_entries || []).map(normalizeKellyEntry)
   );
   state.openTrades = positionPayload.open_trades || [];
-  updateOpenPositionStrategyFilterOptions(state.openTrades);
+  updateOpenPositionStrategyFilterOptions(filterTradesForWatchlist(state.openTrades));
   state.performanceStrategies = positionPayload.strategies || [];
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
   renderOpenPositions();
@@ -1969,6 +1969,13 @@ function filterSignalsForWatchlist(signals) {
   if (!state.watchlist.length) return [];
   const allowed = new Set(state.watchlist);
   return signals.filter((signal) => allowed.has(String(signal.ticker || "").toUpperCase()));
+}
+
+function filterTradesForWatchlist(trades) {
+  if (!state.watchlistOnly) return trades || [];
+  if (!state.watchlist.length) return [];
+  const allowed = new Set(state.watchlist);
+  return (trades || []).filter((trade) => allowed.has(String(trade.ticker || "").toUpperCase()));
 }
 
 function renderManualPortfolio(payload) {
@@ -3036,8 +3043,9 @@ function filterOpenPositions(openTrades) {
   const tickerFilter = els.openPositionTickerFilter.value.trim().toUpperCase();
   const strategyFilter = els.openPositionStrategyFilter.value.trim();
   const confirmFilter = els.openPositionConfirmFilter.value;
-  return openTrades.filter((trade) => {
-    const tickerMatches = !tickerFilter || String(trade.ticker || "").includes(tickerFilter);
+  return filterTradesForWatchlist(openTrades).filter((trade) => {
+    const ticker = String(trade.ticker || "").toUpperCase();
+    const tickerMatches = !tickerFilter || ticker.includes(tickerFilter);
     const strategyMatches =
       !strategyFilter || String(trade.strategy || "") === strategyFilter;
     const confirmMatches =
@@ -3407,7 +3415,9 @@ function renderClosedTrades(closedTrades) {
 }
 
 function filterClosedTrades(closedTrades) {
-  const visibleClosedTrades = hideClosedTradesForReopenedPositions(closedTrades);
+  const visibleClosedTrades = filterTradesForWatchlist(
+    hideClosedTradesForReopenedPositions(closedTrades)
+  );
   if (!state.closedTradeFilter) return visibleClosedTrades;
   const ticker = state.closedTradeFilter.ticker;
   const strategy = state.closedTradeFilter.strategy;
