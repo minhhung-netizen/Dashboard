@@ -81,6 +81,13 @@ const els = {
   backtestAvgHoldDays: document.querySelector("#backtestAvgHoldDays"),
   backtestNote: document.querySelector("#backtestNote"),
   backtestStatsTable: document.querySelector("#backtestStatsTable"),
+  positionInsightModal: document.querySelector("#positionInsightModal"),
+  positionInsightTitle: document.querySelector("#positionInsightTitle"),
+  positionInsightSubtitle: document.querySelector("#positionInsightSubtitle"),
+  positionInsightBody: document.querySelector("#positionInsightBody"),
+  positionInsightClose: document.querySelector("#positionInsightClose"),
+  positionInsightCloseBottom: document.querySelector("#positionInsightCloseBottom"),
+  positionInsightChart: document.querySelector("#positionInsightChart"),
   kellyForm: document.querySelector("#kellyForm"),
   kellyTicker: document.querySelector("#kellyTicker"),
   kellyStrategy: document.querySelector("#kellyStrategy"),
@@ -993,6 +1000,21 @@ Object.assign(translations.en, {
   backtestDeleteFailed: "Could not delete backtest stats",
   duplicateTickerStrategy: "This ticker and strategy already exists",
   backtestSearchPlaceholder: "Search ticker",
+  positionInsightEyebrow: "Position detail",
+  openChart: "Open chart",
+  kellySummary: "Kelly Allocation",
+  backtestSummary: "Backtest Stats",
+  currentPosition: "Current Position",
+  noKellyForPosition: "No Kelly entry for this ticker and strategy",
+  noBacktestForPosition: "No backtest stats for this ticker and strategy",
+  recommendedAllocation: "Recommended allocation",
+  fullKelly: "Full Kelly",
+  quarterKelly: "Quarter Kelly",
+  edge: "Edge",
+  winLossRatio: "Win/Loss ratio",
+  targetDrawdown: "Target drawdown",
+  totalTrades: "Total trades",
+  winningTrades: "Winning trades",
 });
 
 Object.assign(translations.vi, {
@@ -1017,6 +1039,21 @@ Object.assign(translations.vi, {
   backtestDeleteFailed: "Không xóa được thống kê backtest",
   duplicateTickerStrategy: "Mã và chiến lược này đã tồn tại",
   backtestSearchPlaceholder: "Tìm mã",
+  positionInsightEyebrow: "Chi tiết vị thế",
+  openChart: "Mở biểu đồ",
+  kellySummary: "Phân bổ Kelly",
+  backtestSummary: "Thống kê backtest",
+  currentPosition: "Vị thế hiện tại",
+  noKellyForPosition: "Chưa có Kelly cho mã và chiến lược này",
+  noBacktestForPosition: "Chưa có backtest cho mã và chiến lược này",
+  recommendedAllocation: "Phân bổ khuyến nghị",
+  fullKelly: "Kelly đầy đủ",
+  quarterKelly: "Kelly 1/4",
+  edge: "Lợi thế",
+  winLossRatio: "Tỷ lệ lời/lỗ",
+  targetDrawdown: "Drawdown mục tiêu",
+  totalTrades: "Tổng giao dịch",
+  winningTrades: "Giao dịch thắng",
 });
 
 const state = {
@@ -1108,6 +1145,16 @@ function kellyAllocationPct(ticker, strategy = "") {
   if (!entry) return state.defaultSignalWeightPct;
   const recommended = calculateKelly(entry).recommendedPct;
   return Number.isFinite(Number(recommended)) ? Number(recommended) : state.defaultSignalWeightPct;
+}
+
+function kellyWinRatePct(entry) {
+  const direct = Number(entry?.winRate);
+  if (Number.isFinite(direct)) return direct;
+  const wins = Number(entry?.winningTrades);
+  const total = Number(entry?.totalTrades);
+  return Number.isFinite(wins) && Number.isFinite(total) && total > 0
+    ? wins / total * 100
+    : null;
 }
 
 function loadWatchlist() {
@@ -2795,12 +2842,7 @@ function openTradeRiskRows() {
 function backtestStatForTrade(trade) {
   const targetKey = tickerStrategyKey(trade.ticker, trade.strategy);
   return (state.backtestStats || []).find((stat) => {
-    const avgLoss = Number(stat.avg_loss_pct);
-    return (
-      tickerStrategyKey(stat.ticker, stat.strategy) === targetKey &&
-      Number.isFinite(avgLoss) &&
-      avgLoss !== 0
-    );
+    return tickerStrategyKey(stat.ticker, stat.strategy) === targetKey;
   });
 }
 
@@ -3216,8 +3258,9 @@ function renderOpenPositions() {
       const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
       const allocatedPl = allocatedReturnPct(trade.return_pct, weightPct);
       const signals = positionSignals(trade);
+      const positionKey = tickerStrategyKey(trade.ticker, trade.strategy);
       return `
-      <tr data-ticker="${escapeHtml(trade.ticker)}">
+      <tr data-position-key="${escapeHtml(positionKey)}">
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(trade.strategy)}</strong></td>
         <td>${escapeHtml(trade.timeframe || "-")}</td>
@@ -3239,12 +3282,13 @@ function renderOpenPositions() {
       const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
       const allocatedPl = allocatedReturnPct(trade.return_pct, weightPct);
       const signals = positionSignals(trade);
+      const positionKey = tickerStrategyKey(trade.ticker, trade.strategy);
       const dividendToday = (trade.dividend_notes || []).some((note) =>
         note.status === "upcoming" && Number(note.days_until) === 0
       );
       const dividendUpcoming = (trade.dividend_notes || []).some((note) => note.status === "upcoming");
       return `
-      <article class="positionCard" data-card-ticker="${escapeHtml(trade.ticker)}">
+      <article class="positionCard" data-position-card-key="${escapeHtml(positionKey)}">
         <div class="positionCardHead">
           <div>
             <strong class="${trade.has_confirm_buy ? "confirmedTicker" : ""}">${escapeHtml(trade.ticker)}</strong>
@@ -3275,18 +3319,111 @@ function renderOpenPositions() {
     })
     .join("");
 
-  els.openPositionsTable.querySelectorAll("[data-ticker]").forEach((row) => {
+  els.openPositionsTable.querySelectorAll("[data-position-key]").forEach((row) => {
     row.addEventListener("click", () => {
-      setActiveTab("overview");
-      renderChart(row.dataset.ticker);
+      openPositionInsight(row.dataset.positionKey);
     });
   });
-  els.openPositionCards.querySelectorAll("[data-card-ticker]").forEach((card) => {
+  els.openPositionCards.querySelectorAll("[data-position-card-key]").forEach((card) => {
     card.addEventListener("click", () => {
-      setActiveTab("overview");
-      renderChart(card.dataset.cardTicker);
+      openPositionInsight(card.dataset.positionCardKey);
     });
   });
+}
+
+function openPositionInsight(positionKey) {
+  const trade = (state.openTrades || []).find((item) =>
+    tickerStrategyKey(item.ticker, item.strategy) === positionKey
+  );
+  if (!trade) return;
+
+  const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+  const kellyEntry = findKellyEntry(trade.ticker, trade.strategy);
+  const backtestStat = backtestStatForTrade(trade);
+
+  els.positionInsightTitle.textContent = trade.ticker || "-";
+  els.positionInsightSubtitle.textContent = `${trade.strategy || "-"} · ${trade.timeframe || "-"}`;
+  els.positionInsightChart.dataset.positionInsightTicker = trade.ticker || "";
+  els.positionInsightBody.innerHTML = `
+    ${renderInsightSection(t("currentPosition"), [
+      insightMetric(t("entryPrice"), formatPrice(trade.entry_price)),
+      insightMetric(t("currentPrice"), formatPrice(trade.exit_price)),
+      insightMetric(t("returnPct"), formatSignedPercent(trade.return_pct)),
+      insightMetric(t("recommendedAllocation"), formatKellyPercent(weightPct)),
+      insightMetric(t("portfolioPl"), formatSignedPercent(allocatedReturnPct(trade.return_pct, weightPct))),
+      insightMetric(t("holdingDays"), formatHoldingDaysBetween(trade.entry_time)),
+      insightMetric(t("entryTime"), escapeHtml(formatDate(trade.entry_time))),
+    ])}
+    ${renderKellyInsight(kellyEntry)}
+    ${renderBacktestInsight(backtestStat)}
+  `;
+  els.positionInsightModal.hidden = false;
+}
+
+function closePositionInsight() {
+  els.positionInsightModal.hidden = true;
+  els.positionInsightBody.innerHTML = "";
+  delete els.positionInsightChart.dataset.positionInsightTicker;
+}
+
+function renderInsightSection(title, metrics, emptyText = "") {
+  const body = metrics.length
+    ? metrics.map((metric) => `
+        <div class="insightMetric">
+          <span>${escapeHtml(metric.label)}</span>
+          <strong>${metric.value}</strong>
+        </div>
+      `).join("")
+    : `<p class="empty">${escapeHtml(emptyText)}</p>`;
+  return `
+    <section class="insightSection">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="insightMetricGrid">${body}</div>
+    </section>
+  `;
+}
+
+function insightMetric(label, value) {
+  return { label, value: value === null || value === undefined || value === "" ? "-" : value };
+}
+
+function renderKellyInsight(entry) {
+  if (!entry) {
+    return renderInsightSection(t("kellySummary"), [], t("noKellyForPosition"));
+  }
+  const result = calculateKelly(entry);
+  return renderInsightSection(t("kellySummary"), [
+    insightMetric(t("recommendedAllocation"), formatKellyPercent(result.recommendedPct)),
+    insightMetric(t("fullKelly"), formatSignedPercent(result.fullKellyPct)),
+    insightMetric(t("quarterKelly"), formatKellyPercent(result.quarterKellyPct)),
+    insightMetric(t("edge"), formatSignedPercent(result.edgePct)),
+    insightMetric(t("winLossRatio"), formatRatio(result.winLossRatio)),
+    insightMetric(t("winRate"), formatKellyPercent(kellyWinRatePct(entry))),
+    insightMetric(t("winningTrades"), `${formatPrice(entry.winningTrades)} / ${formatPrice(entry.totalTrades)}`),
+    insightMetric(t("profitFactor"), formatRatio(entry.profitFactor)),
+    insightMetric(t("kellyMaxDrawdown"), formatKellyPercent(entry.maxDrawdown)),
+    insightMetric(t("targetDrawdown"), formatKellyPercent(entry.targetDrawdown)),
+  ]);
+}
+
+function renderBacktestInsight(stat) {
+  if (!stat) {
+    return renderInsightSection(t("backtestSummary"), [], t("noBacktestForPosition"));
+  }
+  return renderInsightSection(t("backtestSummary"), [
+    insightMetric(t("closedTrades"), stat.closed_trades ?? "-"),
+    insightMetric(t("negativeTrades"), stat.negative_trades ?? "-"),
+    insightMetric(t("maxLoss"), formatSignedPercent(stat.max_loss_pct)),
+    insightMetric(t("minLoss"), formatSignedPercent(stat.min_loss_pct)),
+    insightMetric(t("avgLoss"), formatSignedPercent(stat.avg_loss_pct)),
+    insightMetric(t("maxGain"), formatSignedPercent(stat.max_gain_pct)),
+    insightMetric(t("avgGain"), formatSignedPercent(stat.avg_gain_pct)),
+    insightMetric(t("tp1HitRate"), formatHitRate(stat.tp1_hits, stat.tp1_total ?? stat.closed_trades)),
+    insightMetric(t("tp2HitRate"), formatHitRate(stat.tp2_hits, stat.tp2_total ?? stat.closed_trades)),
+    insightMetric(t("tp3HitRate"), formatHitRate(stat.tp3_hits, stat.tp3_total ?? stat.closed_trades)),
+    insightMetric(t("avgHoldBars"), formatPrice(stat.avg_hold_bars)),
+    insightMetric(t("avgHoldDays"), formatPrice(stat.avg_hold_days)),
+  ]);
 }
 
 function positionSignals(trade) {
@@ -4430,6 +4567,18 @@ els.openPositionStrategyFilter.addEventListener("change", renderOpenPositions);
 els.openPositionConfirmFilter.addEventListener("change", renderOpenPositions);
 els.openPositionSort.addEventListener("change", renderOpenPositions);
 els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);
+els.positionInsightClose.addEventListener("click", closePositionInsight);
+els.positionInsightCloseBottom.addEventListener("click", closePositionInsight);
+els.positionInsightModal.addEventListener("click", (event) => {
+  if (event.target === els.positionInsightModal) closePositionInsight();
+});
+els.positionInsightChart.addEventListener("click", () => {
+  const ticker = els.positionInsightChart.dataset.positionInsightTicker;
+  if (!ticker) return;
+  closePositionInsight();
+  setActiveTab("overview");
+  renderChart(ticker);
+});
 els.performanceTickerFilter.addEventListener("input", refresh);
 els.performanceStrategyFilter.addEventListener("change", refresh);
 els.performanceSort.addEventListener("change", refresh);
@@ -4453,6 +4602,11 @@ window.addEventListener("resize", () => {
   }
   if (state.activeTab === "derivatives") {
     drawDerivativeEquityCurve(state.derivatives.equity_curve || []);
+  }
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.positionInsightModal.hidden) {
+    closePositionInsight();
   }
 });
 

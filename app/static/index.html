@@ -950,6 +950,24 @@
       </div>
     </main>
 
+    <div id="positionInsightModal" class="modalOverlay" hidden>
+      <section class="modalPanel positionInsightPanel" role="dialog" aria-modal="true" aria-labelledby="positionInsightTitle">
+        <div class="modalHead">
+          <div>
+            <p class="eyebrow" data-i18n="positionInsightEyebrow">Position detail</p>
+            <h2 id="positionInsightTitle">-</h2>
+            <span id="positionInsightSubtitle" class="mutedText"></span>
+          </div>
+          <button id="positionInsightClose" class="iconButton" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="positionInsightBody" class="positionInsightBody"></div>
+        <div class="modalActions">
+          <button id="positionInsightChart" class="smallButton" type="button" data-i18n="openChart">Open chart</button>
+          <button id="positionInsightCloseBottom" class="smallButton ghostButton" type="button" data-i18n="close">Close</button>
+        </div>
+      </section>
+    </div>
+
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
     <script src="/static/app.js"></script>
   </body>
