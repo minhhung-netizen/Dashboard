@@ -3381,15 +3381,17 @@ function renderClosedTrades(closedTrades) {
   }
 
   els.closedTradesTable.innerHTML = sorted
-    .map((trade) => `
+    .map((trade) => {
+      const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+      return `
       <tr data-ticker="${escapeHtml(trade.ticker)}">
         <td><strong>${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(trade.strategy)}</strong></td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
-        <td>${formatPercent(state.defaultSignalWeightPct)}</td>
-        <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct))}</td>
+        <td>${formatKellyPercent(weightPct)}</td>
+        <td>${formatSignedPercent(allocatedReturnPct(trade.return_pct, weightPct))}</td>
         <td>${formatDuration(trade.holding_seconds)}</td>
         <td>${formatDate(trade.exit_time)}</td>
         <td class="adminOnly">
@@ -3400,7 +3402,8 @@ function renderClosedTrades(closedTrades) {
           ` : "-"}
         </td>
       </tr>
-    `)
+    `;
+    })
     .join("");
 
   els.closedTradesTable.querySelectorAll("[data-ticker]").forEach((row) => {
