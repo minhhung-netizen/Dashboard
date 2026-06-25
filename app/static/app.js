@@ -2861,10 +2861,10 @@ function renderAverageGainBanner() {
             class="recentTradeChip avgGain"
             type="button"
             data-avg-gain-ticker="${escapeHtml(trade.ticker)}"
-            title="${escapeHtml(`${trade.ticker} Â· ${trade.strategy || "-"} Â· ${stripHtml(averageGainSignalDetail(signal))}`)}"
+            title="${escapeHtml(`${trade.ticker} - ${trade.strategy || "-"} - ${stripHtml(averageGainSignalDetail(signal))}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")} Â· ${stripHtml(averageGainSignalDetail(signal))}</span>
+            <span>${escapeHtml(trade.strategy || "-")} - ${stripHtml(averageGainSignalDetail(signal))}</span>
           </button>
         `)
         .join("")}
