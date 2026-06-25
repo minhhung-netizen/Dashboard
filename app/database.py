@@ -1366,20 +1366,6 @@ class SignalStore:
             )
             return cursor.rowcount
 
-    def delete_future_dividend_events_for_ticker(
-        self, ticker: str, cutoff_date: str
-    ) -> int:
-        with self.connect() as conn:
-            cursor = conn.execute(
-                """
-                DELETE FROM dividend_events
-                WHERE ticker = ?
-                  AND (ex_date IS NULL OR ex_date > ?)
-                """,
-                (ticker.strip().upper(), cutoff_date),
-            )
-            return cursor.rowcount
-
     def _insert_manual_snapshot(
         self,
         conn: sqlite3.Connection,

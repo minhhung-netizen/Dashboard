@@ -6,7 +6,7 @@ import io
 import logging
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
@@ -31,7 +31,7 @@ from app.services.derivatives import (
     build_derivative_performance,
     normalize_derivative_action,
 )
-from app.services.dividends import MARKET_TZ, upcoming_dividend_events_for_positions
+from app.services.dividends import upcoming_dividend_events_for_positions
 from app.services.market_hours import is_market_open
 from app.services.manual_portfolio import (
     build_daily_performance_record,
@@ -1444,13 +1444,7 @@ def open_position_tickers() -> set[str]:
 def cleanup_dividend_events_after_close(
     ticker: str, *, position_was_open: bool
 ) -> int:
-    normalized_ticker = normalize_ticker(ticker)[0]
-    if not position_was_open or normalized_ticker in open_position_tickers():
-        return 0
-    return store.delete_future_dividend_events_for_ticker(
-        normalized_ticker,
-        datetime.now(MARKET_TZ).date().isoformat(),
-    )
+    return 0
 
 
 def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:
