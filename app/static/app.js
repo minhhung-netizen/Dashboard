@@ -2795,12 +2795,29 @@ function renderRecentTradeBanner() {
     <div class="recentTradeGroupSet" aria-hidden="true">${groupHtml}</div>
   `;
 
-  els.recentTradeBannerTrack.querySelectorAll("[data-recent-trade-ticker]").forEach((button) => {
+  bindBannerPositionButtons(els.recentTradeBannerTrack);
+}
+
+function bindBannerPositionButtons(container) {
+  container.querySelectorAll("[data-banner-position-key]").forEach((button) => {
     button.addEventListener("click", () => {
-      setActiveTab("overview");
-      renderChart(button.dataset.recentTradeTicker);
+      openBannerPositionDetail(button.dataset.bannerPositionKey, button.dataset.bannerTicker);
     });
   });
+}
+
+function openBannerPositionDetail(positionKey, ticker) {
+  const hasOpenPosition = (state.openTrades || []).some((trade) =>
+    tickerStrategyKey(trade.ticker, trade.strategy) === positionKey
+  );
+  if (hasOpenPosition) {
+    openPositionInsight(positionKey);
+    return;
+  }
+  if (ticker) {
+    setActiveTab("overview");
+    renderChart(ticker);
+  }
 }
 
 function renderAverageLossBanner() {
@@ -2820,7 +2837,8 @@ function renderAverageLossBanner() {
           <button
             class="recentTradeChip avgLoss"
             type="button"
-            data-avg-loss-ticker="${escapeHtml(trade.ticker)}"
+            data-banner-position-key="${escapeHtml(tickerStrategyKey(trade.ticker, trade.strategy))}"
+            data-banner-ticker="${escapeHtml(trade.ticker)}"
             title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${stripHtml(averageLossSignalDetail(signal))}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
@@ -2835,12 +2853,7 @@ function renderAverageLossBanner() {
     <div class="recentTradeGroupSet">${groupHtml}</div>
     <div class="recentTradeGroupSet" aria-hidden="true">${groupHtml}</div>
   `;
-  els.avgLossBannerTrack.querySelectorAll("[data-avg-loss-ticker]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setActiveTab("overview");
-      renderChart(button.dataset.avgLossTicker);
-    });
-  });
+  bindBannerPositionButtons(els.avgLossBannerTrack);
 }
 
 function renderAverageGainBanner() {
@@ -2860,7 +2873,8 @@ function renderAverageGainBanner() {
           <button
             class="recentTradeChip avgGain"
             type="button"
-            data-avg-gain-ticker="${escapeHtml(trade.ticker)}"
+            data-banner-position-key="${escapeHtml(tickerStrategyKey(trade.ticker, trade.strategy))}"
+            data-banner-ticker="${escapeHtml(trade.ticker)}"
             title="${escapeHtml(`${trade.ticker} - ${trade.strategy || "-"} - ${stripHtml(averageGainSignalDetail(signal))}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
@@ -2875,12 +2889,7 @@ function renderAverageGainBanner() {
     <div class="recentTradeGroupSet">${groupHtml}</div>
     <div class="recentTradeGroupSet" aria-hidden="true">${groupHtml}</div>
   `;
-  els.avgGainBannerTrack.querySelectorAll("[data-avg-gain-ticker]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setActiveTab("overview");
-      renderChart(button.dataset.avgGainTicker);
-    });
-  });
+  bindBannerPositionButtons(els.avgGainBannerTrack);
 }
 
 function renderRecentTradeGroup(label, trades, timeField, tone) {
@@ -2893,7 +2902,8 @@ function renderRecentTradeGroup(label, trades, timeField, tone) {
           <button
             class="recentTradeChip ${tone}"
             type="button"
-            data-recent-trade-ticker="${escapeHtml(trade.ticker)}"
+            data-banner-position-key="${escapeHtml(tickerStrategyKey(trade.ticker, trade.strategy))}"
+            data-banner-ticker="${escapeHtml(trade.ticker)}"
             title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${formatDate(trade[timeField])}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
