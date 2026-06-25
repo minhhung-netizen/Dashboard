@@ -926,6 +926,18 @@ Object.assign(translations.vi, {
 });
 
 Object.assign(translations.en, {
+  deleteOpenPositionTitle: "Delete open position",
+  deleteOpenPositionConfirm: "Delete this open position? This removes its opening buy signal.",
+  deleteOpenPositionFailed: "Could not delete open position",
+});
+
+Object.assign(translations.vi, {
+  deleteOpenPositionTitle: "Xóa vị thế đang mở",
+  deleteOpenPositionConfirm: "Xóa vị thế đang mở này? Hệ thống sẽ xóa tín hiệu Buy mở vị thế.",
+  deleteOpenPositionFailed: "Không thể xóa vị thế đang mở",
+});
+
+Object.assign(translations.en, {
   allStrategies: "All strategies",
   performanceTradeHistory: "Trade History",
   strategyTradeHistory: "Strategy Closed Trades",
@@ -3405,7 +3417,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="12">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="13">${t("noOpenPositions")}</td></tr>`;
     els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
@@ -3432,6 +3444,18 @@ function renderOpenPositions() {
         <td>${renderDividendNotes(trade.dividend_notes || [])}</td>
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
+        <td class="adminOnly">
+          <button
+            class="deleteButton"
+            type="button"
+            data-open-position-delete-id="${escapeHtml(trade.entry_signal_id)}"
+            data-open-position-delete-ticker="${escapeHtml(trade.ticker)}"
+            data-open-position-delete-strategy="${escapeHtml(trade.strategy)}"
+            title="${escapeHtml(t("deleteOpenPositionTitle"))}"
+          >
+            ${escapeHtml(t("delete"))}
+          </button>
+        </td>
       </tr>
     `;
     })
@@ -3476,21 +3500,70 @@ function renderOpenPositions() {
             ? `<span class="dividendBadge ${dividendToday ? "today" : "upcoming"}">${escapeHtml(dividendToday ? t("exDateTodayShort") : t("upcomingDividend"))}</span>`
             : ""}
         </div>
+        <div class="positionCardActions adminOnly">
+          <button
+            class="deleteButton"
+            type="button"
+            data-open-position-delete-id="${escapeHtml(trade.entry_signal_id)}"
+            data-open-position-delete-ticker="${escapeHtml(trade.ticker)}"
+            data-open-position-delete-strategy="${escapeHtml(trade.strategy)}"
+            title="${escapeHtml(t("deleteOpenPositionTitle"))}"
+          >
+            ${escapeHtml(t("delete"))}
+          </button>
+        </div>
       </article>
     `;
     })
     .join("");
 
   els.openPositionsTable.querySelectorAll("[data-position-key]").forEach((row) => {
-    row.addEventListener("click", () => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("[data-open-position-delete-id]")) return;
       openPositionInsight(row.dataset.positionKey);
     });
   });
   els.openPositionCards.querySelectorAll("[data-position-card-key]").forEach((card) => {
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("[data-open-position-delete-id]")) return;
       openPositionInsight(card.dataset.positionCardKey);
     });
   });
+  els.openPositionsTable
+    .querySelectorAll("[data-open-position-delete-id]")
+    .forEach(bindOpenPositionDeleteButton);
+  els.openPositionCards
+    .querySelectorAll("[data-open-position-delete-id]")
+    .forEach(bindOpenPositionDeleteButton);
+}
+
+function bindOpenPositionDeleteButton(button) {
+  button.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await deleteOpenPosition(
+      button.dataset.openPositionDeleteId,
+      button.dataset.openPositionDeleteTicker,
+      button.dataset.openPositionDeleteStrategy
+    );
+  });
+}
+
+async function deleteOpenPosition(signalId, ticker, strategy) {
+  const label = [ticker, strategy].filter(Boolean).join(" - ");
+  const message = label
+    ? `${t("deleteOpenPositionConfirm")}\n\n${label}`
+    : t("deleteOpenPositionConfirm");
+  if (!window.confirm(message)) {
+    return;
+  }
+  const response = await fetch(`/api/signals/${encodeURIComponent(signalId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    window.alert(t("deleteOpenPositionFailed"));
+    return;
+  }
+  await refresh();
 }
 
 function openPositionInsight(positionKey) {

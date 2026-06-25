@@ -2189,6 +2189,11 @@ td strong {
     gap: 6px;
   }
 
+  .positionCardActions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
   .signalCard {
     align-items: center;
     border-bottom: 1px solid var(--line-soft);
