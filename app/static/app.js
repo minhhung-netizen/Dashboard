@@ -13,6 +13,8 @@ const els = {
   recentTradeBannerToggle: document.querySelector("#recentTradeBannerToggle"),
   avgLossBanner: document.querySelector("#avgLossBanner"),
   avgLossBannerTrack: document.querySelector("#avgLossBannerTrack"),
+  avgGainBanner: document.querySelector("#avgGainBanner"),
+  avgGainBannerTrack: document.querySelector("#avgGainBannerTrack"),
   riskTotalExposure: document.querySelector("#riskTotalExposure"),
   riskWeightedPl: document.querySelector("#riskWeightedPl"),
   riskTopTicker: document.querySelector("#riskTopTicker"),
@@ -849,6 +851,7 @@ Object.assign(translations.vi, {
 Object.assign(translations.en, {
   recentTradeBanner: "Recent trade alerts",
   avgLossBanner: "Average loss alerts",
+  avgGainBanner: "Average gain alerts",
   recentOpened: "New buys",
   recentClosed: "New closes",
   hideBanner: "Hide",
@@ -870,9 +873,13 @@ Object.assign(translations.en, {
   dividendRiskAlert: "Upcoming ex-rights event",
   lossRiskAlert: "Open position is below risk threshold",
   avgLossTouchAlert: "Touched strategy average loss",
+  avgGainTouchAlert: "Touched strategy average gain",
   avgLossSignal: "Touched avg loss",
+  avgGainSignal: "Touched avg gain",
   avgLossShort: "Avg loss",
+  avgGainShort: "Avg gain",
   maxLossShort: "Max loss",
+  maxGainShort: "Max gain",
   newSellAlert: "Recently closed position",
   kellyUsage: "Usage",
   activePositions: "Active positions",
@@ -908,6 +915,14 @@ Object.assign(translations.vi, {
   newSellAlert: "Vừa có vị thế đóng",
   kellyUsage: "Đang dùng",
   activePositions: "Vị thế đang mở",
+});
+
+Object.assign(translations.vi, {
+  avgGainBanner: "Cảnh báo tăng TB",
+  avgGainTouchAlert: "Chạm tăng TB chiến lược",
+  avgGainSignal: "Chạm tăng TB",
+  avgGainShort: "Tăng TB",
+  maxGainShort: "Tăng lớn nhất",
 });
 
 Object.assign(translations.en, {
@@ -1561,6 +1576,7 @@ function applyTranslations() {
   renderKellyEntries();
   renderBacktestStats(filterBacktestStats(state.backtestStats));
   renderAverageLossBanner();
+  renderAverageGainBanner();
 }
 
 function applyTheme() {
@@ -1987,6 +2003,7 @@ async function refresh() {
   renderClosedTrades(state.closedTrades);
   renderRecentTradeBanner();
   renderAverageLossBanner();
+  renderAverageGainBanner();
   if (state.activeTab === "performance") {
     drawEquityCurve(performancePayload.closed_trades || []);
   }
@@ -2826,6 +2843,46 @@ function renderAverageLossBanner() {
   });
 }
 
+function renderAverageGainBanner() {
+  const signals = averageGainSignals().slice(0, 8);
+  if (!signals.length) {
+    els.avgGainBanner.hidden = true;
+    els.avgGainBannerTrack.innerHTML = "";
+    return;
+  }
+
+  els.avgGainBanner.hidden = false;
+  const groupHtml = `
+    <span class="recentTradeGroup avgGain">
+      <span class="recentTradeGroupLabel">${escapeHtml(t("avgGainSignal"))}</span>
+      ${signals
+        .map(({ trade, signal }) => `
+          <button
+            class="recentTradeChip avgGain"
+            type="button"
+            data-avg-gain-ticker="${escapeHtml(trade.ticker)}"
+            title="${escapeHtml(`${trade.ticker} Â· ${trade.strategy || "-"} Â· ${stripHtml(averageGainSignalDetail(signal))}`)}"
+          >
+            <strong>${escapeHtml(trade.ticker)}</strong>
+            <span>${escapeHtml(trade.strategy || "-")} Â· ${stripHtml(averageGainSignalDetail(signal))}</span>
+          </button>
+        `)
+        .join("")}
+    </span>
+  `;
+
+  els.avgGainBannerTrack.innerHTML = `
+    <div class="recentTradeGroupSet">${groupHtml}</div>
+    <div class="recentTradeGroupSet" aria-hidden="true">${groupHtml}</div>
+  `;
+  els.avgGainBannerTrack.querySelectorAll("[data-avg-gain-ticker]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("overview");
+      renderChart(button.dataset.avgGainTicker);
+    });
+  });
+}
+
 function renderRecentTradeGroup(label, trades, timeField, tone) {
   if (!trades.length) return "";
   return `
@@ -2878,6 +2935,18 @@ function maxLossThreshold(stat) {
   return value > 0 ? -value : value;
 }
 
+function averageGainThreshold(stat) {
+  const value = Number(stat?.avg_gain_pct);
+  if (!Number.isFinite(value) || value === 0) return null;
+  return Math.abs(value);
+}
+
+function maxGainThreshold(stat) {
+  const value = Number(stat?.max_gain_pct);
+  if (!Number.isFinite(value) || value === 0) return null;
+  return Math.abs(value);
+}
+
 function averageLossSignalForTrade(trade) {
   const stat = backtestStatForTrade(trade);
   const threshold = averageLossThreshold(stat);
@@ -2896,11 +2965,36 @@ function averageLossSignalForTrade(trade) {
   };
 }
 
+function averageGainSignalForTrade(trade) {
+  const stat = backtestStatForTrade(trade);
+  const threshold = averageGainThreshold(stat);
+  const maxGain = maxGainThreshold(stat);
+  const returnPct = Number(trade?.return_pct);
+  if (threshold === null || !Number.isFinite(returnPct) || returnPct < threshold) {
+    return null;
+  }
+  return {
+    ticker: trade.ticker,
+    strategy: trade.strategy || "-",
+    price: trade.exit_price,
+    returnPct,
+    threshold,
+    maxGain,
+  };
+}
+
 function averageLossSignals() {
   return (state.openTrades || [])
     .map((trade) => ({ trade, signal: averageLossSignalForTrade(trade) }))
     .filter((item) => item.signal)
     .sort((left, right) => Number(left.signal.returnPct) - Number(right.signal.returnPct));
+}
+
+function averageGainSignals() {
+  return (state.openTrades || [])
+    .map((trade) => ({ trade, signal: averageGainSignalForTrade(trade) }))
+    .filter((item) => item.signal)
+    .sort((left, right) => Number(right.signal.returnPct) - Number(left.signal.returnPct));
 }
 
 function averageLossSignalDetail(signal) {
@@ -2910,6 +3004,17 @@ function averageLossSignalDetail(signal) {
   ];
   if (signal.maxLoss !== null) {
     parts.push(`${t("maxLossShort")} ${formatSignedPercent(signal.maxLoss)}`);
+  }
+  return parts.join(" / ");
+}
+
+function averageGainSignalDetail(signal) {
+  const parts = [
+    formatSignedPercent(signal.returnPct),
+    `${t("avgGainShort")} ${formatSignedPercent(signal.threshold)}`,
+  ];
+  if (signal.maxGain !== null) {
+    parts.push(`${t("maxGainShort")} ${formatSignedPercent(signal.maxGain)}`);
   }
   return parts.join(" / ");
 }
@@ -3018,6 +3123,14 @@ function renderRiskAlerts() {
       level: "warning",
       title: t("avgLossTouchAlert"),
       detail: `${trade.ticker} ${trade.strategy || "-"} ${averageLossSignalDetail(signal)}`,
+      ticker: trade.ticker,
+    }));
+  averageGainSignals()
+    .slice(0, 5)
+    .forEach(({ trade, signal }) => alerts.push({
+      level: "success",
+      title: t("avgGainTouchAlert"),
+      detail: `${trade.ticker} ${trade.strategy || "-"} ${averageGainSignalDetail(signal)}`,
       ticker: trade.ticker,
     }));
   rows
@@ -3346,6 +3459,9 @@ function renderOpenPositions() {
           ${averageLossSignalForTrade(trade)
             ? `<span class="confirmBadge avgLossBadge">${escapeHtml(t("avgLossSignal"))}</span>`
             : ""}
+          ${averageGainSignalForTrade(trade)
+            ? `<span class="confirmBadge avgGainBadge">${escapeHtml(t("avgGainSignal"))}</span>`
+            : ""}
           ${dividendUpcoming
             ? `<span class="dividendBadge ${dividendToday ? "today" : "upcoming"}">${escapeHtml(dividendToday ? t("exDateTodayShort") : t("upcomingDividend"))}</span>`
             : ""}
@@ -3474,6 +3590,16 @@ function positionSignals(trade) {
       detail: averageLossSignalDetail(avgLossSignal),
     });
   }
+  const avgGainSignal = averageGainSignalForTrade(trade);
+  if (avgGainSignal) {
+    confirmations.push({
+      strategy: t("avgGainSignal"),
+      action: "avg_gain",
+      price: trade.exit_price,
+      time: new Date().toISOString(),
+      detail: averageGainSignalDetail(avgGainSignal),
+    });
+  }
   return confirmations;
 }
 
@@ -3486,10 +3612,11 @@ function renderConfirmations(confirmations) {
       ${confirmations
         .map((confirmation) => {
           const isAvgLoss = confirmation.action === "avg_loss";
+          const isAvgGain = confirmation.action === "avg_gain";
           return `
-          <span class="confirmBadge ${isAvgLoss ? "avgLossBadge" : ""}" title="${escapeHtml(formatDate(confirmation.time))}">
+          <span class="confirmBadge ${isAvgLoss ? "avgLossBadge" : ""} ${isAvgGain ? "avgGainBadge" : ""}" title="${escapeHtml(formatDate(confirmation.time))}">
             ${escapeHtml(confirmation.strategy || confirmation.action || "-")}
-            <small>${isAvgLoss
+            <small>${isAvgLoss || isAvgGain
               ? confirmation.detail
               : `${escapeHtml(formatPrice(confirmation.price))} · ${escapeHtml(formatDateOnly(confirmation.time))}`}</small>
           </span>
