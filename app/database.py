@@ -192,6 +192,27 @@ CREATE TABLE IF NOT EXISTS kelly_entries (
 CREATE INDEX IF NOT EXISTS idx_kelly_entries_lookup
 ON kelly_entries (strategy, ticker);
 
+CREATE TABLE IF NOT EXISTS dca_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    ticker TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    initial_capital REAL,
+    allocation_pct REAL,
+    entry_price REAL,
+    distance_mode TEXT NOT NULL DEFAULT 'percent',
+    max_loss_pct REAL,
+    lot_size REAL,
+    levels_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_dca_plans_user_lookup
+ON dca_plans (user_id, strategy, ticker, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -1230,6 +1251,103 @@ class SignalStore:
             )
             return cursor.rowcount > 0
 
+    def insert_dca_plan(
+        self,
+        *,
+        user_id: int,
+        ticker: str,
+        strategy: str,
+        initial_capital: float | None,
+        allocation_pct: float | None,
+        entry_price: float | None,
+        distance_mode: str,
+        max_loss_pct: float | None,
+        lot_size: float | None,
+        levels: list[dict[str, Any]],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        normalized_ticker = ticker.strip().upper()
+        normalized_strategy = strategy.strip()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO dca_plans (
+                    user_id, ticker, strategy, initial_capital, allocation_pct,
+                    entry_price, distance_mode, max_loss_pct, lot_size,
+                    levels_json, result_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    normalized_ticker,
+                    normalized_strategy,
+                    initial_capital,
+                    allocation_pct,
+                    entry_price,
+                    distance_mode,
+                    max_loss_pct,
+                    lot_size,
+                    json.dumps(levels),
+                    json.dumps(result),
+                    now,
+                    now,
+                ),
+            )
+            plan_id = cursor.lastrowid
+        return self.get_dca_plan(plan_id=plan_id, user_id=user_id)
+
+    def get_dca_plan(self, *, plan_id: int, user_id: int | None = None) -> dict[str, Any]:
+        clauses = ["id = ?"]
+        params: list[Any] = [plan_id]
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT *
+                FROM dca_plans
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            ).fetchone()
+        if row is None:
+            raise KeyError("DCA plan was not found")
+        return row_to_dca_plan(row)
+
+    def list_dca_plans(self, *, user_id: int | None = None) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        where = ""
+        if user_id is not None:
+            where = "WHERE user_id = ?"
+            params.append(user_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM dca_plans
+                {where}
+                ORDER BY updated_at DESC, id DESC
+                """,
+                params,
+            ).fetchall()
+        return [row_to_dca_plan(row) for row in rows]
+
+    def delete_dca_plan(self, *, plan_id: int, user_id: int | None = None) -> bool:
+        clauses = ["id = ?"]
+        params: list[Any] = [plan_id]
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"DELETE FROM dca_plans WHERE {' AND '.join(clauses)}",
+                params,
+            )
+            return cursor.rowcount > 0
+
     def insert_dividend_event(
         self,
         *,
@@ -1558,6 +1676,13 @@ def row_to_invalid_signal(row: sqlite3.Row) -> dict[str, Any]:
 def row_to_derivative_signal(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     data["payload"] = json.loads(data.pop("payload_json") or "{}")
+    return data
+
+
+def row_to_dca_plan(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["levels"] = json.loads(data.pop("levels_json") or "[]")
+    data["result"] = json.loads(data.pop("result_json") or "{}")
     return data
 
 

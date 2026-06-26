@@ -156,6 +156,7 @@ FEATURE_PATHS = {
     "manualPortfolio": ("/api/manual-portfolio",),
     "performance": ("/api/performance", "/api/backtest-stats", "/api/kelly-entries"),
     "kelly": ("/api/kelly-entries",),
+    "dcaSizing": ("/api/dca-plans", "/api/backtest-stats", "/api/kelly-entries"),
     "dividends": ("/api/dividend-events",),
     "logs": ("/api/invalid-signals", "/api/export/"),
 }
@@ -188,6 +189,8 @@ async def authorize_dashboard_request(request: Request, call_next):
 
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if path == "/api/auth/logout":
+            return await call_next(request)
+        if path.startswith("/api/dca-plans") and "dcaSizing" in set(user.get("features") or []):
             return await call_next(request)
         if user["role"] != "admin":
             return JSONResponse({"detail": "Read-only account"}, status_code=403)
@@ -307,6 +310,19 @@ class KellyEntryPayload(BaseModel):
     targetDrawdown: float | None = Field(default=None, ge=0)
     fraction: float | None = Field(default=None, ge=0, le=100)
     maxAllocation: float | None = Field(default=None, ge=0, le=100)
+
+
+class DcaPlanPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    strategy: str = Field(default="", max_length=120, examples=["STxanhdo"])
+    initialCapital: float | None = Field(default=None, ge=0)
+    allocationPct: float | None = Field(default=None, ge=0, le=100)
+    entryPrice: float | None = Field(default=None, ge=0)
+    distanceMode: str = Field(default="percent", max_length=20)
+    maxLossPct: float | None = Field(default=None, ge=0)
+    lotSize: float | None = Field(default=None, ge=1)
+    levels: list[dict[str, Any]] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict)
 
 
 class LoginPayload(BaseModel):
@@ -962,6 +978,47 @@ def delete_kelly_entry(entry_id: int) -> dict[str, Any]:
     if not store.delete_kelly_entry(entry_id):
         raise HTTPException(status_code=404, detail="Kelly entry not found")
     return {"status": "deleted", "entry_id": entry_id}
+
+
+@app.get("/api/dca-plans")
+def dca_plans(request: Request) -> dict[str, Any]:
+    return {"dca_plans": store.list_dca_plans(user_id=request.state.user["id"])}
+
+
+@app.post("/api/dca-plans")
+def create_dca_plan(payload: DcaPlanPayload, request: Request) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    strategy = payload.strategy.strip()
+    if strategy_restricted(request.state.user):
+        allowed = {
+            str(item or "").strip().lower()
+            for item in request.state.user.get("strategies", [])
+            if str(item or "").strip()
+        }
+        if strategy.strip().lower() not in allowed:
+            raise HTTPException(status_code=403, detail="Strategy is not enabled")
+    distance_mode = payload.distanceMode if payload.distanceMode in {"percent", "priceStep"} else "percent"
+    plan = store.insert_dca_plan(
+        user_id=request.state.user["id"],
+        ticker=ticker,
+        strategy=strategy,
+        initial_capital=payload.initialCapital,
+        allocation_pct=payload.allocationPct,
+        entry_price=payload.entryPrice,
+        distance_mode=distance_mode,
+        max_loss_pct=payload.maxLossPct,
+        lot_size=payload.lotSize,
+        levels=payload.levels,
+        result=payload.result,
+    )
+    return {"status": "saved", "dca_plan": plan}
+
+
+@app.delete("/api/dca-plans/{plan_id}")
+def delete_dca_plan(plan_id: int, request: Request) -> dict[str, Any]:
+    if not store.delete_dca_plan(plan_id=plan_id, user_id=request.state.user["id"]):
+        raise HTTPException(status_code=404, detail="DCA plan not found")
+    return {"status": "deleted", "plan_id": plan_id}
 
 
 @app.get("/api/derivatives")

@@ -943,6 +943,7 @@ main {
 .backtestStatsPanel,
 .kellyPanel,
 .dcaSizingPanel,
+.dcaSavedSection,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -1034,6 +1035,7 @@ main {
 .backtestStatsPanel,
 .kellyPanel,
 .dcaSizingPanel,
+.dcaSavedSection,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -1063,6 +1065,7 @@ main {
 .tabPanel > .backtestStatsPanel,
 .tabPanel > .kellyPanel,
 .tabPanel > .dcaSizingPanel,
+.tabPanel > .dcaSavedSection,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .analyticsGrid > .performancePanel {
@@ -1078,6 +1081,7 @@ main {
 .tabPanel > .backtestStatsPanel,
 .tabPanel > .kellyPanel,
 .tabPanel > .dcaSizingPanel,
+.tabPanel > .dcaSavedSection,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .tabPanel > .timelinePanel {
@@ -1337,6 +1341,10 @@ main {
 }
 
 .dcaLevelsSection {
+  border-top: 1px solid var(--line);
+}
+
+.dcaSavedSection {
   border-top: 1px solid var(--line);
 }
 

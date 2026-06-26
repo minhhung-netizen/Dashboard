@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VN Signals Dashboard</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260626-dca-multiplier" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260626-dca-saved-plans" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -892,6 +892,7 @@
                 <span data-i18n="dcaLotSize">Lot size</span>
                 <input id="dcaLotSize" min="1" step="1" type="number" value="100" />
               </label>
+              <button id="saveDcaPlan" type="button" data-i18n="saveDcaPlan">Save allocation</button>
             </form>
 
             <div class="dcaSizingOutput">
@@ -950,6 +951,32 @@
                   </tr>
                 </thead>
                 <tbody id="dcaLevelsTable"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dcaSavedSection">
+            <div class="panelHead compactHead">
+              <div>
+                <p class="eyebrow" data-i18n="dcaSavedEyebrow">Saved DCA</p>
+                <h2 data-i18n="dcaSavedTitle">Saved allocation plans</h2>
+              </div>
+            </div>
+            <div class="tableWrap compactTable">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th data-i18n="dcaAllocatedCapital">Allocated capital</th>
+                    <th data-i18n="dcaTotalShares">Total shares</th>
+                    <th data-i18n="dcaAveragePrice">Average buy price</th>
+                    <th data-i18n="dcaProjectedLoss">Projected loss</th>
+                    <th data-i18n="savedAt">Saved At</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="dcaPlansTable"></tbody>
               </table>
             </div>
           </div>
@@ -1094,7 +1121,24 @@
       </section>
     </div>
 
+    <div id="dcaPlanModal" class="modalOverlay" hidden>
+      <section class="modalPanel" role="dialog" aria-modal="true" aria-labelledby="dcaPlanTitle">
+        <div class="modalHead">
+          <div>
+            <p class="eyebrow" data-i18n="dcaPlanDetailEyebrow">DCA plan</p>
+            <h2 id="dcaPlanTitle">-</h2>
+            <span id="dcaPlanSubtitle" class="mutedText"></span>
+          </div>
+          <button id="dcaPlanClose" class="iconButton" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="dcaPlanBody" class="positionInsightBody"></div>
+        <div class="modalActions">
+          <button id="dcaPlanCloseBottom" class="smallButton ghostButton" type="button" data-i18n="close">Close</button>
+        </div>
+      </section>
+    </div>
+
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260626-dca-multiplier"></script>
+    <script src="/static/app.js?v=20260626-dca-saved-plans"></script>
   </body>
 </html>
