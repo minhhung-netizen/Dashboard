@@ -121,6 +121,10 @@ const els = {
   dcaAllocationPct: document.querySelector("#dcaAllocationPct"),
   dcaEntryPrice: document.querySelector("#dcaEntryPrice"),
   dcaDistanceMode: document.querySelector("#dcaDistanceMode"),
+  dcaPriceStepModeLabel: document.querySelector("#dcaPriceStepModeLabel"),
+  dcaPriceStepMode: document.querySelector("#dcaPriceStepMode"),
+  dcaFixedPriceStepLabel: document.querySelector("#dcaFixedPriceStepLabel"),
+  dcaFixedPriceStep: document.querySelector("#dcaFixedPriceStep"),
   dcaCount: document.querySelector("#dcaCount"),
   dcaPreset: document.querySelector("#dcaPreset"),
   dcaMaxLossPct: document.querySelector("#dcaMaxLossPct"),
@@ -1123,6 +1127,10 @@ Object.assign(translations.en, {
   dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
   dcaRiskExceededShort: "Over risk",
   dcaTrackingNote: "Tracking note",
+  dcaPriceStepMode: "Step mode",
+  dcaPriceStepModeCustom: "Custom per level",
+  dcaPriceStepModeFixed: "Fixed step",
+  dcaFixedPriceStep: "Fixed step distance",
   updateDcaPlan: "Save changes",
   cancelDcaPlanEdit: "Cancel edit",
   edit: "Edit",
@@ -1144,6 +1152,10 @@ Object.assign(translations.vi, {
   dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
   dcaRiskExceededShort: "V\u01b0\u1ee3t r\u1ee7i ro",
   dcaTrackingNote: "Theo d\u00f5i",
+  dcaPriceStepMode: "Ki\u1ec3u b\u01b0\u1edbc gi\u00e1",
+  dcaPriceStepModeCustom: "T\u00f9y ch\u1ec9nh t\u1eebng l\u1edbp",
+  dcaPriceStepModeFixed: "B\u01b0\u1edbc c\u1ed1 \u0111\u1ecbnh",
+  dcaFixedPriceStep: "Kho\u1ea3ng c\u00e1ch b\u01b0\u1edbc c\u1ed1 \u0111\u1ecbnh",
   updateDcaPlan: "L\u01b0u \u0111\u00e8",
   cancelDcaPlanEdit: "H\u1ee7y s\u1eeda",
   edit: "S\u1eeda",
@@ -1736,13 +1748,19 @@ function readDcaSizingInputs() {
   const stat = ticker ? findBacktestStat(ticker, strategy) : null;
   const avgGainPct = Math.abs(Number(stat?.avg_gain_pct));
   const riskLimitPct = optionalNumber(els.dcaRiskLimitPct.value);
+  const distanceMode = els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent";
+  const priceStepMode = distanceMode === "priceStep" && els.dcaPriceStepMode.value === "fixed"
+    ? "fixed"
+    : "custom";
   return {
     ticker,
     strategy,
     initialCapital: optionalNumber(els.dcaInitialCapital.value),
     allocationPct: optionalNumber(els.dcaAllocationPct.value),
     entryPrice: optionalNumber(els.dcaEntryPrice.value),
-    distanceMode: els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent",
+    distanceMode,
+    priceStepMode,
+    fixedPriceStep: optionalNumber(els.dcaFixedPriceStep.value),
     maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
     riskLimitPct: riskLimitPct === null ? DEFAULT_DCA_RISK_LIMIT_PCT : Math.max(0, riskLimitPct),
     avgGainPct: Number.isFinite(avgGainPct) && avgGainPct > 0 ? avgGainPct : null,
@@ -1751,10 +1769,17 @@ function readDcaSizingInputs() {
   };
 }
 
-function validDcaLevels() {
+function dcaLevelDistance(level, index, inputs) {
+  if (index > 0 && inputs.distanceMode === "priceStep" && inputs.priceStepMode === "fixed") {
+    return Math.max(0, Number(inputs.fixedPriceStep) || 0);
+  }
+  return Math.max(0, Number(level.distancePct) || 0);
+}
+
+function validDcaLevels(inputs) {
   return state.dcaLevels
-    .map((level) => ({
-      distancePct: Math.max(0, Number(level.distancePct) || 0),
+    .map((level, index) => ({
+      distancePct: dcaLevelDistance(level, index, inputs),
       multiplier: Math.max(0, Number(level.multiplier) || 0),
     }))
     .filter((level) => level.multiplier > 0);
@@ -1803,6 +1828,15 @@ function markDcaPresetCustom() {
   if (els.dcaPreset) {
     els.dcaPreset.value = "custom";
   }
+}
+
+function renderDcaPriceStepControls() {
+  const isPriceStep = els.dcaDistanceMode.value === "priceStep";
+  const isFixed = isPriceStep && els.dcaPriceStepMode.value === "fixed";
+  els.dcaPriceStepModeLabel.hidden = !isPriceStep;
+  els.dcaFixedPriceStepLabel.hidden = !isFixed;
+  els.dcaPriceStepMode.disabled = !isPriceStep;
+  els.dcaFixedPriceStep.disabled = !isFixed;
 }
 
 function dcaBacktestLossRange() {
@@ -1888,6 +1922,12 @@ function applyDcaSuggestion(distanceScale = 1) {
     distancePct: distance.distancePct,
     multiplier: previousLevels[index]?.multiplier || (index === 0 ? 1 : 1.2),
   }));
+  if (els.dcaDistanceMode.value === "priceStep" && els.dcaPriceStepMode.value === "fixed") {
+    const firstDistance = suggestion.distances.find((distance, index) => index > 0 && distance.distancePct > 0);
+    if (firstDistance) {
+      els.dcaFixedPriceStep.value = rawNumber(firstDistance.distancePct);
+    }
+  }
   renderDcaSizing();
   if (distanceScale === 0.5) {
     renderDcaSuggestionPreview(
@@ -1899,7 +1939,7 @@ function applyDcaSuggestion(distanceScale = 1) {
 }
 
 function calculateDcaSizing(inputs) {
-  const levels = validDcaLevels();
+  const levels = validDcaLevels(inputs);
   const allocatedCapital =
     Number(inputs.initialCapital) * Number(inputs.allocationPct) / 100;
   if (
@@ -1907,7 +1947,12 @@ function calculateDcaSizing(inputs) {
     allocatedCapital <= 0 ||
     !Number.isFinite(Number(inputs.entryPrice)) ||
     Number(inputs.entryPrice) <= 0 ||
-    !levels.length
+    !levels.length ||
+    (
+      inputs.distanceMode === "priceStep" &&
+      inputs.priceStepMode === "fixed" &&
+      (!Number.isFinite(Number(inputs.fixedPriceStep)) || Number(inputs.fixedPriceStep) <= 0)
+    )
   ) {
     return { valid: false, rows: [], note: t("dcaSizingInvalidNote") };
   }
@@ -2045,9 +2090,10 @@ function distributeRemainingCapitalToLastDcaRows(rows, allocatedCapital, lotSize
 }
 
 function renderDcaSizing() {
+  renderDcaPriceStepControls();
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
-  renderDcaLevelsTable(result.rows || []);
+  renderDcaLevelsTable(result.rows || [], inputs);
   renderDcaSuggestionPreview();
 
   if (!result.valid) {
@@ -2086,16 +2132,21 @@ function renderDcaSizing() {
   els.dcaSizingNote.textContent = result.note;
 }
 
-function renderDcaLevelsTable(calculatedRows = []) {
+function renderDcaLevelsTable(calculatedRows = [], inputs = readDcaSizingInputs()) {
   const calculatedByIndex = new Map(calculatedRows.map((row) => [row.index, row]));
+  const fixedPriceStepMode = inputs.distanceMode === "priceStep" && inputs.priceStepMode === "fixed";
   els.dcaLevelsTable.innerHTML = state.dcaLevels
     .map((level, index) => {
       const row = calculatedByIndex.get(index + 1) || {};
+      const displayedDistance = fixedPriceStepMode
+        ? dcaLevelDistance(level, index, inputs)
+        : level.distancePct;
+      const distanceDisabled = fixedPriceStepMode ? "disabled" : "";
       return `
         <tr>
           <td>${index + 1}</td>
           <td>
-            <input class="dcaLevelInput" data-dca-level-index="${index}" data-dca-level-field="distancePct" min="0" max="99" step="0.01" type="number" value="${escapeHtml(rawNumber(level.distancePct))}" />
+            <input class="dcaLevelInput" data-dca-level-index="${index}" data-dca-level-field="distancePct" min="0" max="99" step="0.01" type="number" value="${escapeHtml(rawNumber(displayedDistance))}" ${distanceDisabled} />
           </td>
           <td>
             <input class="dcaLevelInput" data-dca-level-index="${index}" data-dca-level-field="multiplier" min="0" step="0.01" type="number" value="${escapeHtml(rawNumber(level.multiplier))}" />
@@ -2134,6 +2185,8 @@ function normalizeDcaPlan(plan) {
     maxLossPct: optionalNumber(plan.maxLossPct ?? plan.max_loss_pct),
     lotSize: optionalNumber(plan.lotSize ?? plan.lot_size),
     priceStep: optionalNumber(plan.priceStep ?? plan.price_step ?? plan.result?.priceStep),
+    priceStepMode: String(plan.priceStepMode || plan.price_step_mode || plan.result?.priceStepMode || "").trim(),
+    fixedPriceStep: optionalNumber(plan.fixedPriceStep ?? plan.fixed_price_step ?? plan.result?.fixedPriceStep),
     levels: Array.isArray(plan.levels) ? plan.levels : [],
     result: plan.result && typeof plan.result === "object" ? plan.result : {},
     createdAt: plan.createdAt || plan.created_at || "",
@@ -2315,9 +2368,13 @@ function editDcaPlan(planId) {
   els.dcaAllocationPct.value = rawNumber(plan.allocationPct);
   els.dcaEntryPrice.value = rawNumber(plan.entryPrice);
   els.dcaDistanceMode.value = plan.distanceMode === "priceStep" ? "priceStep" : "percent";
+  els.dcaPriceStepMode.value = plan.distanceMode === "priceStep" && plan.priceStepMode === "fixed"
+    ? "fixed"
+    : "custom";
   els.dcaMaxLossPct.value = rawNumber(plan.maxLossPct);
   els.dcaLotSize.value = rawNumber(plan.lotSize);
   els.dcaPriceStep.value = rawNumber(plan.priceStep);
+  els.dcaFixedPriceStep.value = rawNumber(plan.fixedPriceStep);
   const levels = dcaPlanLevelsForEdit(plan);
   state.dcaLevels = levels.length ? levels : DEFAULT_DCA_LEVELS.map((level) => ({ ...level }));
   els.dcaCount.value = String(Math.max(1, state.dcaLevels.length - 1));
@@ -2346,7 +2403,7 @@ async function saveCurrentDcaPlan() {
     distanceMode: inputs.distanceMode,
     maxLossPct: inputs.maxLossPct,
     lotSize: inputs.lotSize,
-    levels: state.dcaLevels.map((level) => ({
+    levels: (result.rows?.length ? result.rows : state.dcaLevels).map((level) => ({
       distancePct: optionalNumber(level.distancePct) ?? 0,
       multiplier: optionalNumber(level.multiplier) ?? 0,
     })),
@@ -2365,6 +2422,8 @@ async function saveCurrentDcaPlan() {
       riskLimitPct: result.riskLimitPct,
       riskLimitExceeded: result.riskLimitExceeded,
       priceStep: inputs.priceStep,
+      priceStepMode: inputs.priceStepMode,
+      fixedPriceStep: inputs.fixedPriceStep,
       rows: result.rows,
     },
   };
@@ -2502,6 +2561,10 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaAllocationPct"), formatKellyPercent(plan.allocationPct)),
       insightMetric(t("dcaEntryPrice"), formatPrice(plan.entryPrice)),
       insightMetric(t("dcaDistanceMode"), plan.distanceMode === "priceStep" ? t("dcaDistanceModePriceStep") : t("dcaDistanceModePercent")),
+      insightMetric(t("dcaPriceStepMode"), plan.distanceMode === "priceStep"
+        ? t(plan.priceStepMode === "fixed" ? "dcaPriceStepModeFixed" : "dcaPriceStepModeCustom")
+        : "-"),
+      insightMetric(t("dcaFixedPriceStep"), plan.priceStepMode === "fixed" ? formatPrice(plan.fixedPriceStep) : "-"),
       insightMetric(t("dcaMaxLossPct"), formatKellyPercent(plan.maxLossPct)),
       insightMetric(t("dcaLotSize"), formatPrice(plan.lotSize)),
       insightMetric(t("dcaPriceStep"), formatPrice(plan.priceStep)),
@@ -6052,6 +6115,8 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaAllocationPct,
   els.dcaEntryPrice,
   els.dcaDistanceMode,
+  els.dcaPriceStepMode,
+  els.dcaFixedPriceStep,
   els.dcaMaxLossPct,
   els.dcaRiskLimitPct,
   els.dcaLotSize,
@@ -6060,7 +6125,12 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
 els.dcaInitialCapital.addEventListener("input", scheduleDcaInitialCapitalSave);
 els.dcaInitialCapital.addEventListener("change", saveDcaInitialCapital);
 els.dcaDistanceMode.addEventListener("change", () => {
+  renderDcaPriceStepControls();
   renderDcaSuggestionPreview();
+  renderDcaSizing();
+});
+els.dcaPriceStepMode.addEventListener("change", () => {
+  renderDcaPriceStepControls();
   renderDcaSizing();
 });
 els.dcaCount.addEventListener("change", () => {
