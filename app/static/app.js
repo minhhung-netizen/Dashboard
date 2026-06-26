@@ -1839,8 +1839,6 @@ function calculateDcaSizing(inputs) {
   const baseRawShares = factorCost > 0 ? allocatedCapital / factorCost : 0;
   const baseShares = Math.floor(baseRawShares / inputs.lotSize) * inputs.lotSize;
 
-  let cumulativeShares = 0;
-  let cumulativeCost = 0;
   let previousShares = baseShares;
   const rows = plannedRows.map((row, index) => {
     const shares = index === 0
@@ -1848,9 +1846,6 @@ function calculateDcaSizing(inputs) {
       : Math.floor((previousShares * row.multiplier) / inputs.lotSize) * inputs.lotSize;
     previousShares = shares;
     const cost = shares * row.buyPrice;
-    cumulativeShares += shares;
-    cumulativeCost += cost;
-    const cumulativeAverage = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
     return {
       index: row.index,
       distancePct: row.distancePct,
@@ -1858,8 +1853,17 @@ function calculateDcaSizing(inputs) {
       buyPrice: row.buyPrice,
       shares,
       cost,
-      cumulativeAverage,
+      cumulativeAverage: null,
     };
+  });
+  distributeRemainingCapitalToLastDcaRows(rows, allocatedCapital, inputs.lotSize);
+
+  let cumulativeShares = 0;
+  let cumulativeCost = 0;
+  rows.forEach((row) => {
+    cumulativeShares += row.shares;
+    cumulativeCost += row.cost;
+    row.cumulativeAverage = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
   });
 
   const averagePrice = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
@@ -1894,6 +1898,38 @@ function calculateDcaSizing(inputs) {
     projectedProfit,
     note: t("dcaSizingAutoNote"),
   };
+}
+
+function distributeRemainingCapitalToLastDcaRows(rows, allocatedCapital, lotSize) {
+  const normalizedLotSize = Math.max(1, Math.floor(Number(lotSize) || 1));
+  const targetRows = rows.slice(-2).filter((row) => row && Number(row.buyPrice) > 0);
+  if (!targetRows.length) return;
+
+  let usedCapital = rows.reduce((sum, row) => sum + Number(row.cost || 0), 0);
+  let remaining = Number(allocatedCapital) - usedCapital;
+  if (!Number.isFinite(remaining) || remaining <= 0) return;
+
+  [...targetRows].reverse().forEach((row, index) => {
+    const slotsLeft = targetRows.length - index;
+    const budget = remaining / slotsLeft;
+    const extraShares = Math.floor(budget / row.buyPrice / normalizedLotSize) * normalizedLotSize;
+    if (extraShares <= 0) return;
+    const extraCost = extraShares * row.buyPrice;
+    row.shares += extraShares;
+    row.cost += extraCost;
+    remaining -= extraCost;
+  });
+
+  while (true) {
+    const affordableRow = [...targetRows]
+      .sort((left, right) => Number(left.buyPrice) - Number(right.buyPrice))
+      .find((row) => row.buyPrice * normalizedLotSize <= remaining);
+    if (!affordableRow) break;
+    const extraCost = affordableRow.buyPrice * normalizedLotSize;
+    affordableRow.shares += normalizedLotSize;
+    affordableRow.cost += extraCost;
+    remaining -= extraCost;
+  }
 }
 
 function renderDcaSizing() {
