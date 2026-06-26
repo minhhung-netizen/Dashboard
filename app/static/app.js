@@ -2266,8 +2266,7 @@ function dcaHistoryRowsSinceEntry(openTrade) {
 
 function dcaTouchedRowsFromHistory(plan, openTrade) {
   const history = dcaHistoryRowsSinceEntry(openTrade);
-  if (!history.length) return [];
-  return dcaPlanRows(plan)
+  const touchedRows = dcaPlanRows(plan)
     .map((row) => {
       const touchedBar = history.find((bar) => Number(bar.low) <= row.buyPrice);
       return touchedBar
@@ -2278,8 +2277,33 @@ function dcaTouchedRowsFromHistory(plan, openTrade) {
           }
         : null;
     })
-    .filter(Boolean)
+    .filter(Boolean);
+  const entryDayTouch = dcaTouchedRowFromEntryDayClose(plan, openTrade);
+  if (entryDayTouch) {
+    touchedRows.push(entryDayTouch);
+  }
+  return touchedRows
     .sort((left, right) => right.level - left.level);
+}
+
+function dcaTouchedRowFromEntryDayClose(plan, openTrade) {
+  const ticker = String(openTrade?.ticker || "").trim().toUpperCase();
+  const history = state.chartHistoryByTicker[ticker] || [];
+  const entryDate = normalizeChartTime(openTrade?.entry_time);
+  if (!ticker || !entryDate) return null;
+  const entryBar = history.find((row) => row.time === entryDate);
+  const entryClose = optionalNumber(entryBar?.close);
+  if (entryClose === null || entryClose <= 0) return null;
+  const touchedRow = dcaPlanRows(plan)
+    .filter((row) => entryClose <= row.buyPrice)
+    .sort((left, right) => right.level - left.level)[0];
+  return touchedRow
+    ? {
+        ...touchedRow,
+        touchedAt: entryDate,
+        touchedPrice: entryClose,
+      }
+    : null;
 }
 
 function dcaPlanTouchNote(plan, openTrade = findOpenTradeForDca(plan?.ticker, plan?.strategy)) {
@@ -2293,7 +2317,7 @@ function dcaPlanTouchNote(plan, openTrade = findOpenTradeForDca(plan?.ticker, pl
   return {
     level: touched.level,
     buyPrice: touched.buyPrice,
-    marketPrice,
+    marketPrice: touched.touchedPrice ?? marketPrice,
     touchedAt: touched.touchedAt,
     touchedPrice: touched.touchedPrice,
   };
