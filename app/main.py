@@ -1018,6 +1018,31 @@ def dca_plans(request: Request) -> dict[str, Any]:
 
 @app.post("/api/dca-plans")
 def create_dca_plan(payload: DcaPlanPayload, request: Request) -> dict[str, Any]:
+    values = dca_plan_values(payload, request)
+    plan = store.insert_dca_plan(
+        user_id=request.state.user["id"],
+        **values,
+    )
+    return {"status": "saved", "dca_plan": plan}
+
+
+@app.patch("/api/dca-plans/{plan_id}")
+def update_dca_plan(
+    plan_id: int, payload: DcaPlanPayload, request: Request
+) -> dict[str, Any]:
+    values = dca_plan_values(payload, request)
+    try:
+        plan = store.update_dca_plan(
+            plan_id=plan_id,
+            user_id=request.state.user["id"],
+            **values,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="DCA plan not found") from exc
+    return {"status": "saved", "dca_plan": plan}
+
+
+def dca_plan_values(payload: DcaPlanPayload, request: Request) -> dict[str, Any]:
     ticker = normalize_ticker(payload.ticker)[0]
     strategy = payload.strategy.strip()
     if strategy_restricted(request.state.user):
@@ -1029,20 +1054,18 @@ def create_dca_plan(payload: DcaPlanPayload, request: Request) -> dict[str, Any]
         if strategy.strip().lower() not in allowed:
             raise HTTPException(status_code=403, detail="Strategy is not enabled")
     distance_mode = payload.distanceMode if payload.distanceMode in {"percent", "priceStep"} else "percent"
-    plan = store.insert_dca_plan(
-        user_id=request.state.user["id"],
-        ticker=ticker,
-        strategy=strategy,
-        initial_capital=payload.initialCapital,
-        allocation_pct=payload.allocationPct,
-        entry_price=payload.entryPrice,
-        distance_mode=distance_mode,
-        max_loss_pct=payload.maxLossPct,
-        lot_size=payload.lotSize,
-        levels=payload.levels,
-        result=payload.result,
-    )
-    return {"status": "saved", "dca_plan": plan}
+    return {
+        "ticker": ticker,
+        "strategy": strategy,
+        "initial_capital": payload.initialCapital,
+        "allocation_pct": payload.allocationPct,
+        "entry_price": payload.entryPrice,
+        "distance_mode": distance_mode,
+        "max_loss_pct": payload.maxLossPct,
+        "lot_size": payload.lotSize,
+        "levels": payload.levels,
+        "result": payload.result,
+    }
 
 
 @app.delete("/api/dca-plans/{plan_id}")

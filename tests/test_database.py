@@ -474,6 +474,72 @@ class SignalStoreTest(unittest.TestCase):
             self.assertTrue(store.delete_kelly_entry(rows[0]["id"]))
             self.assertFalse(store.delete_kelly_entry(rows[0]["id"]))
 
+    def test_updates_dca_plan_for_owner_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            owner = store.create_user(
+                username="owner",
+                password_hash="hash",
+                role="user",
+                features=["dcaSizing"],
+            )
+            other = store.create_user(
+                username="other",
+                password_hash="hash",
+                role="user",
+                features=["dcaSizing"],
+            )
+            plan = store.insert_dca_plan(
+                user_id=owner["id"],
+                ticker="vpb",
+                strategy="STxanhdo",
+                initial_capital=500000000,
+                allocation_pct=10,
+                entry_price=20,
+                distance_mode="percent",
+                max_loss_pct=12,
+                lot_size=100,
+                levels=[{"distancePct": 0, "multiplier": 1}],
+                result={"rows": [{"index": 1, "buyPrice": 20}]},
+            )
+
+            updated = store.update_dca_plan(
+                plan_id=plan["id"],
+                user_id=owner["id"],
+                ticker="fpt",
+                strategy="Swing",
+                initial_capital=600000000,
+                allocation_pct=12,
+                entry_price=75,
+                distance_mode="priceStep",
+                max_loss_pct=8,
+                lot_size=100,
+                levels=[{"distancePct": 2, "multiplier": 1.2}],
+                result={"rows": [{"index": 1, "buyPrice": 75}], "priceStep": 100},
+            )
+
+            self.assertEqual(updated["id"], plan["id"])
+            self.assertEqual(updated["ticker"], "FPT")
+            self.assertEqual(updated["strategy"], "Swing")
+            self.assertEqual(updated["distance_mode"], "priceStep")
+            self.assertEqual(updated["levels"][0]["multiplier"], 1.2)
+            self.assertEqual(updated["result"]["priceStep"], 100)
+            with self.assertRaises(KeyError):
+                store.update_dca_plan(
+                    plan_id=plan["id"],
+                    user_id=other["id"],
+                    ticker="VCB",
+                    strategy="Swing",
+                    initial_capital=None,
+                    allocation_pct=None,
+                    entry_price=None,
+                    distance_mode="percent",
+                    max_loss_pct=None,
+                    lot_size=None,
+                    levels=[],
+                    result={},
+                )
+
     def test_dividend_event_lifecycle(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")

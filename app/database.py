@@ -1305,6 +1305,62 @@ class SignalStore:
             plan_id = cursor.lastrowid
         return self.get_dca_plan(plan_id=plan_id, user_id=user_id)
 
+    def update_dca_plan(
+        self,
+        *,
+        plan_id: int,
+        user_id: int,
+        ticker: str,
+        strategy: str,
+        initial_capital: float | None,
+        allocation_pct: float | None,
+        entry_price: float | None,
+        distance_mode: str,
+        max_loss_pct: float | None,
+        lot_size: float | None,
+        levels: list[dict[str, Any]],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        normalized_ticker = ticker.strip().upper()
+        normalized_strategy = strategy.strip()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE dca_plans
+                SET ticker = ?,
+                    strategy = ?,
+                    initial_capital = ?,
+                    allocation_pct = ?,
+                    entry_price = ?,
+                    distance_mode = ?,
+                    max_loss_pct = ?,
+                    lot_size = ?,
+                    levels_json = ?,
+                    result_json = ?,
+                    updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    normalized_ticker,
+                    normalized_strategy,
+                    initial_capital,
+                    allocation_pct,
+                    entry_price,
+                    distance_mode,
+                    max_loss_pct,
+                    lot_size,
+                    json.dumps(levels),
+                    json.dumps(result),
+                    now,
+                    plan_id,
+                    user_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError("DCA plan was not found")
+        return self.get_dca_plan(plan_id=plan_id, user_id=user_id)
+
     def get_dca_plan(self, *, plan_id: int, user_id: int | None = None) -> dict[str, Any]:
         clauses = ["id = ?"]
         params: list[Any] = [plan_id]

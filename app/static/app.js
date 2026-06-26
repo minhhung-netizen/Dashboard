@@ -144,6 +144,7 @@ const els = {
   applyDcaHalfSuggestion: document.querySelector("#applyDcaHalfSuggestion"),
   applyDcaSuggestion: document.querySelector("#applyDcaSuggestion"),
   saveDcaPlan: document.querySelector("#saveDcaPlan"),
+  cancelDcaPlanEdit: document.querySelector("#cancelDcaPlanEdit"),
   dcaPlansTable: document.querySelector("#dcaPlansTable"),
   dcaPlanModal: document.querySelector("#dcaPlanModal"),
   dcaPlanTitle: document.querySelector("#dcaPlanTitle"),
@@ -1122,6 +1123,11 @@ Object.assign(translations.en, {
   dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
   dcaRiskExceededShort: "Over risk",
   dcaTrackingNote: "Tracking note",
+  updateDcaPlan: "Save changes",
+  cancelDcaPlanEdit: "Cancel edit",
+  edit: "Edit",
+  dcaPlanUpdated: "DCA allocation updated",
+  dcaPlanEditStarted: "Editing saved DCA allocation",
   dcaTouchedLevel: "Touched level {level} · {price}",
 });
 
@@ -1138,6 +1144,11 @@ Object.assign(translations.vi, {
   dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
   dcaRiskExceededShort: "V\u01b0\u1ee3t r\u1ee7i ro",
   dcaTrackingNote: "Theo d\u00f5i",
+  updateDcaPlan: "L\u01b0u \u0111\u00e8",
+  cancelDcaPlanEdit: "H\u1ee7y s\u1eeda",
+  edit: "S\u1eeda",
+  dcaPlanUpdated: "\u0110\u00e3 l\u01b0u \u0111\u00e8 ph\u00e2n b\u1ed5 DCA",
+  dcaPlanEditStarted: "\u0110ang s\u1eeda ph\u00e2n b\u1ed5 DCA \u0111\u00e3 l\u01b0u",
   dcaTouchedLevel: "Ch\u1ea1m l\u1edbp {level} \u00b7 {price}",
 });
 
@@ -1312,6 +1323,7 @@ const state = {
   dcaSettings: { initialCapital: null, updatedAt: "" },
   kellyMigrationDone: false,
   dcaLevels: DEFAULT_DCA_LEVELS.map((level) => ({ ...level })),
+  activeDcaPlanId: "",
   activeKellyEntryKey: "",
   activeBacktestStatKey: "",
   activeBacktestStatId: "",
@@ -2258,6 +2270,66 @@ function renderDcaTouchNote(note) {
   `;
 }
 
+function dcaPlanLevelsForEdit(plan) {
+  const savedLevels = Array.isArray(plan?.levels) ? plan.levels : [];
+  if (savedLevels.length) {
+    return savedLevels.map((level, index) => ({
+      distancePct: optionalNumber(level.distancePct ?? level.distance_pct) ?? 0,
+      multiplier: optionalNumber(level.multiplier) ?? (index === 0 ? 1 : 0),
+    }));
+  }
+  const rows = Array.isArray(plan?.result?.rows) ? plan.result.rows : [];
+  return rows.map((row, index) => ({
+    distancePct: optionalNumber(row.distancePct ?? row.distance_pct) ?? 0,
+    multiplier: optionalNumber(row.multiplier) ?? (index === 0 ? 1 : 0),
+  }));
+}
+
+function renderDcaEditState() {
+  const editing = Boolean(state.activeDcaPlanId);
+  els.saveDcaPlan.textContent = t(editing ? "updateDcaPlan" : "saveDcaPlan");
+  if (els.cancelDcaPlanEdit) {
+    els.cancelDcaPlanEdit.hidden = !editing;
+  }
+  els.dcaSizingForm.dataset.editingPlanId = editing ? String(state.activeDcaPlanId) : "";
+}
+
+function cancelDcaPlanEdit() {
+  state.activeDcaPlanId = "";
+  renderDcaEditState();
+  renderDcaPlans();
+}
+
+function editDcaPlan(planId) {
+  const plan = (state.dcaPlans || []).map(normalizeDcaPlan)
+    .find((item) => Number(item.id) === Number(planId));
+  if (!plan) return;
+  state.activeDcaPlanId = String(plan.id);
+  els.dcaSizingTicker.value = plan.ticker || "";
+  updateDcaSizingStrategyOptions(
+    [...state.performanceStrategies, ...state.backtestStats, ...state.kellyEntries],
+    plan.strategy || ""
+  );
+  els.dcaSizingStrategy.value = plan.strategy || "";
+  els.dcaInitialCapital.value = rawNumber(plan.initialCapital);
+  els.dcaAllocationPct.value = rawNumber(plan.allocationPct);
+  els.dcaEntryPrice.value = rawNumber(plan.entryPrice);
+  els.dcaDistanceMode.value = plan.distanceMode === "priceStep" ? "priceStep" : "percent";
+  els.dcaMaxLossPct.value = rawNumber(plan.maxLossPct);
+  els.dcaLotSize.value = rawNumber(plan.lotSize);
+  els.dcaPriceStep.value = rawNumber(plan.priceStep);
+  const levels = dcaPlanLevelsForEdit(plan);
+  state.dcaLevels = levels.length ? levels : DEFAULT_DCA_LEVELS.map((level) => ({ ...level }));
+  els.dcaCount.value = String(Math.max(1, state.dcaLevels.length - 1));
+  els.dcaPreset.value = "custom";
+  renderDcaEditState();
+  renderDcaSizing();
+  renderDcaPlans();
+  closeDcaPlanDetail();
+  els.dcaSizingNote.textContent = t("dcaPlanEditStarted");
+  els.dcaSizingForm.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 async function saveCurrentDcaPlan() {
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
@@ -2296,22 +2368,33 @@ async function saveCurrentDcaPlan() {
       rows: result.rows,
     },
   };
-  const response = await fetch("/api/dca-plans", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const editingPlanId = state.activeDcaPlanId;
+  const response = await fetch(
+    editingPlanId
+      ? `/api/dca-plans/${encodeURIComponent(editingPlanId)}`
+      : "/api/dca-plans",
+    {
+      method: editingPlanId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
   if (!response.ok) {
     window.alert(t("dcaPlanSaveFailed"));
     return;
   }
   const saved = await response.json();
+  const savedPlan = normalizeDcaPlan(saved.dca_plan);
   state.dcaPlans = [
-    normalizeDcaPlan(saved.dca_plan),
-    ...state.dcaPlans.filter((plan) => Number(plan.id) !== Number(saved.dca_plan?.id)),
+    savedPlan,
+    ...state.dcaPlans.filter((plan) => Number(plan.id) !== Number(savedPlan.id)),
   ];
+  if (editingPlanId) {
+    state.activeDcaPlanId = "";
+    renderDcaEditState();
+  }
   renderDcaPlans();
-  els.dcaSizingNote.textContent = t("dcaPlanSaved");
+  els.dcaSizingNote.textContent = t(editingPlanId ? "dcaPlanUpdated" : "dcaPlanSaved");
 }
 
 function renderDcaPlans() {
@@ -2333,8 +2416,9 @@ function renderDcaPlans() {
       const statusLabel = hasOpenPosition ? t("dcaHasOpenPosition") : t("dcaNoOpenPosition");
       const riskExceeded = Boolean(result.riskLimitExceeded);
       const touchNote = dcaPlanTouchNote(plan, openTrade);
+      const editing = String(state.activeDcaPlanId) === String(plan.id);
       return `
-        <tr class="clickableRow" data-dca-plan-id="${escapeHtml(plan.id)}">
+        <tr class="clickableRow ${editing ? "activeRow" : ""}" data-dca-plan-id="${escapeHtml(plan.id)}">
           <td><strong>${escapeHtml(plan.ticker || "-")}</strong></td>
           <td>${escapeHtml(plan.strategy || "-")}</td>
           <td><span class="statusBadge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
@@ -2348,7 +2432,10 @@ function renderDcaPlans() {
           </td>
           <td>${formatSignedVnd(result.projectedProfit)}</td>
           <td>${escapeHtml(formatDate(plan.updatedAt || plan.createdAt))}</td>
-          <td><button class="smallButton ghostButton" type="button" data-dca-plan-delete="${escapeHtml(plan.id)}">${escapeHtml(t("delete"))}</button></td>
+          <td>
+            <button class="smallButton ghostButton" type="button" data-dca-plan-edit="${escapeHtml(plan.id)}">${escapeHtml(t("edit"))}</button>
+            <button class="smallButton ghostButton" type="button" data-dca-plan-delete="${escapeHtml(plan.id)}">${escapeHtml(t("delete"))}</button>
+          </td>
         </tr>
       `;
     })
@@ -2360,6 +2447,12 @@ function renderDcaPlans() {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       deleteDcaPlan(button.dataset.dcaPlanDelete);
+    });
+  });
+  els.dcaPlansTable.querySelectorAll("[data-dca-plan-edit]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      editDcaPlan(button.dataset.dcaPlanEdit);
     });
   });
 }
@@ -2374,6 +2467,10 @@ async function deleteDcaPlan(planId) {
     return;
   }
   state.dcaPlans = state.dcaPlans.filter((plan) => Number(plan.id) !== Number(planId));
+  if (String(state.activeDcaPlanId) === String(planId)) {
+    state.activeDcaPlanId = "";
+    renderDcaEditState();
+  }
   renderDcaPlans();
 }
 
@@ -2635,6 +2732,7 @@ function applyTranslations() {
   renderKellyCalculator();
   renderKellyEntries();
   renderBacktestStats(filterBacktestStats(state.backtestStats));
+  renderDcaEditState();
   renderDcaSizing();
   renderDcaPlans();
   renderAverageLossBanner();
@@ -3072,6 +3170,13 @@ async function refresh() {
     (kellyPayload.kelly_entries || []).map(normalizeKellyEntry)
   );
   state.dcaPlans = (dcaPlansPayload.dca_plans || []).map(normalizeDcaPlan);
+  if (
+    state.activeDcaPlanId &&
+    !state.dcaPlans.some((plan) => String(plan.id) === String(state.activeDcaPlanId))
+  ) {
+    state.activeDcaPlanId = "";
+    renderDcaEditState();
+  }
   state.dcaSettings = normalizeDcaSettings(dcaSettingsPayload.dca_settings || {});
   applyDcaSettingsToForm();
   state.openTrades = positionPayload.open_trades || [];
@@ -5979,6 +6084,7 @@ els.applyDcaHalfSuggestion.addEventListener("click", () => applyDcaSuggestion(0.
 els.applyDcaSuggestion.addEventListener("click", () => applyDcaSuggestion(1));
 els.dcaSizingForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveDcaPlan.addEventListener("click", saveCurrentDcaPlan);
+els.cancelDcaPlanEdit.addEventListener("click", cancelDcaPlanEdit);
 els.dcaPlanClose.addEventListener("click", closeDcaPlanDetail);
 els.dcaPlanCloseBottom.addEventListener("click", closeDcaPlanDetail);
 els.dcaPlanModal.addEventListener("click", (event) => {
