@@ -1340,6 +1340,21 @@ main {
   color: var(--buy);
 }
 
+.dcaRiskAlert {
+  background: color-mix(in srgb, var(--sell) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--sell) 42%, var(--line));
+  border-radius: 8px;
+  color: var(--sell);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.dcaRiskAlert[hidden] {
+  display: none;
+}
+
 .dcaLevelsSection {
   border-top: 1px solid var(--line);
 }
@@ -1740,6 +1755,13 @@ td strong {
   background: color-mix(in srgb, var(--sell) 11%, transparent);
   border-color: color-mix(in srgb, var(--sell) 36%, var(--line));
   color: var(--sell);
+}
+
+.statusBadge.danger {
+  background: color-mix(in srgb, var(--sell) 13%, transparent);
+  border-color: color-mix(in srgb, var(--sell) 42%, var(--line));
+  color: var(--sell);
+  margin-left: 6px;
 }
 
 .statusBadge.neutral {

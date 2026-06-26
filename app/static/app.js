@@ -122,7 +122,9 @@ const els = {
   dcaEntryPrice: document.querySelector("#dcaEntryPrice"),
   dcaDistanceMode: document.querySelector("#dcaDistanceMode"),
   dcaCount: document.querySelector("#dcaCount"),
+  dcaPreset: document.querySelector("#dcaPreset"),
   dcaMaxLossPct: document.querySelector("#dcaMaxLossPct"),
+  dcaRiskLimitPct: document.querySelector("#dcaRiskLimitPct"),
   dcaLotSize: document.querySelector("#dcaLotSize"),
   dcaPriceStep: document.querySelector("#dcaPriceStep"),
   dcaTotalShares: document.querySelector("#dcaTotalShares"),
@@ -133,7 +135,9 @@ const els = {
   dcaTargetPrice: document.querySelector("#dcaTargetPrice"),
   dcaProjectedLoss: document.querySelector("#dcaProjectedLoss"),
   dcaProjectedProfit: document.querySelector("#dcaProjectedProfit"),
+  dcaRiskBudget: document.querySelector("#dcaRiskBudget"),
   dcaCashLeft: document.querySelector("#dcaCashLeft"),
+  dcaRiskAlert: document.querySelector("#dcaRiskAlert"),
   dcaSizingNote: document.querySelector("#dcaSizingNote"),
   dcaSuggestionNote: document.querySelector("#dcaSuggestionNote"),
   dcaLevelsTable: document.querySelector("#dcaLevelsTable"),
@@ -205,6 +209,8 @@ const els = {
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
 const KELLY_STORAGE_KEY = "dashboardKellyInputs";
 const KELLY_LIST_STORAGE_KEY = "dashboardKellyEntries";
+const DCA_RISK_LIMIT_STORAGE_KEY = "dashboardDcaRiskLimitPct";
+const DEFAULT_DCA_RISK_LIMIT_PCT = 1.5;
 const DEFAULT_KELLY_INPUTS = {
   ticker: "",
   strategy: "",
@@ -224,6 +230,35 @@ const DEFAULT_DCA_LEVELS = [
   { distancePct: 15, multiplier: 2 },
   { distancePct: 20, multiplier: 2.5 },
 ];
+const DCA_PRESETS = {
+  conservative: {
+    levels: [
+      { distancePct: 0, multiplier: 1 },
+      { distancePct: 5, multiplier: 1 },
+      { distancePct: 10, multiplier: 1.2 },
+      { distancePct: 15, multiplier: 1.5 },
+      { distancePct: 20, multiplier: 1.8 },
+    ],
+  },
+  balanced: {
+    levels: [
+      { distancePct: 0, multiplier: 1 },
+      { distancePct: 4, multiplier: 1 },
+      { distancePct: 8, multiplier: 1.5 },
+      { distancePct: 12, multiplier: 2 },
+      { distancePct: 16, multiplier: 2.5 },
+    ],
+  },
+  aggressive: {
+    levels: [
+      { distancePct: 0, multiplier: 1 },
+      { distancePct: 3, multiplier: 1.5 },
+      { distancePct: 6, multiplier: 2 },
+      { distancePct: 10, multiplier: 2.5 },
+      { distancePct: 15, multiplier: 3 },
+    ],
+  },
+};
 let dcaInitialCapitalSaveTimer = null;
 const FEATURE_LABELS = {
   overview: "Tổng quan",
@@ -1092,6 +1127,30 @@ Object.assign(translations.vi, {
 });
 
 Object.assign(translations.en, {
+  dcaPreset: "Preset",
+  dcaPresetCustom: "Custom",
+  dcaPresetConservative: "Conservative",
+  dcaPresetBalanced: "Balanced",
+  dcaPresetAggressive: "Aggressive",
+  dcaRiskLimitPct: "Risk limit (% capital)",
+  dcaRiskBudget: "Risk / capital",
+  dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
+  dcaRiskExceededShort: "Over risk",
+});
+
+Object.assign(translations.vi, {
+  dcaPreset: "M\u1eabu ph\u00e2n b\u1ed5",
+  dcaPresetCustom: "T\u00f9y ch\u1ec9nh",
+  dcaPresetConservative: "Th\u1eadn tr\u1ecdng",
+  dcaPresetBalanced: "C\u00e2n b\u1eb1ng",
+  dcaPresetAggressive: "M\u1ea1nh",
+  dcaRiskLimitPct: "Ng\u01b0\u1ee1ng r\u1ee7i ro (% v\u1ed1n)",
+  dcaRiskBudget: "R\u1ee7i ro / v\u1ed1n",
+  dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
+  dcaRiskExceededShort: "V\u01b0\u1ee3t r\u1ee7i ro",
+});
+
+Object.assign(translations.en, {
   allStrategies: "All strategies",
   performanceTradeHistory: "Trade History",
   strategyTradeHistory: "Strategy Closed Trades",
@@ -1588,6 +1647,10 @@ function renderKellyEntries() {
 }
 
 function initializeDcaSizingCalculator() {
+  const storedRiskLimit = optionalNumber(localStorage.getItem(DCA_RISK_LIMIT_STORAGE_KEY));
+  els.dcaRiskLimitPct.value = rawNumber(
+    storedRiskLimit === null ? DEFAULT_DCA_RISK_LIMIT_PCT : storedRiskLimit
+  );
   els.dcaCount.value = String(Math.max(1, state.dcaLevels.length - 1));
   renderDcaLevelsTable();
   updateDcaSizingStrategyOptions([...state.performanceStrategies, ...state.backtestStats]);
@@ -1668,6 +1731,7 @@ function readDcaSizingInputs() {
   const strategy = els.dcaSizingStrategy.value.trim();
   const stat = ticker ? findBacktestStat(ticker, strategy) : null;
   const avgGainPct = Math.abs(Number(stat?.avg_gain_pct));
+  const riskLimitPct = optionalNumber(els.dcaRiskLimitPct.value);
   return {
     ticker,
     strategy,
@@ -1676,6 +1740,7 @@ function readDcaSizingInputs() {
     entryPrice: optionalNumber(els.dcaEntryPrice.value),
     distanceMode: els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent",
     maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
+    riskLimitPct: riskLimitPct === null ? DEFAULT_DCA_RISK_LIMIT_PCT : Math.max(0, riskLimitPct),
     avgGainPct: Number.isFinite(avgGainPct) && avgGainPct > 0 ? avgGainPct : null,
     lotSize: Math.max(1, Math.floor(optionalNumber(els.dcaLotSize.value) || 1)),
     priceStep: Math.max(0, Number(optionalNumber(els.dcaPriceStep.value) || 0)),
@@ -1716,6 +1781,21 @@ function setDcaLevelCount(count) {
     });
   }
   state.dcaLevels = nextLevels;
+}
+
+function applyDcaPreset(presetKey) {
+  const preset = DCA_PRESETS[presetKey];
+  if (!preset) return;
+  state.dcaLevels = preset.levels.map((level) => ({ ...level }));
+  els.dcaCount.value = String(Math.max(1, state.dcaLevels.length - 1));
+  renderDcaSuggestionPreview();
+  renderDcaSizing();
+}
+
+function markDcaPresetCustom() {
+  if (els.dcaPreset) {
+    els.dcaPreset.value = "custom";
+  }
 }
 
 function dcaBacktestLossRange() {
@@ -1799,6 +1879,7 @@ function applyDcaSuggestion() {
     distancePct: distance.distancePct,
     multiplier: previousLevels[index]?.multiplier || (index === 0 ? 1 : 1.2),
   }));
+  markDcaPresetCustom();
   renderDcaSuggestionPreview();
   renderDcaSizing();
 }
@@ -1885,11 +1966,16 @@ function calculateDcaSizing(inputs) {
     ? roundDcaBuyPrice(Number(firstBuyPrice) * (1 + avgGainPct / 100), inputs.priceStep)
     : null;
   const projectedLoss = averagePrice !== null && riskPrice !== null
-    ? (averagePrice - riskPrice) * cumulativeShares
+    ? Math.max(0, (averagePrice - riskPrice) * cumulativeShares)
     : null;
   const projectedProfit = averagePrice !== null && targetPrice !== null
     ? (targetPrice - averagePrice) * cumulativeShares
     : null;
+  const initialCapital = Number(inputs.initialCapital);
+  const riskPctOfCapital = Number.isFinite(initialCapital) && initialCapital > 0 && projectedLoss !== null
+    ? Math.abs(projectedLoss) / initialCapital * 100
+    : null;
+  const riskLimitPct = Math.max(0, Number(inputs.riskLimitPct) || 0);
 
   return {
     valid: true,
@@ -1904,6 +1990,10 @@ function calculateDcaSizing(inputs) {
     targetPrice,
     projectedLoss,
     projectedProfit,
+    riskPctOfCapital,
+    riskLimitPct,
+    riskLimitExceeded:
+      riskPctOfCapital !== null && riskLimitPct > 0 && riskPctOfCapital > riskLimitPct,
     note: t("dcaSizingAutoNote"),
   };
 }
@@ -1955,7 +2045,10 @@ function renderDcaSizing() {
     els.dcaTargetPrice.textContent = "-";
     els.dcaProjectedLoss.textContent = "-";
     els.dcaProjectedProfit.textContent = "-";
+    els.dcaRiskBudget.textContent = "-";
     els.dcaCashLeft.textContent = "-";
+    els.dcaRiskAlert.hidden = true;
+    els.dcaRiskAlert.textContent = "";
     els.dcaSizingNote.textContent = result.note;
     return;
   }
@@ -1968,7 +2061,14 @@ function renderDcaSizing() {
   els.dcaTargetPrice.textContent = formatPrice(result.targetPrice);
   els.dcaProjectedLoss.innerHTML = formatSignedVnd(-Math.abs(result.projectedLoss || 0));
   els.dcaProjectedProfit.innerHTML = formatSignedVnd(result.projectedProfit);
+  els.dcaRiskBudget.innerHTML = formatSignedPercent(-Math.abs(result.riskPctOfCapital || 0));
   els.dcaCashLeft.textContent = formatVnd(result.cashLeft);
+  els.dcaRiskAlert.hidden = !result.riskLimitExceeded;
+  els.dcaRiskAlert.textContent = result.riskLimitExceeded
+    ? t("dcaRiskExceeded")
+        .replace("{risk}", rawNumber(result.riskPctOfCapital))
+        .replace("{limit}", rawNumber(result.riskLimitPct))
+    : "";
   els.dcaSizingNote.textContent = result.note;
 }
 
@@ -1999,6 +2099,7 @@ function renderDcaLevelsTable(calculatedRows = []) {
       const index = Number(input.dataset.dcaLevelIndex);
       const field = input.dataset.dcaLevelField;
       state.dcaLevels[index][field] = optionalNumber(input.value) ?? 0;
+      markDcaPresetCustom();
       renderDcaSizing();
     });
   });
@@ -2066,6 +2167,15 @@ function scheduleDcaInitialCapitalSave() {
   dcaInitialCapitalSaveTimer = window.setTimeout(saveDcaInitialCapital, 700);
 }
 
+function saveDcaRiskLimitPreference() {
+  const riskLimit = optionalNumber(els.dcaRiskLimitPct.value);
+  if (riskLimit === null) {
+    localStorage.removeItem(DCA_RISK_LIMIT_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(DCA_RISK_LIMIT_STORAGE_KEY, rawNumber(Math.max(0, riskLimit)));
+}
+
 async function saveCurrentDcaPlan() {
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
@@ -2097,6 +2207,9 @@ async function saveCurrentDcaPlan() {
       targetPrice: result.targetPrice,
       projectedLoss: result.projectedLoss,
       projectedProfit: result.projectedProfit,
+      riskPctOfCapital: result.riskPctOfCapital,
+      riskLimitPct: result.riskLimitPct,
+      riskLimitExceeded: result.riskLimitExceeded,
       priceStep: inputs.priceStep,
       rows: result.rows,
     },
@@ -2135,6 +2248,7 @@ function renderDcaPlans() {
       const hasOpenPosition = Boolean(findOpenTradeForDca(plan.ticker, plan.strategy));
       const statusClass = hasOpenPosition ? "open" : "neutral";
       const statusLabel = hasOpenPosition ? t("dcaHasOpenPosition") : t("dcaNoOpenPosition");
+      const riskExceeded = Boolean(result.riskLimitExceeded);
       return `
         <tr class="clickableRow" data-dca-plan-id="${escapeHtml(plan.id)}">
           <td><strong>${escapeHtml(plan.ticker || "-")}</strong></td>
@@ -2143,7 +2257,10 @@ function renderDcaPlans() {
           <td>${formatVnd(result.allocatedCapital)}</td>
           <td>${formatPrice(result.totalShares)}</td>
           <td>${formatPrice(result.averagePrice)}</td>
-          <td>${formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))}</td>
+          <td>
+            ${formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))}
+            ${riskExceeded ? `<span class="statusBadge danger">${escapeHtml(t("dcaRiskExceededShort"))}</span>` : ""}
+          </td>
           <td>${formatSignedVnd(result.projectedProfit)}</td>
           <td>${escapeHtml(formatDate(plan.updatedAt || plan.createdAt))}</td>
           <td><button class="smallButton ghostButton" type="button" data-dca-plan-delete="${escapeHtml(plan.id)}">${escapeHtml(t("delete"))}</button></td>
@@ -2202,6 +2319,8 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaTargetPrice"), formatPrice(result.targetPrice)),
       insightMetric(t("dcaProjectedLoss"), formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))),
       insightMetric(t("dcaProjectedProfit"), formatSignedVnd(result.projectedProfit)),
+      insightMetric(t("dcaRiskBudget"), formatSignedPercent(-Math.abs(Number(result.riskPctOfCapital) || 0))),
+      insightMetric(t("dcaRiskLimitPct"), formatKellyPercent(result.riskLimitPct)),
     ])}
     ${renderDcaPlanRows(rows)}
   `;
@@ -5697,6 +5816,7 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaEntryPrice,
   els.dcaDistanceMode,
   els.dcaMaxLossPct,
+  els.dcaRiskLimitPct,
   els.dcaLotSize,
   els.dcaPriceStep,
 ].forEach((input) => input.addEventListener("input", renderDcaSizing));
@@ -5708,9 +5828,18 @@ els.dcaDistanceMode.addEventListener("change", () => {
 });
 els.dcaCount.addEventListener("change", () => {
   setDcaLevelCount(dcaCount());
+  markDcaPresetCustom();
   renderDcaSuggestionPreview();
   renderDcaSizing();
 });
+els.dcaPreset.addEventListener("change", () => {
+  if (els.dcaPreset.value === "custom") {
+    renderDcaSizing();
+    return;
+  }
+  applyDcaPreset(els.dcaPreset.value);
+});
+els.dcaRiskLimitPct.addEventListener("change", saveDcaRiskLimitPreference);
 els.applyDcaSuggestion.addEventListener("click", applyDcaSuggestion);
 els.dcaSizingForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveDcaPlan.addEventListener("click", saveCurrentDcaPlan);
