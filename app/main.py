@@ -332,7 +332,10 @@ class UserUpdatePayload(BaseModel):
 
 @app.get("/")
 def dashboard() -> FileResponse:
-    return FileResponse(PROJECT_ROOT / "app" / "static" / "index.html")
+    return FileResponse(
+        PROJECT_ROOT / "app" / "static" / "index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/health")
