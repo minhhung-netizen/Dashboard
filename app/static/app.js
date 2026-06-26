@@ -1126,7 +1126,6 @@ Object.assign(translations.en, {
   dcaRiskBudget: "Risk / capital",
   dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
   dcaRiskExceededShort: "Over risk",
-  dcaTrackingNote: "Tracking note",
   dcaPriceStepMode: "Step mode",
   dcaPriceStepModeCustom: "Custom per level",
   dcaPriceStepModeFixed: "Fixed step",
@@ -1136,7 +1135,6 @@ Object.assign(translations.en, {
   edit: "Edit",
   dcaPlanUpdated: "DCA allocation updated",
   dcaPlanEditStarted: "Editing saved DCA allocation",
-  dcaTouchedLevel: "Touched level {level} · {price}",
 });
 
 Object.assign(translations.vi, {
@@ -1151,7 +1149,6 @@ Object.assign(translations.vi, {
   dcaRiskBudget: "R\u1ee7i ro / v\u1ed1n",
   dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
   dcaRiskExceededShort: "V\u01b0\u1ee3t r\u1ee7i ro",
-  dcaTrackingNote: "Theo d\u00f5i",
   dcaPriceStepMode: "Ki\u1ec3u b\u01b0\u1edbc gi\u00e1",
   dcaPriceStepModeCustom: "T\u00f9y ch\u1ec9nh t\u1eebng l\u1edbp",
   dcaPriceStepModeFixed: "B\u01b0\u1edbc c\u1ed1 \u0111\u1ecbnh",
@@ -1161,7 +1158,6 @@ Object.assign(translations.vi, {
   edit: "S\u1eeda",
   dcaPlanUpdated: "\u0110\u00e3 l\u01b0u \u0111\u00e8 ph\u00e2n b\u1ed5 DCA",
   dcaPlanEditStarted: "\u0110ang s\u1eeda ph\u00e2n b\u1ed5 DCA \u0111\u00e3 l\u01b0u",
-  dcaTouchedLevel: "Ch\u1ea1m l\u1edbp {level} \u00b7 {price}",
 });
 
 Object.assign(translations.en, {
@@ -1347,7 +1343,6 @@ const state = {
   summary: {},
   lastRefreshAt: null,
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
-  chartHistoryByTicker: {},
 };
 
 const priceChartState = {
@@ -2245,97 +2240,6 @@ function saveDcaRiskLimitPreference() {
   localStorage.setItem(DCA_RISK_LIMIT_STORAGE_KEY, rawNumber(Math.max(0, riskLimit)));
 }
 
-function dcaPlanRows(plan) {
-  const rows = Array.isArray(plan?.result?.rows) ? plan.result.rows : [];
-  return rows
-    .map((row) => ({
-      level: Number(row.index) || 0,
-      buyPrice: optionalNumber(row.buyPrice ?? row.buy_price),
-    }))
-    .filter((row) => row.level > 1 && row.buyPrice !== null && row.buyPrice > 0);
-}
-
-function dcaHistoryRowsSinceEntry(openTrade) {
-  const ticker = String(openTrade?.ticker || "").trim().toUpperCase();
-  const history = state.chartHistoryByTicker[ticker] || [];
-  const entryDate = normalizeChartTime(openTrade?.entry_time);
-  if (!ticker || !entryDate) return [];
-  // Daily candles cannot tell whether the entry-day low happened before or after the buy signal.
-  return history.filter((row) => row.time > entryDate);
-}
-
-function dcaTouchedRowsFromHistory(plan, openTrade) {
-  const history = dcaHistoryRowsSinceEntry(openTrade);
-  const touchedRows = dcaPlanRows(plan)
-    .map((row) => {
-      const touchedBar = history.find((bar) => Number(bar.low) <= row.buyPrice);
-      return touchedBar
-        ? {
-            ...row,
-            touchedAt: touchedBar.time,
-            touchedPrice: touchedBar.low,
-          }
-        : null;
-    })
-    .filter(Boolean);
-  const entryDayTouch = dcaTouchedRowFromEntryDayClose(plan, openTrade);
-  if (entryDayTouch) {
-    touchedRows.push(entryDayTouch);
-  }
-  return touchedRows
-    .sort((left, right) => right.level - left.level);
-}
-
-function dcaTouchedRowFromEntryDayClose(plan, openTrade) {
-  const ticker = String(openTrade?.ticker || "").trim().toUpperCase();
-  const history = state.chartHistoryByTicker[ticker] || [];
-  const entryDate = normalizeChartTime(openTrade?.entry_time);
-  if (!ticker || !entryDate) return null;
-  const entryBar = history.find((row) => row.time === entryDate);
-  const entryClose = optionalNumber(entryBar?.close);
-  if (entryClose === null || entryClose <= 0) return null;
-  const touchedRow = dcaPlanRows(plan)
-    .filter((row) => entryClose <= row.buyPrice)
-    .sort((left, right) => right.level - left.level)[0];
-  return touchedRow
-    ? {
-        ...touchedRow,
-        touchedAt: entryDate,
-        touchedPrice: entryClose,
-      }
-    : null;
-}
-
-function dcaPlanTouchNote(plan, openTrade = findOpenTradeForDca(plan?.ticker, plan?.strategy)) {
-  if (!openTrade) return null;
-  const marketPrice = optionalNumber(
-    openTrade.exit_price ?? openTrade.current_price ?? openTrade.mark_price
-  );
-  const touchedRows = dcaTouchedRowsFromHistory(plan, openTrade);
-  const touched = touchedRows[0];
-  if (!touched) return null;
-  return {
-    level: touched.level,
-    buyPrice: touched.buyPrice,
-    marketPrice: touched.touchedPrice ?? marketPrice,
-    touchedAt: touched.touchedAt,
-    touchedPrice: touched.touchedPrice,
-  };
-}
-
-function renderDcaTouchNote(note) {
-  if (!note) return `<span class="mutedText">-</span>`;
-  return `
-    <span class="statusBadge dcaTouchBadge">
-      ${escapeHtml(
-        t("dcaTouchedLevel")
-          .replace("{level}", String(note.level))
-          .replace("{price}", formatPrice(note.buyPrice))
-      )}
-    </span>
-  `;
-}
-
 function dcaPlanLevelsForEdit(plan) {
   const savedLevels = Array.isArray(plan?.levels) ? plan.levels : [];
   if (savedLevels.length) {
@@ -2476,7 +2380,7 @@ function renderDcaPlans() {
   }
   const plans = (state.dcaPlans || []).map(normalizeDcaPlan);
   if (!plans.length) {
-    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noDcaPlans")}</td></tr>`;
+    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noDcaPlans")}</td></tr>`;
     return;
   }
   els.dcaPlansTable.innerHTML = plans
@@ -2487,14 +2391,12 @@ function renderDcaPlans() {
       const statusClass = hasOpenPosition ? "open" : "neutral";
       const statusLabel = hasOpenPosition ? t("dcaHasOpenPosition") : t("dcaNoOpenPosition");
       const riskExceeded = Boolean(result.riskLimitExceeded);
-      const touchNote = dcaPlanTouchNote(plan, openTrade);
       const editing = String(state.activeDcaPlanId) === String(plan.id);
       return `
         <tr class="clickableRow ${editing ? "activeRow" : ""}" data-dca-plan-id="${escapeHtml(plan.id)}">
           <td><strong>${escapeHtml(plan.ticker || "-")}</strong></td>
           <td>${escapeHtml(plan.strategy || "-")}</td>
           <td><span class="statusBadge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
-          <td>${renderDcaTouchNote(touchNote)}</td>
           <td>${formatVnd(result.allocatedCapital)}</td>
           <td>${formatPrice(result.totalShares)}</td>
           <td>${formatPrice(result.averagePrice)}</td>
@@ -2546,26 +2448,12 @@ async function deleteDcaPlan(planId) {
   renderDcaPlans();
 }
 
-async function loadDcaPlanChartHistories() {
-  if (!featureEnabled("dcaSizing")) return;
-  const tickers = [
-    ...new Set(
-      (state.dcaPlans || [])
-        .map(normalizeDcaPlan)
-        .filter((plan) => plan.ticker && findOpenTradeForDca(plan.ticker, plan.strategy))
-        .map((plan) => plan.ticker)
-    ),
-  ];
-  await Promise.allSettled(tickers.map((ticker) => loadChartHistoryForTicker(ticker)));
-}
-
 function openDcaPlanDetail(planId) {
   const plan = (state.dcaPlans || []).map(normalizeDcaPlan)
     .find((item) => Number(item.id) === Number(planId));
   if (!plan) return;
   const result = plan.result || {};
   const rows = Array.isArray(result.rows) ? result.rows : [];
-  const touchNote = dcaPlanTouchNote(plan);
   els.dcaPlanTitle.textContent = plan.ticker || "-";
   els.dcaPlanSubtitle.textContent = `${plan.strategy || "-"} · ${formatDate(plan.updatedAt || plan.createdAt)}`;
   els.dcaPlanBody.innerHTML = `
@@ -2581,12 +2469,6 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaMaxLossPct"), formatKellyPercent(plan.maxLossPct)),
       insightMetric(t("dcaLotSize"), formatPrice(plan.lotSize)),
       insightMetric(t("dcaPriceStep"), formatPrice(plan.priceStep)),
-      insightMetric(t("dcaTrackingNote"), touchNote
-        ? t("dcaTouchedLevel")
-            .replace("{level}", String(touchNote.level))
-            .replace("{price}", formatPrice(touchNote.buyPrice))
-        : "-"),
-      insightMetric(t("currentPrice"), touchNote ? formatPrice(touchNote.marketPrice) : "-"),
     ])}
     ${renderInsightSection(t("dcaSizingTitle"), [
       insightMetric(t("dcaAllocatedCapital"), formatVnd(result.allocatedCapital)),
@@ -3256,7 +3138,6 @@ async function refresh() {
   state.dcaSettings = normalizeDcaSettings(dcaSettingsPayload.dca_settings || {});
   applyDcaSettingsToForm();
   state.openTrades = positionPayload.open_trades || [];
-  await loadDcaPlanChartHistories();
   updateOpenPositionStrategyFilterOptions(filterTradesForWatchlist(state.openTrades));
   state.performanceStrategies = positionPayload.strategies || [];
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
@@ -5564,28 +5445,8 @@ async function reopenClosedTrade(exitSignalId) {
 
 async function loadChartPayload(ticker) {
   const payload = await fetchJson(`/api/chart/${encodeURIComponent(ticker)}`);
-  const normalizedTicker = String(payload.ticker || ticker || "").trim().toUpperCase();
   const history = normalizeHistory(payload.history || []);
-  if (normalizedTicker) {
-    state.chartHistoryByTicker[normalizedTicker] = history;
-  }
   return { ...payload, normalizedHistory: history };
-}
-
-async function loadChartHistoryForTicker(ticker) {
-  const normalizedTicker = String(ticker || "").trim().toUpperCase();
-  if (!normalizedTicker) return [];
-  if (Array.isArray(state.chartHistoryByTicker[normalizedTicker])) {
-    return state.chartHistoryByTicker[normalizedTicker];
-  }
-  try {
-    const payload = await loadChartPayload(normalizedTicker);
-    return payload.normalizedHistory;
-  } catch (error) {
-    console.error(`Failed to load chart history for ${normalizedTicker}`, error);
-    state.chartHistoryByTicker[normalizedTicker] = [];
-    return [];
-  }
 }
 
 async function renderChart(ticker) {

@@ -1782,13 +1782,6 @@ td strong {
   margin-left: 6px;
 }
 
-.statusBadge.dcaTouchBadge {
-  background: color-mix(in srgb, var(--buy) 13%, transparent);
-  border-color: color-mix(in srgb, var(--buy) 42%, var(--line));
-  color: var(--buy);
-  text-transform: none;
-}
-
 .statusBadge.neutral {
   background: color-mix(in srgb, var(--muted) 10%, transparent);
   border-color: color-mix(in srgb, var(--muted) 28%, var(--line));
