@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VN Signals Dashboard</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260626-dca-sizing" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260626-dca-multiplier" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -878,6 +878,13 @@
                 <input id="dcaEntryPrice" min="0" step="0.01" type="number" />
               </label>
               <label>
+                <span data-i18n="dcaDistanceMode">Distance mode</span>
+                <select id="dcaDistanceMode" aria-label="DCA distance mode">
+                  <option value="percent" data-i18n="dcaDistanceModePercent">Percent from previous order</option>
+                  <option value="priceStep" data-i18n="dcaDistanceModePriceStep">Price step from previous order</option>
+                </select>
+              </label>
+              <label>
                 <span data-i18n="dcaMaxLossPct">Max loss from backtest (%)</span>
                 <input id="dcaMaxLossPct" min="0" step="0.01" type="number" />
               </label>
@@ -934,10 +941,9 @@
                 <thead>
                   <tr>
                     <th data-i18n="dcaLevel">Level</th>
-                    <th data-i18n="dcaDistancePct">Distance %</th>
+                    <th data-i18n="dcaDistanceValue">Distance</th>
                     <th data-i18n="dcaMultiplier">Multiplier</th>
                     <th data-i18n="dcaBuyPrice">Buy price</th>
-                    <th data-i18n="dcaLevelBudget">Budget</th>
                     <th data-i18n="dcaShares">Shares</th>
                     <th data-i18n="dcaCost">Cost</th>
                     <th data-i18n="dcaCumulativeAverage">Cumulative average</th>
@@ -1089,6 +1095,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260626-dca-sizing"></script>
+    <script src="/static/app.js?v=20260626-dca-multiplier"></script>
   </body>
 </html>

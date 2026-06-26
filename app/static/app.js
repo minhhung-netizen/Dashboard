@@ -120,6 +120,7 @@ const els = {
   dcaInitialCapital: document.querySelector("#dcaInitialCapital"),
   dcaAllocationPct: document.querySelector("#dcaAllocationPct"),
   dcaEntryPrice: document.querySelector("#dcaEntryPrice"),
+  dcaDistanceMode: document.querySelector("#dcaDistanceMode"),
   dcaMaxLossPct: document.querySelector("#dcaMaxLossPct"),
   dcaLotSize: document.querySelector("#dcaLotSize"),
   dcaTotalShares: document.querySelector("#dcaTotalShares"),
@@ -969,6 +970,9 @@ Object.assign(translations.en, {
   dcaInitialCapital: "Initial capital",
   dcaAllocationPct: "Recommended allocation (%)",
   dcaEntryPrice: "First buy price",
+  dcaDistanceMode: "Distance mode",
+  dcaDistanceModePercent: "Percent from previous order",
+  dcaDistanceModePriceStep: "Price step from previous order",
   dcaMaxLossPct: "Max loss from backtest (%)",
   dcaLotSize: "Lot size",
   dcaTotalShares: "Total shares",
@@ -981,15 +985,16 @@ Object.assign(translations.en, {
   dcaLevels: "DCA levels",
   dcaLevelsTitle: "Distance and multiplier",
   dcaLevel: "Level",
+  dcaDistanceValue: "Distance",
   dcaDistancePct: "Distance %",
-  dcaMultiplier: "Multiplier",
+  dcaMultiplier: "Volume multiplier",
   dcaBuyPrice: "Buy price",
   dcaLevelBudget: "Budget",
   dcaShares: "Shares",
   dcaCost: "Cost",
   dcaCumulativeAverage: "Cumulative average",
   dcaSizingInvalidNote: "Enter capital, allocation, first buy price and at least one valid multiplier.",
-  dcaSizingAutoNote: "Allocation uses saved Kelly; max loss uses saved backtest when available.",
+  dcaSizingAutoNote: "Allocation uses saved Kelly; max loss uses saved backtest when available. Each level's shares are previous shares multiplied by the multiplier.",
 });
 
 Object.assign(translations.vi, {
@@ -999,6 +1004,9 @@ Object.assign(translations.vi, {
   dcaInitialCapital: "Vốn ban đầu",
   dcaAllocationPct: "Tỷ trọng khuyến nghị (%)",
   dcaEntryPrice: "Giá mua đầu tiên",
+  dcaDistanceMode: "Kiểu khoảng cách",
+  dcaDistanceModePercent: "% so với lệnh trước",
+  dcaDistanceModePriceStep: "Bước giá so với lệnh trước",
   dcaMaxLossPct: "Âm lớn nhất backtest (%)",
   dcaLotSize: "Lô giao dịch",
   dcaTotalShares: "Tổng cổ phiếu",
@@ -1011,15 +1019,16 @@ Object.assign(translations.vi, {
   dcaLevels: "Các lớp DCA",
   dcaLevelsTitle: "Khoảng cách giá và multiplier",
   dcaLevel: "Lớp",
+  dcaDistanceValue: "Khoảng cách",
   dcaDistancePct: "Khoảng cách %",
-  dcaMultiplier: "Multiplier",
+  dcaMultiplier: "Nhân khối lượng",
   dcaBuyPrice: "Giá mua",
   dcaLevelBudget: "Ngân sách",
   dcaShares: "Cổ phiếu",
   dcaCost: "Giá trị mua",
   dcaCumulativeAverage: "Giá TB lũy kế",
   dcaSizingInvalidNote: "Nhập vốn, tỷ trọng, giá mua đầu tiên và ít nhất một multiplier hợp lệ.",
-  dcaSizingAutoNote: "Tỷ trọng lấy từ Kelly đã lưu; âm lớn nhất lấy từ Backtest đã lưu nếu có.",
+  dcaSizingAutoNote: "Tỷ trọng lấy từ Kelly đã lưu; âm lớn nhất lấy từ Backtest đã lưu nếu có. Khối lượng mỗi lớp bằng khối lượng lớp trước nhân multiplier.",
 });
 
 Object.assign(translations.en, {
@@ -1581,6 +1590,7 @@ function readDcaSizingInputs() {
     initialCapital: optionalNumber(els.dcaInitialCapital.value),
     allocationPct: optionalNumber(els.dcaAllocationPct.value),
     entryPrice: optionalNumber(els.dcaEntryPrice.value),
+    distanceMode: els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent",
     maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
     lotSize: Math.max(1, Math.floor(optionalNumber(els.dcaLotSize.value) || 1)),
   };
@@ -1597,7 +1607,6 @@ function validDcaLevels() {
 
 function calculateDcaSizing(inputs) {
   const levels = validDcaLevels();
-  const multiplierTotal = levels.reduce((sum, level) => sum + level.multiplier, 0);
   const allocatedCapital =
     Number(inputs.initialCapital) * Number(inputs.allocationPct) / 100;
   if (
@@ -1605,28 +1614,57 @@ function calculateDcaSizing(inputs) {
     allocatedCapital <= 0 ||
     !Number.isFinite(Number(inputs.entryPrice)) ||
     Number(inputs.entryPrice) <= 0 ||
-    multiplierTotal <= 0
+    !levels.length
   ) {
     return { valid: false, rows: [], note: t("dcaSizingInvalidNote") };
   }
 
+  let previousPrice = Number(inputs.entryPrice);
+  let volumeFactor = 1;
+  const plannedRows = [];
+  for (const [index, level] of levels.entries()) {
+    const distance = Math.max(0, Number(level.distancePct) || 0);
+    if (index > 0) {
+      previousPrice = inputs.distanceMode === "priceStep"
+        ? previousPrice - distance
+        : previousPrice * (1 - distance / 100);
+    }
+    if (!Number.isFinite(previousPrice) || previousPrice <= 0) {
+      return { valid: false, rows: [], note: t("dcaSizingInvalidNote") };
+    }
+    if (index > 0) {
+      volumeFactor *= Math.max(0, Number(level.multiplier) || 0);
+    }
+    plannedRows.push({
+      index: index + 1,
+      distancePct: distance,
+      multiplier: level.multiplier,
+      buyPrice: previousPrice,
+      volumeFactor,
+    });
+  }
+
+  const factorCost = plannedRows.reduce((sum, row) => sum + row.buyPrice * row.volumeFactor, 0);
+  const baseRawShares = factorCost > 0 ? allocatedCapital / factorCost : 0;
+  const baseShares = Math.floor(baseRawShares / inputs.lotSize) * inputs.lotSize;
+
   let cumulativeShares = 0;
   let cumulativeCost = 0;
-  const rows = levels.map((level, index) => {
-    const buyPrice = Number(inputs.entryPrice) * (1 - level.distancePct / 100);
-    const budget = allocatedCapital * level.multiplier / multiplierTotal;
-    const rawShares = buyPrice > 0 ? budget / buyPrice : 0;
-    const shares = Math.floor(rawShares / inputs.lotSize) * inputs.lotSize;
-    const cost = shares * buyPrice;
+  let previousShares = baseShares;
+  const rows = plannedRows.map((row, index) => {
+    const shares = index === 0
+      ? baseShares
+      : Math.floor((previousShares * row.multiplier) / inputs.lotSize) * inputs.lotSize;
+    previousShares = shares;
+    const cost = shares * row.buyPrice;
     cumulativeShares += shares;
     cumulativeCost += cost;
     const cumulativeAverage = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
     return {
-      index: index + 1,
-      distancePct: level.distancePct,
-      multiplier: level.multiplier,
-      buyPrice,
-      budget,
+      index: row.index,
+      distancePct: row.distancePct,
+      multiplier: row.multiplier,
+      buyPrice: row.buyPrice,
       shares,
       cost,
       cumulativeAverage,
@@ -1696,7 +1734,6 @@ function renderDcaLevelsTable(calculatedRows = []) {
             <input class="dcaLevelInput" data-dca-level-index="${index}" data-dca-level-field="multiplier" min="0" step="0.01" type="number" value="${escapeHtml(rawNumber(level.multiplier))}" />
           </td>
           <td>${formatPrice(row.buyPrice)}</td>
-          <td>${formatVnd(row.budget)}</td>
           <td>${formatPrice(row.shares)}</td>
           <td>${formatVnd(row.cost)}</td>
           <td>${formatPrice(row.cumulativeAverage)}</td>
@@ -5139,9 +5176,11 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaInitialCapital,
   els.dcaAllocationPct,
   els.dcaEntryPrice,
+  els.dcaDistanceMode,
   els.dcaMaxLossPct,
   els.dcaLotSize,
 ].forEach((input) => input.addEventListener("input", renderDcaSizing));
+els.dcaDistanceMode.addEventListener("change", renderDcaSizing);
 els.dcaSizingForm.addEventListener("submit", (event) => event.preventDefault());
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
