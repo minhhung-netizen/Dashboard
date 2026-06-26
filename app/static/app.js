@@ -2288,20 +2288,8 @@ function dcaPlanTouchNote(plan, openTrade = findOpenTradeForDca(plan?.ticker, pl
     openTrade.exit_price ?? openTrade.current_price ?? openTrade.mark_price
   );
   const touchedRows = dcaTouchedRowsFromHistory(plan, openTrade);
-  if (!touchedRows.length && (marketPrice === null || marketPrice <= 0)) return null;
   const touched = touchedRows[0];
-  if (!touched) {
-    const currentTouchedRows = dcaPlanRows(plan)
-      .filter((row) => marketPrice <= row.buyPrice)
-      .sort((left, right) => right.level - left.level);
-    if (!currentTouchedRows.length) return null;
-    const currentTouched = currentTouchedRows[0];
-    return {
-      level: currentTouched.level,
-      buyPrice: currentTouched.buyPrice,
-      marketPrice,
-    };
-  }
+  if (!touched) return null;
   return {
     level: touched.level,
     buyPrice: touched.buyPrice,
