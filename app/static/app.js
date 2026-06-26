@@ -121,6 +121,7 @@ const els = {
   dcaAllocationPct: document.querySelector("#dcaAllocationPct"),
   dcaEntryPrice: document.querySelector("#dcaEntryPrice"),
   dcaDistanceMode: document.querySelector("#dcaDistanceMode"),
+  dcaCount: document.querySelector("#dcaCount"),
   dcaMaxLossPct: document.querySelector("#dcaMaxLossPct"),
   dcaLotSize: document.querySelector("#dcaLotSize"),
   dcaTotalShares: document.querySelector("#dcaTotalShares"),
@@ -131,7 +132,9 @@ const els = {
   dcaProjectedLoss: document.querySelector("#dcaProjectedLoss"),
   dcaCashLeft: document.querySelector("#dcaCashLeft"),
   dcaSizingNote: document.querySelector("#dcaSizingNote"),
+  dcaSuggestionNote: document.querySelector("#dcaSuggestionNote"),
   dcaLevelsTable: document.querySelector("#dcaLevelsTable"),
+  applyDcaSuggestion: document.querySelector("#applyDcaSuggestion"),
   saveDcaPlan: document.querySelector("#saveDcaPlan"),
   dcaPlansTable: document.querySelector("#dcaPlansTable"),
   dcaPlanModal: document.querySelector("#dcaPlanModal"),
@@ -981,6 +984,7 @@ Object.assign(translations.en, {
   dcaDistanceMode: "Distance mode",
   dcaDistanceModePercent: "Percent from previous order",
   dcaDistanceModePriceStep: "Price step from previous order",
+  dcaCount: "DCA count",
   dcaMaxLossPct: "Max loss from backtest (%)",
   dcaLotSize: "Lot size",
   dcaTotalShares: "Total shares",
@@ -1012,6 +1016,10 @@ Object.assign(translations.en, {
   dcaPlanSaveFailed: "Could not save DCA allocation",
   deleteDcaPlanConfirm: "Delete this DCA allocation plan?",
   deleteDcaPlanFailed: "Could not delete DCA allocation plan",
+  applyDcaSuggestion: "Suggest distance",
+  dcaSuggestionMissingBacktest: "No backtest average loss and max loss found for this ticker/strategy.",
+  dcaSuggestionMissingEntryPrice: "Enter first buy price to convert suggested distance into price steps.",
+  dcaSuggestionApplied: "Suggested from avg loss {avg}% to max loss {max}% across {count} DCA entries. Step: {step}%.",
 });
 
 Object.assign(translations.vi, {
@@ -1024,6 +1032,7 @@ Object.assign(translations.vi, {
   dcaDistanceMode: "Kiểu khoảng cách",
   dcaDistanceModePercent: "% so với lệnh trước",
   dcaDistanceModePriceStep: "Bước giá so với lệnh trước",
+  dcaCount: "Số lần DCA",
   dcaMaxLossPct: "Âm lớn nhất backtest (%)",
   dcaLotSize: "Lô giao dịch",
   dcaTotalShares: "Tổng cổ phiếu",
@@ -1055,6 +1064,10 @@ Object.assign(translations.vi, {
   dcaPlanSaveFailed: "Không thể lưu phân bổ DCA",
   deleteDcaPlanConfirm: "Xóa kế hoạch phân bổ DCA này?",
   deleteDcaPlanFailed: "Không thể xóa kế hoạch phân bổ DCA",
+  applyDcaSuggestion: "Gợi ý khoảng cách",
+  dcaSuggestionMissingBacktest: "Chưa có âm trung bình và âm lớn nhất backtest cho mã/chiến lược này.",
+  dcaSuggestionMissingEntryPrice: "Nhập giá mua đầu tiên để quy đổi gợi ý sang bước giá.",
+  dcaSuggestionApplied: "Gợi ý từ âm TB {avg}% đến âm lớn nhất {max}% cho {count} lần DCA. Bước: {step}%.",
 });
 
 Object.assign(translations.en, {
@@ -1553,6 +1566,7 @@ function renderKellyEntries() {
 }
 
 function initializeDcaSizingCalculator() {
+  els.dcaCount.value = String(Math.max(1, state.dcaLevels.length - 1));
   renderDcaLevelsTable();
   updateDcaSizingStrategyOptions([...state.performanceStrategies, ...state.backtestStats]);
   syncDcaSizingReferences();
@@ -1607,6 +1621,7 @@ function syncDcaSizingReferences() {
   if (Number.isFinite(maxLoss) && maxLoss > 0) {
     els.dcaMaxLossPct.value = rawNumber(maxLoss);
   }
+  renderDcaSuggestionPreview();
   renderDcaSizing();
 }
 
@@ -1630,6 +1645,108 @@ function validDcaLevels() {
       multiplier: Math.max(0, Number(level.multiplier) || 0),
     }))
     .filter((level) => level.multiplier > 0);
+}
+
+function dcaCount() {
+  return Math.max(1, Math.floor(optionalNumber(els.dcaCount.value) || Math.max(1, state.dcaLevels.length - 1)));
+}
+
+function setDcaLevelCount(count) {
+  const normalizedCount = Math.max(1, Math.min(20, Math.floor(Number(count) || 1)));
+  els.dcaCount.value = String(normalizedCount);
+  const targetLength = normalizedCount + 1;
+  const nextLevels = state.dcaLevels.slice(0, targetLength);
+  while (nextLevels.length < targetLength) {
+    const previous = nextLevels[nextLevels.length - 1] || { distancePct: 0, multiplier: 1.2 };
+    nextLevels.push({
+      distancePct: 0,
+      multiplier: Number(previous.multiplier) > 0 ? previous.multiplier : 1.2,
+    });
+  }
+  state.dcaLevels = nextLevels;
+}
+
+function dcaBacktestLossRange() {
+  const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
+  const strategy = els.dcaSizingStrategy.value.trim();
+  const stat = ticker ? findBacktestStat(ticker, strategy) : null;
+  const avgLoss = Math.abs(Number(stat?.avg_loss_pct));
+  const maxLoss = Math.abs(Number(stat?.max_loss_pct));
+  if (!Number.isFinite(avgLoss) || !Number.isFinite(maxLoss) || avgLoss <= 0 || maxLoss <= avgLoss) {
+    return null;
+  }
+  return { avgLoss, maxLoss };
+}
+
+function suggestedDcaDistances() {
+  const range = dcaBacktestLossRange();
+  if (!range) return null;
+  const count = dcaCount();
+  const step = (range.maxLoss - range.avgLoss) / count;
+  const entryPrice = optionalNumber(els.dcaEntryPrice.value);
+  const usePriceStep = els.dcaDistanceMode.value === "priceStep";
+  if (usePriceStep && (!Number.isFinite(Number(entryPrice)) || Number(entryPrice) <= 0)) {
+    return { error: t("dcaSuggestionMissingEntryPrice") };
+  }
+  const distances = [{ distancePct: 0, cumulativeLoss: 0 }];
+  let previousLoss = 0;
+  let previousPrice = Number(entryPrice);
+  for (let index = 1; index <= count; index += 1) {
+    const cumulativeLoss = range.avgLoss + step * index;
+    let distance = cumulativeLoss;
+    if (usePriceStep) {
+      const nextPrice = Number(entryPrice) * (1 - cumulativeLoss / 100);
+      distance = previousPrice - nextPrice;
+      previousPrice = nextPrice;
+    } else if (previousLoss > 0) {
+      const previousFactor = 1 - previousLoss / 100;
+      const nextFactor = 1 - cumulativeLoss / 100;
+      distance = previousFactor > 0 ? (1 - nextFactor / previousFactor) * 100 : step;
+    }
+    distances.push({
+      distancePct: Math.max(0, distance),
+      cumulativeLoss,
+    });
+    previousLoss = cumulativeLoss;
+  }
+  return { ...range, count, step, distances };
+}
+
+function renderDcaSuggestionPreview(message = "") {
+  if (message) {
+    els.dcaSuggestionNote.textContent = message;
+    return;
+  }
+  if (!els.dcaSizingTicker.value.trim()) {
+    els.dcaSuggestionNote.textContent = "-";
+    return;
+  }
+  const suggestion = suggestedDcaDistances();
+  if (!suggestion || suggestion.error) {
+    els.dcaSuggestionNote.textContent = suggestion?.error || t("dcaSuggestionMissingBacktest");
+    return;
+  }
+  els.dcaSuggestionNote.textContent = t("dcaSuggestionApplied")
+    .replace("{avg}", rawNumber(suggestion.avgLoss))
+    .replace("{max}", rawNumber(suggestion.maxLoss))
+    .replace("{count}", String(suggestion.count))
+    .replace("{step}", rawNumber(suggestion.step));
+}
+
+function applyDcaSuggestion() {
+  const suggestion = suggestedDcaDistances();
+  if (!suggestion || suggestion.error) {
+    renderDcaSuggestionPreview(suggestion?.error || t("dcaSuggestionMissingBacktest"));
+    return;
+  }
+  setDcaLevelCount(suggestion.count);
+  const previousLevels = state.dcaLevels;
+  state.dcaLevels = suggestion.distances.map((distance, index) => ({
+    distancePct: distance.distancePct,
+    multiplier: previousLevels[index]?.multiplier || (index === 0 ? 1 : 1.2),
+  }));
+  renderDcaSuggestionPreview();
+  renderDcaSizing();
 }
 
 function calculateDcaSizing(inputs) {
@@ -1723,6 +1840,7 @@ function renderDcaSizing() {
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
   renderDcaLevelsTable(result.rows || []);
+  renderDcaSuggestionPreview();
 
   if (!result.valid) {
     els.dcaAllocatedCapital.textContent = "-";
@@ -5407,7 +5525,16 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaMaxLossPct,
   els.dcaLotSize,
 ].forEach((input) => input.addEventListener("input", renderDcaSizing));
-els.dcaDistanceMode.addEventListener("change", renderDcaSizing);
+els.dcaDistanceMode.addEventListener("change", () => {
+  renderDcaSuggestionPreview();
+  renderDcaSizing();
+});
+els.dcaCount.addEventListener("change", () => {
+  setDcaLevelCount(dcaCount());
+  renderDcaSuggestionPreview();
+  renderDcaSizing();
+});
+els.applyDcaSuggestion.addEventListener("click", applyDcaSuggestion);
 els.dcaSizingForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveDcaPlan.addEventListener("click", saveCurrentDcaPlan);
 els.dcaPlanClose.addEventListener("click", closeDcaPlanDetail);

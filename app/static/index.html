@@ -885,6 +885,10 @@
                 </select>
               </label>
               <label>
+                <span data-i18n="dcaCount">DCA count</span>
+                <input id="dcaCount" min="1" max="20" step="1" type="number" value="4" />
+              </label>
+              <label>
                 <span data-i18n="dcaMaxLossPct">Max loss from backtest (%)</span>
                 <input id="dcaMaxLossPct" min="0" step="0.01" type="number" />
               </label>
@@ -892,6 +896,7 @@
                 <span data-i18n="dcaLotSize">Lot size</span>
                 <input id="dcaLotSize" min="1" step="1" type="number" value="100" />
               </label>
+              <button id="applyDcaSuggestion" class="ghostButton" type="button" data-i18n="applyDcaSuggestion">Suggest distance</button>
               <button id="saveDcaPlan" type="button" data-i18n="saveDcaPlan">Save allocation</button>
             </form>
 
@@ -927,6 +932,7 @@
                 </article>
               </div>
               <p id="dcaSizingNote" class="kellyNote">-</p>
+              <p id="dcaSuggestionNote" class="kellyNote">-</p>
             </div>
           </div>
 
@@ -1139,6 +1145,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260626-dca-saved-plans"></script>
+    <script src="/static/app.js?v=20260626-dca-suggestion"></script>
   </body>
 </html>
