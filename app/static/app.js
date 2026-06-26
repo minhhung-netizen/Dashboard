@@ -1000,6 +1000,9 @@ Object.assign(translations.en, {
   dcaProjectedLoss: "Projected loss",
   dcaProjectedProfit: "Projected profit",
   dcaCashLeft: "Cash left",
+  dcaOpenPositionStatus: "Position status",
+  dcaHasOpenPosition: "Open position",
+  dcaNoOpenPosition: "No open position",
   dcaLevels: "DCA levels",
   dcaLevelsTitle: "Distance and multiplier",
   dcaLevel: "Level",
@@ -1082,6 +1085,9 @@ Object.assign(translations.vi, {
 Object.assign(translations.vi, {
   dcaTargetPrice: "Gi\u00e1 m\u1ee5c ti\u00eau",
   dcaProjectedProfit: "L\u00e3i d\u1ef1 ki\u1ebfn",
+  dcaOpenPositionStatus: "Tr\u1ea1ng th\u00e1i v\u1ecb th\u1ebf",
+  dcaHasOpenPosition: "\u0110ang c\u00f3 v\u1ecb th\u1ebf",
+  dcaNoOpenPosition: "Ch\u01b0a c\u00f3 v\u1ecb th\u1ebf",
 });
 
 Object.assign(translations.en, {
@@ -2076,16 +2082,20 @@ function renderDcaPlans() {
   }
   const plans = (state.dcaPlans || []).map(normalizeDcaPlan);
   if (!plans.length) {
-    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noDcaPlans")}</td></tr>`;
+    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noDcaPlans")}</td></tr>`;
     return;
   }
   els.dcaPlansTable.innerHTML = plans
     .map((plan) => {
       const result = plan.result || {};
+      const hasOpenPosition = Boolean(findOpenTradeForDca(plan.ticker, plan.strategy));
+      const statusClass = hasOpenPosition ? "open" : "neutral";
+      const statusLabel = hasOpenPosition ? t("dcaHasOpenPosition") : t("dcaNoOpenPosition");
       return `
         <tr class="clickableRow" data-dca-plan-id="${escapeHtml(plan.id)}">
           <td><strong>${escapeHtml(plan.ticker || "-")}</strong></td>
           <td>${escapeHtml(plan.strategy || "-")}</td>
+          <td><span class="statusBadge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
           <td>${formatVnd(result.allocatedCapital)}</td>
           <td>${formatPrice(result.totalShares)}</td>
           <td>${formatPrice(result.averagePrice)}</td>
