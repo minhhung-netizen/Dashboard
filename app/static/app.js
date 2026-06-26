@@ -1021,7 +1021,7 @@ Object.assign(translations.en, {
   applyDcaSuggestion: "Suggest distance",
   dcaSuggestionMissingBacktest: "No backtest average loss and max loss found for this ticker/strategy.",
   dcaSuggestionMissingEntryPrice: "Enter first buy price to convert suggested distance into price steps.",
-  dcaSuggestionApplied: "Suggested from avg loss {avg}% to max loss {max}% across {count} DCA entries. Step: {step}%.",
+  dcaSuggestionApplied: "Suggested distance = (max loss {max}% - avg loss {avg}%) / {count} DCA entries = {step}%.",
   dcaSuggestionRounded: " Buy prices are rounded by {step}.",
 });
 
@@ -1071,7 +1071,7 @@ Object.assign(translations.vi, {
   applyDcaSuggestion: "Gợi ý khoảng cách",
   dcaSuggestionMissingBacktest: "Chưa có âm trung bình và âm lớn nhất backtest cho mã/chiến lược này.",
   dcaSuggestionMissingEntryPrice: "Nhập giá mua đầu tiên để quy đổi gợi ý sang bước giá.",
-  dcaSuggestionApplied: "Gợi ý từ âm TB {avg}% đến âm lớn nhất {max}% cho {count} lần DCA. Bước: {step}%.",
+  dcaSuggestionApplied: "Khoảng cách gợi ý = (âm lớn nhất {max}% - âm TB {avg}%) / {count} lần DCA = {step}%.",
   dcaSuggestionRounded: " Giá mua làm tròn theo bước {step}.",
 });
 
@@ -1705,33 +1705,22 @@ function suggestedDcaDistances() {
   const priceStep = optionalNumber(els.dcaPriceStep.value);
   const roundedEntryPrice = roundDcaBuyPrice(entryPrice, priceStep);
   const distances = [{ distancePct: 0, cumulativeLoss: 0, buyPrice: roundedEntryPrice }];
-  let previousLoss = 0;
   let previousPrice = roundedEntryPrice;
   for (let index = 1; index <= count; index += 1) {
-    const cumulativeLoss = range.avgLoss + step * index;
-    const targetPrice = roundDcaBuyPrice(Number(entryPrice) * (1 - cumulativeLoss / 100), priceStep);
-    let distance = cumulativeLoss;
+    const targetPrice = roundDcaBuyPrice(previousPrice * (1 - step / 100), priceStep);
+    const cumulativeLoss = roundedEntryPrice > 0
+      ? (1 - targetPrice / roundedEntryPrice) * 100
+      : step * index;
+    let distance = step;
     if (usePriceStep) {
       distance = previousPrice - targetPrice;
-      previousPrice = targetPrice;
-    } else if (previousLoss > 0) {
-      const previousFactor = 1 - previousLoss / 100;
-      const nextFactor = 1 - cumulativeLoss / 100;
-      distance = previousFactor > 0 ? (1 - nextFactor / previousFactor) * 100 : step;
-      if (previousPrice > 0) {
-        distance = (1 - targetPrice / previousPrice) * 100;
-      }
-      previousPrice = targetPrice;
-    } else {
-      distance = (1 - targetPrice / previousPrice) * 100;
-      previousPrice = targetPrice;
     }
+    previousPrice = targetPrice;
     distances.push({
       distancePct: Math.max(0, distance),
       cumulativeLoss,
       buyPrice: targetPrice,
     });
-    previousLoss = cumulativeLoss;
   }
   return { ...range, count, step, distances, priceStep: Number(priceStep) || 0 };
 }
@@ -1845,7 +1834,10 @@ function calculateDcaSizing(inputs) {
 
   const averagePrice = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
   const maxLossPct = Math.max(0, Number(inputs.maxLossPct) || 0);
-  const riskPrice = averagePrice !== null ? averagePrice * (1 - maxLossPct / 100) : null;
+  const firstBuyPrice = rows[0]?.buyPrice ?? roundDcaBuyPrice(Number(inputs.entryPrice), inputs.priceStep);
+  const riskPrice = Number.isFinite(Number(firstBuyPrice))
+    ? roundDcaBuyPrice(Number(firstBuyPrice) * (1 - maxLossPct / 100), inputs.priceStep)
+    : null;
   const projectedLoss = averagePrice !== null && riskPrice !== null
     ? (averagePrice - riskPrice) * cumulativeShares
     : null;
@@ -1858,6 +1850,7 @@ function calculateDcaSizing(inputs) {
     cashLeft: allocatedCapital - cumulativeCost,
     totalShares: cumulativeShares,
     averagePrice,
+    firstBuyPrice,
     riskPrice,
     projectedLoss,
     note: t("dcaSizingAutoNote"),
@@ -1970,6 +1963,7 @@ async function saveCurrentDcaPlan() {
       cashLeft: result.cashLeft,
       totalShares: result.totalShares,
       averagePrice: result.averagePrice,
+      firstBuyPrice: result.firstBuyPrice,
       riskPrice: result.riskPrice,
       projectedLoss: result.projectedLoss,
       priceStep: inputs.priceStep,
