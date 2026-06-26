@@ -1554,6 +1554,20 @@ main {
 
 .ghostButton {
   background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  color: var(--ink);
+}
+
+.ghostButton:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.dcaSizingForm .ghostButton {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 78%, var(--line));
+  color: var(--ink);
 }
 
 table {
