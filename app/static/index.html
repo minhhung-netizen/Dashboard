@@ -896,6 +896,10 @@
                 <span data-i18n="dcaLotSize">Lot size</span>
                 <input id="dcaLotSize" min="1" step="1" type="number" value="100" />
               </label>
+              <label>
+                <span data-i18n="dcaPriceStep">Buy price rounding</span>
+                <input id="dcaPriceStep" min="0" step="1" type="number" value="100" />
+              </label>
               <button id="applyDcaSuggestion" class="ghostButton" type="button" data-i18n="applyDcaSuggestion">Suggest distance</button>
               <button id="saveDcaPlan" type="button" data-i18n="saveDcaPlan">Save allocation</button>
             </form>
@@ -1145,6 +1149,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260626-dca-suggestion"></script>
+    <script src="/static/app.js?v=20260626-dca-price-rounding"></script>
   </body>
 </html>

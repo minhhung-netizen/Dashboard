@@ -124,6 +124,7 @@ const els = {
   dcaCount: document.querySelector("#dcaCount"),
   dcaMaxLossPct: document.querySelector("#dcaMaxLossPct"),
   dcaLotSize: document.querySelector("#dcaLotSize"),
+  dcaPriceStep: document.querySelector("#dcaPriceStep"),
   dcaTotalShares: document.querySelector("#dcaTotalShares"),
   dcaAllocatedCapital: document.querySelector("#dcaAllocatedCapital"),
   dcaUsedCapital: document.querySelector("#dcaUsedCapital"),
@@ -987,6 +988,7 @@ Object.assign(translations.en, {
   dcaCount: "DCA count",
   dcaMaxLossPct: "Max loss from backtest (%)",
   dcaLotSize: "Lot size",
+  dcaPriceStep: "Buy price rounding",
   dcaTotalShares: "Total shares",
   dcaAllocatedCapital: "Allocated capital",
   dcaUsedCapital: "Used capital",
@@ -1020,6 +1022,7 @@ Object.assign(translations.en, {
   dcaSuggestionMissingBacktest: "No backtest average loss and max loss found for this ticker/strategy.",
   dcaSuggestionMissingEntryPrice: "Enter first buy price to convert suggested distance into price steps.",
   dcaSuggestionApplied: "Suggested from avg loss {avg}% to max loss {max}% across {count} DCA entries. Step: {step}%.",
+  dcaSuggestionRounded: " Buy prices are rounded by {step}.",
 });
 
 Object.assign(translations.vi, {
@@ -1035,6 +1038,7 @@ Object.assign(translations.vi, {
   dcaCount: "Số lần DCA",
   dcaMaxLossPct: "Âm lớn nhất backtest (%)",
   dcaLotSize: "Lô giao dịch",
+  dcaPriceStep: "Làm tròn giá mua",
   dcaTotalShares: "Tổng cổ phiếu",
   dcaAllocatedCapital: "Vốn phân bổ",
   dcaUsedCapital: "Vốn đã dùng",
@@ -1068,6 +1072,7 @@ Object.assign(translations.vi, {
   dcaSuggestionMissingBacktest: "Chưa có âm trung bình và âm lớn nhất backtest cho mã/chiến lược này.",
   dcaSuggestionMissingEntryPrice: "Nhập giá mua đầu tiên để quy đổi gợi ý sang bước giá.",
   dcaSuggestionApplied: "Gợi ý từ âm TB {avg}% đến âm lớn nhất {max}% cho {count} lần DCA. Bước: {step}%.",
+  dcaSuggestionRounded: " Giá mua làm tròn theo bước {step}.",
 });
 
 Object.assign(translations.en, {
@@ -1635,6 +1640,7 @@ function readDcaSizingInputs() {
     distanceMode: els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent",
     maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
     lotSize: Math.max(1, Math.floor(optionalNumber(els.dcaLotSize.value) || 1)),
+    priceStep: Math.max(0, Number(optionalNumber(els.dcaPriceStep.value) || 0)),
   };
 }
 
@@ -1649,6 +1655,14 @@ function validDcaLevels() {
 
 function dcaCount() {
   return Math.max(1, Math.floor(optionalNumber(els.dcaCount.value) || Math.max(1, state.dcaLevels.length - 1)));
+}
+
+function roundDcaBuyPrice(price, priceStep = optionalNumber(els.dcaPriceStep.value)) {
+  const step = Number(priceStep) || 0;
+  if (!Number.isFinite(Number(price)) || Number(price) <= 0 || step <= 0) {
+    return price;
+  }
+  return Math.max(step, Math.round(Number(price) / step) * step);
 }
 
 function setDcaLevelCount(count) {
@@ -1685,31 +1699,41 @@ function suggestedDcaDistances() {
   const step = (range.maxLoss - range.avgLoss) / count;
   const entryPrice = optionalNumber(els.dcaEntryPrice.value);
   const usePriceStep = els.dcaDistanceMode.value === "priceStep";
-  if (usePriceStep && (!Number.isFinite(Number(entryPrice)) || Number(entryPrice) <= 0)) {
+  if (!Number.isFinite(Number(entryPrice)) || Number(entryPrice) <= 0) {
     return { error: t("dcaSuggestionMissingEntryPrice") };
   }
-  const distances = [{ distancePct: 0, cumulativeLoss: 0 }];
+  const priceStep = optionalNumber(els.dcaPriceStep.value);
+  const roundedEntryPrice = roundDcaBuyPrice(entryPrice, priceStep);
+  const distances = [{ distancePct: 0, cumulativeLoss: 0, buyPrice: roundedEntryPrice }];
   let previousLoss = 0;
-  let previousPrice = Number(entryPrice);
+  let previousPrice = roundedEntryPrice;
   for (let index = 1; index <= count; index += 1) {
     const cumulativeLoss = range.avgLoss + step * index;
+    const targetPrice = roundDcaBuyPrice(Number(entryPrice) * (1 - cumulativeLoss / 100), priceStep);
     let distance = cumulativeLoss;
     if (usePriceStep) {
-      const nextPrice = Number(entryPrice) * (1 - cumulativeLoss / 100);
-      distance = previousPrice - nextPrice;
-      previousPrice = nextPrice;
+      distance = previousPrice - targetPrice;
+      previousPrice = targetPrice;
     } else if (previousLoss > 0) {
       const previousFactor = 1 - previousLoss / 100;
       const nextFactor = 1 - cumulativeLoss / 100;
       distance = previousFactor > 0 ? (1 - nextFactor / previousFactor) * 100 : step;
+      if (previousPrice > 0) {
+        distance = (1 - targetPrice / previousPrice) * 100;
+      }
+      previousPrice = targetPrice;
+    } else {
+      distance = (1 - targetPrice / previousPrice) * 100;
+      previousPrice = targetPrice;
     }
     distances.push({
       distancePct: Math.max(0, distance),
       cumulativeLoss,
+      buyPrice: targetPrice,
     });
     previousLoss = cumulativeLoss;
   }
-  return { ...range, count, step, distances };
+  return { ...range, count, step, distances, priceStep: Number(priceStep) || 0 };
 }
 
 function renderDcaSuggestionPreview(message = "") {
@@ -1730,7 +1754,10 @@ function renderDcaSuggestionPreview(message = "") {
     .replace("{avg}", rawNumber(suggestion.avgLoss))
     .replace("{max}", rawNumber(suggestion.maxLoss))
     .replace("{count}", String(suggestion.count))
-    .replace("{step}", rawNumber(suggestion.step));
+    .replace("{step}", rawNumber(suggestion.step))
+    + (suggestion.priceStep > 0
+      ? t("dcaSuggestionRounded").replace("{step}", formatPrice(suggestion.priceStep))
+      : "");
 }
 
 function applyDcaSuggestion() {
@@ -1763,7 +1790,7 @@ function calculateDcaSizing(inputs) {
     return { valid: false, rows: [], note: t("dcaSizingInvalidNote") };
   }
 
-  let previousPrice = Number(inputs.entryPrice);
+  let previousPrice = roundDcaBuyPrice(Number(inputs.entryPrice), inputs.priceStep);
   let volumeFactor = 1;
   const plannedRows = [];
   for (const [index, level] of levels.entries()) {
@@ -1772,6 +1799,7 @@ function calculateDcaSizing(inputs) {
       previousPrice = inputs.distanceMode === "priceStep"
         ? previousPrice - distance
         : previousPrice * (1 - distance / 100);
+      previousPrice = roundDcaBuyPrice(previousPrice, inputs.priceStep);
     }
     if (!Number.isFinite(previousPrice) || previousPrice <= 0) {
       return { valid: false, rows: [], note: t("dcaSizingInvalidNote") };
@@ -1908,6 +1936,7 @@ function normalizeDcaPlan(plan) {
     distanceMode: plan.distanceMode || plan.distance_mode || "percent",
     maxLossPct: optionalNumber(plan.maxLossPct ?? plan.max_loss_pct),
     lotSize: optionalNumber(plan.lotSize ?? plan.lot_size),
+    priceStep: optionalNumber(plan.priceStep ?? plan.price_step ?? plan.result?.priceStep),
     levels: Array.isArray(plan.levels) ? plan.levels : [],
     result: plan.result && typeof plan.result === "object" ? plan.result : {},
     createdAt: plan.createdAt || plan.created_at || "",
@@ -1943,6 +1972,7 @@ async function saveCurrentDcaPlan() {
       averagePrice: result.averagePrice,
       riskPrice: result.riskPrice,
       projectedLoss: result.projectedLoss,
+      priceStep: inputs.priceStep,
       rows: result.rows,
     },
   };
@@ -2031,6 +2061,7 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaDistanceMode"), plan.distanceMode === "priceStep" ? t("dcaDistanceModePriceStep") : t("dcaDistanceModePercent")),
       insightMetric(t("dcaMaxLossPct"), formatKellyPercent(plan.maxLossPct)),
       insightMetric(t("dcaLotSize"), formatPrice(plan.lotSize)),
+      insightMetric(t("dcaPriceStep"), formatPrice(plan.priceStep)),
     ])}
     ${renderInsightSection(t("dcaSizingTitle"), [
       insightMetric(t("dcaAllocatedCapital"), formatVnd(result.allocatedCapital)),
@@ -5524,6 +5555,7 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaDistanceMode,
   els.dcaMaxLossPct,
   els.dcaLotSize,
+  els.dcaPriceStep,
 ].forEach((input) => input.addEventListener("input", renderDcaSizing));
 els.dcaDistanceMode.addEventListener("change", () => {
   renderDcaSuggestionPreview();
