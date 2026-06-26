@@ -14,6 +14,7 @@ ALL_FEATURES = [
     "manualPortfolio",
     "performance",
     "kelly",
+    "dcaSizing",
     "dividends",
     "logs",
 ]

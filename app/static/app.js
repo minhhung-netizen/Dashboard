@@ -114,6 +114,23 @@ const els = {
   kellyStrategyFilter: document.querySelector("#kellyStrategyFilter"),
   kellySearch: document.querySelector("#kellySearch"),
   kellySavedTable: document.querySelector("#kellySavedTable"),
+  dcaSizingForm: document.querySelector("#dcaSizingForm"),
+  dcaSizingTicker: document.querySelector("#dcaSizingTicker"),
+  dcaSizingStrategy: document.querySelector("#dcaSizingStrategy"),
+  dcaInitialCapital: document.querySelector("#dcaInitialCapital"),
+  dcaAllocationPct: document.querySelector("#dcaAllocationPct"),
+  dcaEntryPrice: document.querySelector("#dcaEntryPrice"),
+  dcaMaxLossPct: document.querySelector("#dcaMaxLossPct"),
+  dcaLotSize: document.querySelector("#dcaLotSize"),
+  dcaTotalShares: document.querySelector("#dcaTotalShares"),
+  dcaAllocatedCapital: document.querySelector("#dcaAllocatedCapital"),
+  dcaUsedCapital: document.querySelector("#dcaUsedCapital"),
+  dcaAveragePrice: document.querySelector("#dcaAveragePrice"),
+  dcaRiskPrice: document.querySelector("#dcaRiskPrice"),
+  dcaProjectedLoss: document.querySelector("#dcaProjectedLoss"),
+  dcaCashLeft: document.querySelector("#dcaCashLeft"),
+  dcaSizingNote: document.querySelector("#dcaSizingNote"),
+  dcaLevelsTable: document.querySelector("#dcaLevelsTable"),
   languageSelect: document.querySelector("#languageSelect"),
   themeToggle: document.querySelector("#themeToggle"),
   tabButtons: document.querySelectorAll("[data-tab-target]"),
@@ -185,6 +202,13 @@ const DEFAULT_KELLY_INPUTS = {
   fraction: 50,
   maxAllocation: 20,
 };
+const DEFAULT_DCA_LEVELS = [
+  { distancePct: 0, multiplier: 1 },
+  { distancePct: 5, multiplier: 1 },
+  { distancePct: 10, multiplier: 1.5 },
+  { distancePct: 15, multiplier: 2 },
+  { distancePct: 20, multiplier: 2.5 },
+];
 const FEATURE_LABELS = {
   overview: "Tổng quan",
   positions: "Vị thế",
@@ -192,6 +216,7 @@ const FEATURE_LABELS = {
   manualPortfolio: "Danh mục tay",
   performance: "Hiệu suất",
   kelly: "Kelly",
+  dcaSizing: "Phân bổ DCA",
   dividends: "Cổ tức",
   logs: "Nhật ký",
 };
@@ -938,6 +963,66 @@ Object.assign(translations.vi, {
 });
 
 Object.assign(translations.en, {
+  tabDcaSizing: "DCA Sizing",
+  dcaSizingEyebrow: "DCA Sizing",
+  dcaSizingTitle: "Position sizing by recommended allocation",
+  dcaInitialCapital: "Initial capital",
+  dcaAllocationPct: "Recommended allocation (%)",
+  dcaEntryPrice: "First buy price",
+  dcaMaxLossPct: "Max loss from backtest (%)",
+  dcaLotSize: "Lot size",
+  dcaTotalShares: "Total shares",
+  dcaAllocatedCapital: "Allocated capital",
+  dcaUsedCapital: "Used capital",
+  dcaAveragePrice: "Average buy price",
+  dcaRiskPrice: "Risk price",
+  dcaProjectedLoss: "Projected loss",
+  dcaCashLeft: "Cash left",
+  dcaLevels: "DCA levels",
+  dcaLevelsTitle: "Distance and multiplier",
+  dcaLevel: "Level",
+  dcaDistancePct: "Distance %",
+  dcaMultiplier: "Multiplier",
+  dcaBuyPrice: "Buy price",
+  dcaLevelBudget: "Budget",
+  dcaShares: "Shares",
+  dcaCost: "Cost",
+  dcaCumulativeAverage: "Cumulative average",
+  dcaSizingInvalidNote: "Enter capital, allocation, first buy price and at least one valid multiplier.",
+  dcaSizingAutoNote: "Allocation uses saved Kelly; max loss uses saved backtest when available.",
+});
+
+Object.assign(translations.vi, {
+  tabDcaSizing: "Phân bổ DCA",
+  dcaSizingEyebrow: "PHÂN BỔ DCA",
+  dcaSizingTitle: "Tính số lượng cổ phiếu theo tỷ trọng khuyến nghị",
+  dcaInitialCapital: "Vốn ban đầu",
+  dcaAllocationPct: "Tỷ trọng khuyến nghị (%)",
+  dcaEntryPrice: "Giá mua đầu tiên",
+  dcaMaxLossPct: "Âm lớn nhất backtest (%)",
+  dcaLotSize: "Lô giao dịch",
+  dcaTotalShares: "Tổng cổ phiếu",
+  dcaAllocatedCapital: "Vốn phân bổ",
+  dcaUsedCapital: "Vốn đã dùng",
+  dcaAveragePrice: "Giá mua trung bình",
+  dcaRiskPrice: "Giá rủi ro",
+  dcaProjectedLoss: "Lỗ dự kiến",
+  dcaCashLeft: "Tiền dư",
+  dcaLevels: "Các lớp DCA",
+  dcaLevelsTitle: "Khoảng cách giá và multiplier",
+  dcaLevel: "Lớp",
+  dcaDistancePct: "Khoảng cách %",
+  dcaMultiplier: "Multiplier",
+  dcaBuyPrice: "Giá mua",
+  dcaLevelBudget: "Ngân sách",
+  dcaShares: "Cổ phiếu",
+  dcaCost: "Giá trị mua",
+  dcaCumulativeAverage: "Giá TB lũy kế",
+  dcaSizingInvalidNote: "Nhập vốn, tỷ trọng, giá mua đầu tiên và ít nhất một multiplier hợp lệ.",
+  dcaSizingAutoNote: "Tỷ trọng lấy từ Kelly đã lưu; âm lớn nhất lấy từ Backtest đã lưu nếu có.",
+});
+
+Object.assign(translations.en, {
   allStrategies: "All strategies",
   performanceTradeHistory: "Trade History",
   strategyTradeHistory: "Strategy Closed Trades",
@@ -1105,6 +1190,7 @@ const state = {
   backtestStats: [],
   kellyEntries: [],
   kellyMigrationDone: false,
+  dcaLevels: DEFAULT_DCA_LEVELS.map((level) => ({ ...level })),
   activeKellyEntryKey: "",
   activeBacktestStatKey: "",
   activeBacktestStatId: "",
@@ -1162,9 +1248,13 @@ function findKellyEntry(ticker, strategy = "") {
   const entries = loadKellyEntries();
   const exactKey = kellyEntryKey(ticker, strategy);
   const fallbackKey = kellyEntryKey(ticker, "");
+  const normalizedTicker = String(ticker || "").trim().toUpperCase();
   return (
     entries.find((entry) => kellyEntryKey(entry.ticker, entry.strategy) === exactKey) ||
     entries.find((entry) => kellyEntryKey(entry.ticker, entry.strategy) === fallbackKey) ||
+    (!String(strategy || "").trim()
+      ? entries.find((entry) => String(entry.ticker || "").trim().toUpperCase() === normalizedTicker)
+      : null) ||
     null
   );
 }
@@ -1426,6 +1516,204 @@ function renderKellyEntries() {
   });
 }
 
+function initializeDcaSizingCalculator() {
+  renderDcaLevelsTable();
+  updateDcaSizingStrategyOptions([...state.performanceStrategies, ...state.backtestStats]);
+  syncDcaSizingReferences();
+  renderDcaSizing();
+}
+
+function updateDcaSizingStrategyOptions(strategies, preferredValue = els.dcaSizingStrategy.value) {
+  const normalizedStrategies = uniqueStrategyNames(strategies);
+  els.dcaSizingStrategy.replaceChildren();
+  els.dcaSizingStrategy.append(new Option(t("allStrategies"), ""));
+  normalizedStrategies.forEach((strategy) => {
+    els.dcaSizingStrategy.append(new Option(strategy, strategy));
+  });
+  if (preferredValue && !normalizedStrategies.includes(preferredValue)) {
+    els.dcaSizingStrategy.append(new Option(preferredValue, preferredValue));
+  }
+  els.dcaSizingStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
+    ? preferredValue
+    : "";
+}
+
+function findBacktestStat(ticker, strategy = "") {
+  const exactKey = tickerStrategyKey(ticker, strategy);
+  const fallbackKey = tickerStrategyKey(ticker, "");
+  const normalizedTicker = String(ticker || "").trim().toUpperCase();
+  return (
+    (state.backtestStats || []).find((stat) => tickerStrategyKey(stat.ticker, stat.strategy) === exactKey) ||
+    (state.backtestStats || []).find((stat) => tickerStrategyKey(stat.ticker, stat.strategy) === fallbackKey) ||
+    (!String(strategy || "").trim()
+      ? (state.backtestStats || []).find((stat) => String(stat.ticker || "").trim().toUpperCase() === normalizedTicker)
+      : null) ||
+    null
+  );
+}
+
+function syncDcaSizingReferences() {
+  const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
+  const strategy = els.dcaSizingStrategy.value.trim();
+  if (!ticker) {
+    renderDcaSizing();
+    return;
+  }
+  const kellyEntry = findKellyEntry(ticker, strategy);
+  if (kellyEntry) {
+    const recommended = calculateKelly(kellyEntry).recommendedPct;
+    if (Number.isFinite(Number(recommended))) {
+      els.dcaAllocationPct.value = rawNumber(recommended);
+    }
+  }
+  const stat = findBacktestStat(ticker, strategy);
+  const maxLoss = Math.abs(Number(stat?.max_loss_pct));
+  if (Number.isFinite(maxLoss) && maxLoss > 0) {
+    els.dcaMaxLossPct.value = rawNumber(maxLoss);
+  }
+  renderDcaSizing();
+}
+
+function readDcaSizingInputs() {
+  return {
+    ticker: els.dcaSizingTicker.value.trim().toUpperCase(),
+    strategy: els.dcaSizingStrategy.value.trim(),
+    initialCapital: optionalNumber(els.dcaInitialCapital.value),
+    allocationPct: optionalNumber(els.dcaAllocationPct.value),
+    entryPrice: optionalNumber(els.dcaEntryPrice.value),
+    maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
+    lotSize: Math.max(1, Math.floor(optionalNumber(els.dcaLotSize.value) || 1)),
+  };
+}
+
+function validDcaLevels() {
+  return state.dcaLevels
+    .map((level) => ({
+      distancePct: Math.max(0, Number(level.distancePct) || 0),
+      multiplier: Math.max(0, Number(level.multiplier) || 0),
+    }))
+    .filter((level) => level.multiplier > 0);
+}
+
+function calculateDcaSizing(inputs) {
+  const levels = validDcaLevels();
+  const multiplierTotal = levels.reduce((sum, level) => sum + level.multiplier, 0);
+  const allocatedCapital =
+    Number(inputs.initialCapital) * Number(inputs.allocationPct) / 100;
+  if (
+    !Number.isFinite(allocatedCapital) ||
+    allocatedCapital <= 0 ||
+    !Number.isFinite(Number(inputs.entryPrice)) ||
+    Number(inputs.entryPrice) <= 0 ||
+    multiplierTotal <= 0
+  ) {
+    return { valid: false, rows: [], note: t("dcaSizingInvalidNote") };
+  }
+
+  let cumulativeShares = 0;
+  let cumulativeCost = 0;
+  const rows = levels.map((level, index) => {
+    const buyPrice = Number(inputs.entryPrice) * (1 - level.distancePct / 100);
+    const budget = allocatedCapital * level.multiplier / multiplierTotal;
+    const rawShares = buyPrice > 0 ? budget / buyPrice : 0;
+    const shares = Math.floor(rawShares / inputs.lotSize) * inputs.lotSize;
+    const cost = shares * buyPrice;
+    cumulativeShares += shares;
+    cumulativeCost += cost;
+    const cumulativeAverage = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
+    return {
+      index: index + 1,
+      distancePct: level.distancePct,
+      multiplier: level.multiplier,
+      buyPrice,
+      budget,
+      shares,
+      cost,
+      cumulativeAverage,
+    };
+  });
+
+  const averagePrice = cumulativeShares > 0 ? cumulativeCost / cumulativeShares : null;
+  const maxLossPct = Math.max(0, Number(inputs.maxLossPct) || 0);
+  const riskPrice = averagePrice !== null ? averagePrice * (1 - maxLossPct / 100) : null;
+  const projectedLoss = averagePrice !== null && riskPrice !== null
+    ? (averagePrice - riskPrice) * cumulativeShares
+    : null;
+
+  return {
+    valid: true,
+    rows,
+    allocatedCapital,
+    usedCapital: cumulativeCost,
+    cashLeft: allocatedCapital - cumulativeCost,
+    totalShares: cumulativeShares,
+    averagePrice,
+    riskPrice,
+    projectedLoss,
+    note: t("dcaSizingAutoNote"),
+  };
+}
+
+function renderDcaSizing() {
+  const inputs = readDcaSizingInputs();
+  const result = calculateDcaSizing(inputs);
+  renderDcaLevelsTable(result.rows || []);
+
+  if (!result.valid) {
+    els.dcaAllocatedCapital.textContent = "-";
+    els.dcaUsedCapital.textContent = "-";
+    els.dcaTotalShares.textContent = "-";
+    els.dcaAveragePrice.textContent = "-";
+    els.dcaRiskPrice.textContent = "-";
+    els.dcaProjectedLoss.textContent = "-";
+    els.dcaCashLeft.textContent = "-";
+    els.dcaSizingNote.textContent = result.note;
+    return;
+  }
+
+  els.dcaAllocatedCapital.textContent = formatVnd(result.allocatedCapital);
+  els.dcaUsedCapital.textContent = formatVnd(result.usedCapital);
+  els.dcaTotalShares.textContent = formatPrice(result.totalShares);
+  els.dcaAveragePrice.textContent = formatPrice(result.averagePrice);
+  els.dcaRiskPrice.textContent = formatPrice(result.riskPrice);
+  els.dcaProjectedLoss.innerHTML = formatSignedVnd(-Math.abs(result.projectedLoss || 0));
+  els.dcaCashLeft.textContent = formatVnd(result.cashLeft);
+  els.dcaSizingNote.textContent = result.note;
+}
+
+function renderDcaLevelsTable(calculatedRows = []) {
+  const calculatedByIndex = new Map(calculatedRows.map((row) => [row.index, row]));
+  els.dcaLevelsTable.innerHTML = state.dcaLevels
+    .map((level, index) => {
+      const row = calculatedByIndex.get(index + 1) || {};
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>
+            <input class="dcaLevelInput" data-dca-level-index="${index}" data-dca-level-field="distancePct" min="0" max="99" step="0.01" type="number" value="${escapeHtml(rawNumber(level.distancePct))}" />
+          </td>
+          <td>
+            <input class="dcaLevelInput" data-dca-level-index="${index}" data-dca-level-field="multiplier" min="0" step="0.01" type="number" value="${escapeHtml(rawNumber(level.multiplier))}" />
+          </td>
+          <td>${formatPrice(row.buyPrice)}</td>
+          <td>${formatVnd(row.budget)}</td>
+          <td>${formatPrice(row.shares)}</td>
+          <td>${formatVnd(row.cost)}</td>
+          <td>${formatPrice(row.cumulativeAverage)}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  els.dcaLevelsTable.querySelectorAll("[data-dca-level-index]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const index = Number(input.dataset.dcaLevelIndex);
+      const field = input.dataset.dcaLevelField;
+      state.dcaLevels[index][field] = optionalNumber(input.value) ?? 0;
+      renderDcaSizing();
+    });
+  });
+}
+
 function updateKellySavedStrategyFilterOptions(entries) {
   const currentValue = els.kellyStrategyFilter.value;
   const strategies = uniqueStrategyNames([
@@ -1587,6 +1875,7 @@ function applyTranslations() {
   renderKellyCalculator();
   renderKellyEntries();
   renderBacktestStats(filterBacktestStats(state.backtestStats));
+  renderDcaSizing();
   renderAverageLossBanner();
   renderAverageGainBanner();
 }
@@ -1940,8 +2229,8 @@ async function refresh() {
     featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio),
     featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] }),
     featureFetch("derivatives", "/api/derivatives", state.derivatives),
-    featureFetch("performance", "/api/backtest-stats", { backtest_stats: [] }),
-    featureFetch(["positions", "performance", "kelly"], "/api/kelly-entries", { kelly_entries: state.kellyEntries }),
+    featureFetch(["performance", "dcaSizing"], "/api/backtest-stats", { backtest_stats: [] }),
+    featureFetch(["positions", "performance", "kelly", "dcaSizing"], "/api/kelly-entries", { kelly_entries: state.kellyEntries }),
   ]);
 
   const settingsPayload = settledPayload(
@@ -2010,6 +2299,7 @@ async function refresh() {
   updateOpenPositionStrategyFilterOptions(filterTradesForWatchlist(state.openTrades));
   state.performanceStrategies = positionPayload.strategies || [];
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
+  updateDcaSizingStrategyOptions([...state.performanceStrategies, ...state.backtestStats, ...state.kellyEntries]);
   renderOpenPositions();
   state.closedTrades = positionPayload.closed_trades || [];
   renderClosedTrades(state.closedTrades);
@@ -2031,6 +2321,7 @@ async function refresh() {
   renderPerformance(sortPerformance(performancePayload.strategies || []));
   renderPerformanceClosedTrades(performancePayload.closed_trades || []);
   renderBacktestStats(filterBacktestStats(state.backtestStats));
+  renderDcaSizing();
   state.manualPortfolio = manualPayload;
   renderManualPortfolio(manualPayload);
   state.dividendEvents = dividendPayload.dividend_events || [];
@@ -2734,6 +3025,7 @@ function updatePerformanceStrategyFilterOptions(strategyRows) {
   els.performanceStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
   updateKellyStrategyOptions(strategies);
   updateBacktestStrategyOptions(strategies);
+  updateDcaSizingStrategyOptions(strategies);
 }
 
 function updateBacktestStrategyOptions(strategies, preferredValue = els.backtestStrategy.value) {
@@ -4837,6 +5129,20 @@ els.kellyForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveKellyEntry.addEventListener("click", saveCurrentKellyEntry);
 els.kellyStrategyFilter.addEventListener("change", renderKellyEntries);
 els.kellySearch.addEventListener("input", renderKellyEntries);
+els.dcaSizingTicker.addEventListener("change", syncDcaSizingReferences);
+els.dcaSizingTicker.addEventListener("input", () => {
+  els.dcaSizingTicker.value = els.dcaSizingTicker.value.toUpperCase();
+  renderDcaSizing();
+});
+els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
+[
+  els.dcaInitialCapital,
+  els.dcaAllocationPct,
+  els.dcaEntryPrice,
+  els.dcaMaxLossPct,
+  els.dcaLotSize,
+].forEach((input) => input.addEventListener("input", renderDcaSizing));
+els.dcaSizingForm.addEventListener("submit", (event) => event.preventDefault());
 els.clearClosedTradesFilter.addEventListener("click", clearClosedTradeFilter);
 els.manualPositionForm.addEventListener("submit", addManualPosition);
 els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);
@@ -4860,6 +5166,7 @@ window.addEventListener("keydown", (event) => {
 
 applyTheme();
 initializeKellyCalculator();
+initializeDcaSizingCalculator();
 applyTranslations();
 updateWatchlistControls();
 bootstrapAuth();

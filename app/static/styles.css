@@ -942,6 +942,7 @@ main {
 .performanceHistoryPanel,
 .backtestStatsPanel,
 .kellyPanel,
+.dcaSizingPanel,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -1032,6 +1033,7 @@ main {
 .performanceHistoryPanel,
 .backtestStatsPanel,
 .kellyPanel,
+.dcaSizingPanel,
 .timelinePanel,
 .exportPanel,
 .manualFormPanel,
@@ -1060,6 +1062,7 @@ main {
 .tabPanel > .performanceHistoryPanel,
 .tabPanel > .backtestStatsPanel,
 .tabPanel > .kellyPanel,
+.tabPanel > .dcaSizingPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .analyticsGrid > .performancePanel {
@@ -1074,6 +1077,7 @@ main {
 .tabPanel > .performanceHistoryPanel,
 .tabPanel > .backtestStatsPanel,
 .tabPanel > .kellyPanel,
+.tabPanel > .dcaSizingPanel,
 .tabPanel > .dividendPanel,
 .tabPanel > .manualPositionsPanel,
 .tabPanel > .timelinePanel {
@@ -1293,6 +1297,51 @@ main {
 .kellySavedControls input,
 .kellySavedControls select {
   max-width: 210px;
+}
+
+.dcaSizingGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
+  padding: 16px;
+}
+
+.dcaSizingForm {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dcaSizingForm label {
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.dcaSizingForm input,
+.dcaSizingForm select,
+.dcaLevelInput {
+  max-width: none;
+  text-transform: none;
+  width: 100%;
+}
+
+.dcaSizingOutput {
+  display: grid;
+  gap: 12px;
+}
+
+.dcaHeroResult strong {
+  color: var(--buy);
+}
+
+.dcaLevelsSection {
+  border-top: 1px solid var(--line);
+}
+
+.dcaLevelInput {
+  min-width: 86px;
 }
 
 .compactHead {
@@ -2037,6 +2086,7 @@ td strong {
   .performanceControls,
   .derivativeCapitalForm,
   .backtestStatsForm,
+  .dcaSizingForm,
   .panelActions {
     display: grid;
     grid-template-columns: 1fr;
@@ -2051,6 +2101,8 @@ td strong {
   .backtestStatsForm button,
   .backtestControls input,
   .backtestControls select,
+  .dcaSizingForm input,
+  .dcaSizingForm select,
   .positionControls input,
   .positionControls select,
   .derivativeCapitalForm input {
@@ -2228,6 +2280,8 @@ td strong {
   }
 
   .kellyForm,
+  .dcaSizingGrid,
+  .dcaSizingForm,
   .kellyResultGrid {
     grid-template-columns: 1fr;
   }
