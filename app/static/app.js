@@ -1323,6 +1323,7 @@ const state = {
   summary: {},
   lastRefreshAt: null,
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
+  chartHistoryByTicker: {},
 };
 
 const priceChartState = {
@@ -2179,26 +2180,68 @@ function saveDcaRiskLimitPreference() {
   localStorage.setItem(DCA_RISK_LIMIT_STORAGE_KEY, rawNumber(Math.max(0, riskLimit)));
 }
 
+function dcaPlanRows(plan) {
+  const rows = Array.isArray(plan?.result?.rows) ? plan.result.rows : [];
+  return rows
+    .map((row) => ({
+      level: Number(row.index) || 0,
+      buyPrice: optionalNumber(row.buyPrice ?? row.buy_price),
+    }))
+    .filter((row) => row.level > 1 && row.buyPrice !== null && row.buyPrice > 0);
+}
+
+function dcaHistoryRowsSinceEntry(openTrade) {
+  const ticker = String(openTrade?.ticker || "").trim().toUpperCase();
+  const history = state.chartHistoryByTicker[ticker] || [];
+  const entryDate = normalizeChartTime(openTrade?.entry_time);
+  if (!ticker || !entryDate) return [];
+  return history.filter((row) => row.time >= entryDate);
+}
+
+function dcaTouchedRowsFromHistory(plan, openTrade) {
+  const history = dcaHistoryRowsSinceEntry(openTrade);
+  if (!history.length) return [];
+  return dcaPlanRows(plan)
+    .map((row) => {
+      const touchedBar = history.find((bar) => Number(bar.low) <= row.buyPrice);
+      return touchedBar
+        ? {
+            ...row,
+            touchedAt: touchedBar.time,
+            touchedPrice: touchedBar.low,
+          }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.level - left.level);
+}
+
 function dcaPlanTouchNote(plan, openTrade = findOpenTradeForDca(plan?.ticker, plan?.strategy)) {
   if (!openTrade) return null;
   const marketPrice = optionalNumber(
     openTrade.exit_price ?? openTrade.current_price ?? openTrade.mark_price
   );
-  if (marketPrice === null || marketPrice <= 0) return null;
-  const rows = Array.isArray(plan?.result?.rows) ? plan.result.rows : [];
-  const touchedRows = rows
-    .map((row) => ({
-      level: Number(row.index) || 0,
-      buyPrice: optionalNumber(row.buyPrice ?? row.buy_price),
-    }))
-    .filter((row) => row.level > 1 && row.buyPrice !== null && row.buyPrice > 0 && marketPrice <= row.buyPrice)
-    .sort((left, right) => right.level - left.level);
+  const touchedRows = dcaTouchedRowsFromHistory(plan, openTrade);
+  if (!touchedRows.length && (marketPrice === null || marketPrice <= 0)) return null;
   const touched = touchedRows[0];
-  if (!touched) return null;
+  if (!touched) {
+    const currentTouchedRows = dcaPlanRows(plan)
+      .filter((row) => marketPrice <= row.buyPrice)
+      .sort((left, right) => right.level - left.level);
+    if (!currentTouchedRows.length) return null;
+    const currentTouched = currentTouchedRows[0];
+    return {
+      level: currentTouched.level,
+      buyPrice: currentTouched.buyPrice,
+      marketPrice,
+    };
+  }
   return {
     level: touched.level,
     buyPrice: touched.buyPrice,
     marketPrice,
+    touchedAt: touched.touchedAt,
+    touchedPrice: touched.touchedPrice,
   };
 }
 
@@ -2332,6 +2375,19 @@ async function deleteDcaPlan(planId) {
   }
   state.dcaPlans = state.dcaPlans.filter((plan) => Number(plan.id) !== Number(planId));
   renderDcaPlans();
+}
+
+async function loadDcaPlanChartHistories() {
+  if (!featureEnabled("dcaSizing")) return;
+  const tickers = [
+    ...new Set(
+      (state.dcaPlans || [])
+        .map(normalizeDcaPlan)
+        .filter((plan) => plan.ticker && findOpenTradeForDca(plan.ticker, plan.strategy))
+        .map((plan) => plan.ticker)
+    ),
+  ];
+  await Promise.allSettled(tickers.map((ticker) => loadChartHistoryForTicker(ticker)));
 }
 
 function openDcaPlanDetail(planId) {
@@ -3019,6 +3075,7 @@ async function refresh() {
   state.dcaSettings = normalizeDcaSettings(dcaSettingsPayload.dca_settings || {});
   applyDcaSettingsToForm();
   state.openTrades = positionPayload.open_trades || [];
+  await loadDcaPlanChartHistories();
   updateOpenPositionStrategyFilterOptions(filterTradesForWatchlist(state.openTrades));
   state.performanceStrategies = positionPayload.strategies || [];
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
@@ -5324,6 +5381,32 @@ async function reopenClosedTrade(exitSignalId) {
   await refresh();
 }
 
+async function loadChartPayload(ticker) {
+  const payload = await fetchJson(`/api/chart/${encodeURIComponent(ticker)}`);
+  const normalizedTicker = String(payload.ticker || ticker || "").trim().toUpperCase();
+  const history = normalizeHistory(payload.history || []);
+  if (normalizedTicker) {
+    state.chartHistoryByTicker[normalizedTicker] = history;
+  }
+  return { ...payload, normalizedHistory: history };
+}
+
+async function loadChartHistoryForTicker(ticker) {
+  const normalizedTicker = String(ticker || "").trim().toUpperCase();
+  if (!normalizedTicker) return [];
+  if (Array.isArray(state.chartHistoryByTicker[normalizedTicker])) {
+    return state.chartHistoryByTicker[normalizedTicker];
+  }
+  try {
+    const payload = await loadChartPayload(normalizedTicker);
+    return payload.normalizedHistory;
+  } catch (error) {
+    console.error(`Failed to load chart history for ${normalizedTicker}`, error);
+    state.chartHistoryByTicker[normalizedTicker] = [];
+    return [];
+  }
+}
+
 async function renderChart(ticker) {
   const requestId = ++priceChartState.requestId;
   state.selectedTicker = ticker;
@@ -5331,7 +5414,7 @@ async function renderChart(ticker) {
   renderTickerTimeline(ticker);
   let payload;
   try {
-    payload = await fetchJson(`/api/chart/${encodeURIComponent(ticker)}`);
+    payload = await loadChartPayload(ticker);
   } catch (error) {
     if (requestId === priceChartState.requestId) {
       console.error(`Failed to load chart for ${ticker}`, error);
@@ -5341,7 +5424,7 @@ async function renderChart(ticker) {
   }
   if (requestId !== priceChartState.requestId) return;
   drawCandles(
-    normalizeHistory(payload.history || []),
+    payload.normalizedHistory,
     normalizeMarkers(payload.markers || []),
     ticker
   );

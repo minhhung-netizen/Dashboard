@@ -156,7 +156,13 @@ FEATURE_PATHS = {
     "manualPortfolio": ("/api/manual-portfolio",),
     "performance": ("/api/performance", "/api/backtest-stats", "/api/kelly-entries"),
     "kelly": ("/api/kelly-entries",),
-    "dcaSizing": ("/api/dca-plans", "/api/dca-settings", "/api/backtest-stats", "/api/kelly-entries"),
+    "dcaSizing": (
+        "/api/dca-plans",
+        "/api/dca-settings",
+        "/api/backtest-stats",
+        "/api/kelly-entries",
+        "/api/chart/",
+    ),
     "dividends": ("/api/dividend-events",),
     "logs": ("/api/invalid-signals", "/api/export/"),
 }
