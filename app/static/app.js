@@ -2260,7 +2260,8 @@ function dcaHistoryRowsSinceEntry(openTrade) {
   const history = state.chartHistoryByTicker[ticker] || [];
   const entryDate = normalizeChartTime(openTrade?.entry_time);
   if (!ticker || !entryDate) return [];
-  return history.filter((row) => row.time >= entryDate);
+  // Daily candles cannot tell whether the entry-day low happened before or after the buy signal.
+  return history.filter((row) => row.time > entryDate);
 }
 
 function dcaTouchedRowsFromHistory(plan, openTrade) {
