@@ -138,6 +138,7 @@ const els = {
   dcaRiskPrice: document.querySelector("#dcaRiskPrice"),
   dcaTargetPrice: document.querySelector("#dcaTargetPrice"),
   dcaProjectedLoss: document.querySelector("#dcaProjectedLoss"),
+  dcaActualProjectedLoss: document.querySelector("#dcaActualProjectedLoss"),
   dcaProjectedProfit: document.querySelector("#dcaProjectedProfit"),
   dcaRiskBudget: document.querySelector("#dcaRiskBudget"),
   dcaCashLeft: document.querySelector("#dcaCashLeft"),
@@ -1122,6 +1123,8 @@ Object.assign(translations.en, {
   dcaPresetAggressive: "Aggressive",
   applyDcaHalfSuggestion: "50% suggested distance",
   dcaHalfSuggestionApplied: "Applied 50% of suggested distance: {step}% instead of {base}%.",
+  dcaProjectedLoss: "Maximum projected loss",
+  dcaActualProjectedLoss: "Expected actual loss",
   dcaRiskLimitPct: "Risk limit (% capital)",
   dcaRiskBudget: "Risk / capital",
   dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
@@ -1145,6 +1148,8 @@ Object.assign(translations.vi, {
   dcaPresetAggressive: "M\u1ea1nh",
   applyDcaHalfSuggestion: "50% kho\u1ea3ng c\u00e1ch g\u1ee3i \u00fd",
   dcaHalfSuggestionApplied: "\u0110\u00e3 \u00e1p d\u1ee5ng 50% kho\u1ea3ng c\u00e1ch g\u1ee3i \u00fd: {step}% thay v\u00ec {base}%.",
+  dcaProjectedLoss: "L\u1ed7 d\u1ef1 ki\u1ebfn cao nh\u1ea5t",
+  dcaActualProjectedLoss: "L\u1ed7 d\u1ef1 ki\u1ebfn th\u1ef1c t\u1ebf",
   dcaRiskLimitPct: "Ng\u01b0\u1ee1ng r\u1ee7i ro (% v\u1ed1n)",
   dcaRiskBudget: "R\u1ee7i ro / v\u1ed1n",
   dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
@@ -1742,6 +1747,7 @@ function readDcaSizingInputs() {
   const strategy = els.dcaSizingStrategy.value.trim();
   const stat = ticker ? findBacktestStat(ticker, strategy) : null;
   const avgGainPct = Math.abs(Number(stat?.avg_gain_pct));
+  const avgLossPct = Math.abs(Number(stat?.avg_loss_pct));
   const riskLimitPct = optionalNumber(els.dcaRiskLimitPct.value);
   const distanceMode = els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent";
   const priceStepMode = distanceMode === "priceStep" && els.dcaPriceStepMode.value === "fixed"
@@ -1758,6 +1764,7 @@ function readDcaSizingInputs() {
     fixedPriceStep: optionalNumber(els.dcaFixedPriceStep.value),
     maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
     riskLimitPct: riskLimitPct === null ? DEFAULT_DCA_RISK_LIMIT_PCT : Math.max(0, riskLimitPct),
+    avgLossPct: Number.isFinite(avgLossPct) && avgLossPct > 0 ? avgLossPct : null,
     avgGainPct: Number.isFinite(avgGainPct) && avgGainPct > 0 ? avgGainPct : null,
     lotSize: Math.max(1, Math.floor(optionalNumber(els.dcaLotSize.value) || 1)),
     priceStep: Math.max(0, Number(optionalNumber(els.dcaPriceStep.value) || 0)),
@@ -2022,6 +2029,10 @@ function calculateDcaSizing(inputs) {
   const projectedLoss = averagePrice !== null && riskPrice !== null
     ? Math.max(0, (averagePrice - riskPrice) * cumulativeShares)
     : null;
+  const avgLossPct = Number(inputs.avgLossPct);
+  const actualProjectedLoss = averagePrice !== null && Number.isFinite(avgLossPct) && avgLossPct > 0
+    ? Math.max(0, averagePrice * (avgLossPct / 100) * cumulativeShares)
+    : null;
   const projectedProfit = averagePrice !== null && targetPrice !== null
     ? (targetPrice - averagePrice) * cumulativeShares
     : null;
@@ -2043,6 +2054,8 @@ function calculateDcaSizing(inputs) {
     riskPrice,
     targetPrice,
     projectedLoss,
+    actualProjectedLoss,
+    avgLossPct: Number.isFinite(avgLossPct) && avgLossPct > 0 ? avgLossPct : null,
     projectedProfit,
     riskPctOfCapital,
     riskLimitPct,
@@ -2099,6 +2112,7 @@ function renderDcaSizing() {
     els.dcaRiskPrice.textContent = "-";
     els.dcaTargetPrice.textContent = "-";
     els.dcaProjectedLoss.textContent = "-";
+    els.dcaActualProjectedLoss.textContent = "-";
     els.dcaProjectedProfit.textContent = "-";
     els.dcaRiskBudget.textContent = "-";
     els.dcaCashLeft.textContent = "-";
@@ -2115,6 +2129,9 @@ function renderDcaSizing() {
   els.dcaRiskPrice.textContent = formatPrice(result.riskPrice);
   els.dcaTargetPrice.textContent = formatPrice(result.targetPrice);
   els.dcaProjectedLoss.innerHTML = formatSignedVnd(-Math.abs(result.projectedLoss || 0));
+  els.dcaActualProjectedLoss.innerHTML = formatSignedVnd(
+    result.actualProjectedLoss === null ? null : -Math.abs(result.actualProjectedLoss || 0)
+  );
   els.dcaProjectedProfit.innerHTML = formatSignedVnd(result.projectedProfit);
   els.dcaRiskBudget.innerHTML = formatSignedPercent(-Math.abs(result.riskPctOfCapital || 0));
   els.dcaCashLeft.textContent = formatVnd(result.cashLeft);
@@ -2334,6 +2351,8 @@ async function saveCurrentDcaPlan() {
       riskPrice: result.riskPrice,
       targetPrice: result.targetPrice,
       projectedLoss: result.projectedLoss,
+      actualProjectedLoss: result.actualProjectedLoss,
+      avgLossPct: result.avgLossPct,
       projectedProfit: result.projectedProfit,
       riskPctOfCapital: result.riskPctOfCapital,
       riskLimitPct: result.riskLimitPct,
@@ -2380,7 +2399,7 @@ function renderDcaPlans() {
   }
   const plans = (state.dcaPlans || []).map(normalizeDcaPlan);
   if (!plans.length) {
-    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noDcaPlans")}</td></tr>`;
+    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noDcaPlans")}</td></tr>`;
     return;
   }
   els.dcaPlansTable.innerHTML = plans
@@ -2404,6 +2423,7 @@ function renderDcaPlans() {
             ${formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))}
             ${riskExceeded ? `<span class="statusBadge danger">${escapeHtml(t("dcaRiskExceededShort"))}</span>` : ""}
           </td>
+          <td>${formatSignedVnd(result.actualProjectedLoss == null ? null : -Math.abs(Number(result.actualProjectedLoss) || 0))}</td>
           <td>${formatSignedVnd(result.projectedProfit)}</td>
           <td>${escapeHtml(formatDate(plan.updatedAt || plan.createdAt))}</td>
           <td>
@@ -2478,6 +2498,10 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaRiskPrice"), formatPrice(result.riskPrice)),
       insightMetric(t("dcaTargetPrice"), formatPrice(result.targetPrice)),
       insightMetric(t("dcaProjectedLoss"), formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))),
+      insightMetric(
+        t("dcaActualProjectedLoss"),
+        formatSignedVnd(result.actualProjectedLoss == null ? null : -Math.abs(Number(result.actualProjectedLoss) || 0))
+      ),
       insightMetric(t("dcaProjectedProfit"), formatSignedVnd(result.projectedProfit)),
       insightMetric(t("dcaRiskBudget"), formatSignedPercent(-Math.abs(Number(result.riskPctOfCapital) || 0))),
       insightMetric(t("dcaRiskLimitPct"), formatKellyPercent(result.riskLimitPct)),
