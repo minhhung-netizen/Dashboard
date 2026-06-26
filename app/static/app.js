@@ -248,6 +248,11 @@ const DCA_PRESETS = {
     multipliers: [1, 1.5, 2, 2.5, 3],
   },
 };
+const STRATEGY_DISPLAY_ALIASES = {
+  stxanhdo: "ST",
+  "mordern stock ema": "MSE",
+  "modern stock ema": "MSE",
+};
 let dcaInitialCapitalSaveTimer = null;
 const FEATURE_LABELS = {
   overview: "Tổng quan",
@@ -1635,7 +1640,7 @@ function renderKellyEntries() {
       return `
         <tr class="clickableRow" data-kelly-load="${escapeHtml(kellyEntryKey(entry.ticker, entry.strategy))}">
           <td><strong>${escapeHtml(entry.ticker || "-")}</strong></td>
-          <td>${escapeHtml(entry.strategy || t("allStrategies"))}</td>
+          <td>${escapeHtml(displayStrategyName(entry.strategy) || t("allStrategies"))}</td>
           <td>${formatKellyPercent(entry.winRate)}</td>
           <td>${escapeHtml(entry.winningTrades ?? "-")}/${escapeHtml(entry.totalTrades ?? "-")}</td>
           <td>${formatRatio(entry.profitFactor)}</td>
@@ -1679,10 +1684,10 @@ function updateDcaSizingStrategyOptions(strategies, preferredValue = els.dcaSizi
   els.dcaSizingStrategy.replaceChildren();
   els.dcaSizingStrategy.append(new Option(t("allStrategies"), ""));
   normalizedStrategies.forEach((strategy) => {
-    els.dcaSizingStrategy.append(new Option(strategy, strategy));
+    els.dcaSizingStrategy.append(new Option(displayStrategyName(strategy), strategy));
   });
   if (preferredValue && !normalizedStrategies.includes(preferredValue)) {
-    els.dcaSizingStrategy.append(new Option(preferredValue, preferredValue));
+    els.dcaSizingStrategy.append(new Option(displayStrategyName(preferredValue), preferredValue));
   }
   els.dcaSizingStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
     ? preferredValue
@@ -2414,7 +2419,7 @@ function renderDcaPlans() {
       return `
         <tr class="clickableRow ${editing ? "activeRow" : ""}" data-dca-plan-id="${escapeHtml(plan.id)}">
           <td><strong>${escapeHtml(plan.ticker || "-")}</strong></td>
-          <td>${escapeHtml(plan.strategy || "-")}</td>
+          <td>${escapeHtml(displayStrategyName(plan.strategy) || "-")}</td>
           <td><span class="statusBadge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
           <td>${formatVnd(result.allocatedCapital)}</td>
           <td>${formatPrice(result.totalShares)}</td>
@@ -2475,7 +2480,7 @@ function openDcaPlanDetail(planId) {
   const result = plan.result || {};
   const rows = Array.isArray(result.rows) ? result.rows : [];
   els.dcaPlanTitle.textContent = plan.ticker || "-";
-  els.dcaPlanSubtitle.textContent = `${plan.strategy || "-"} · ${formatDate(plan.updatedAt || plan.createdAt)}`;
+  els.dcaPlanSubtitle.textContent = `${displayStrategyName(plan.strategy) || "-"} · ${formatDate(plan.updatedAt || plan.createdAt)}`;
   els.dcaPlanBody.innerHTML = `
     ${renderInsightSection(t("dcaSavedTitle"), [
       insightMetric(t("dcaInitialCapital"), formatVnd(plan.initialCapital)),
@@ -2563,7 +2568,7 @@ function updateKellySavedStrategyFilterOptions(entries) {
   els.kellyStrategyFilter.replaceChildren();
   els.kellyStrategyFilter.append(new Option(t("allStrategies"), ""));
   strategies.forEach((strategy) => {
-    els.kellyStrategyFilter.append(new Option(strategy, strategy));
+    els.kellyStrategyFilter.append(new Option(displayStrategyName(strategy), strategy));
   });
   els.kellyStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
@@ -2925,7 +2930,7 @@ function renderStrategySelector(container, selectedStrategies = []) {
       .map((strategy) => `
         <label class="featureOption">
           <input type="checkbox" value="${escapeHtml(strategy)}" ${selected.has(String(strategy).toLowerCase()) ? "checked" : ""} />
-          <span>${escapeHtml(strategy)}</span>
+          <span>${escapeHtml(displayStrategyName(strategy))}</span>
         </label>
       `)
       .join("")}
@@ -3469,7 +3474,7 @@ function renderDerivatives(payload) {
       .map((position) => `
         <tr>
           <td><strong>${escapeHtml(position.symbol)}</strong></td>
-          <td><strong>${escapeHtml(position.strategy)}</strong></td>
+          <td><strong>${escapeHtml(displayStrategyName(position.strategy))}</strong></td>
           <td><span class="derivativeSide ${escapeHtml(position.side)}">${escapeHtml(position.side)}</span></td>
           <td>${formatPrice(position.average_price)}</td>
           <td>${formatPrice(position.current_price)}</td>
@@ -3492,7 +3497,7 @@ function renderDerivatives(payload) {
       .map((trade) => `
         <tr>
           <td><strong>${escapeHtml(trade.symbol)}</strong></td>
-          <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+          <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
           <td><span class="derivativeSide ${escapeHtml(trade.side)}">${escapeHtml(trade.side)}</span></td>
           <td>${formatPrice(trade.average_price)}</td>
           <td>${formatPrice(trade.exit_price)}</td>
@@ -3520,7 +3525,7 @@ function renderDerivatives(payload) {
         <td><span class="side ${escapeHtml(event.action)}">${escapeHtml(event.action)}</span></td>
         <td>${formatPrice(event.price)}</td>
         <td>${formatPrice(event.quantity)}</td>
-        <td>${escapeHtml(event.strategy || "-")}</td>
+        <td>${escapeHtml(displayStrategyName(event.strategy) || "-")}</td>
         <td>${escapeHtml(event.reason || "-")}</td>
         <td class="adminOnly">
           <button class="deleteButton" type="button" data-derivative-delete-id="${event.id}">
@@ -3857,6 +3862,12 @@ function strategyNameFrom(value) {
   return String(value.strategy || value.name || value.label || value.value || "").trim();
 }
 
+function displayStrategyName(value) {
+  const strategy = String(value || "").trim();
+  if (!strategy) return "";
+  return STRATEGY_DISPLAY_ALIASES[strategy.toLowerCase()] || strategy;
+}
+
 function uniqueStrategyNames(items) {
   return [...new Set((items || []).map(strategyNameFrom).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
@@ -3875,7 +3886,7 @@ function updateOpenPositionStrategyFilterOptions(openTrades) {
   els.openPositionStrategyFilter.replaceChildren();
   els.openPositionStrategyFilter.append(new Option(t("allStrategies"), ""));
   strategies.forEach((strategy) => {
-    els.openPositionStrategyFilter.append(new Option(strategy, strategy));
+    els.openPositionStrategyFilter.append(new Option(displayStrategyName(strategy), strategy));
   });
   els.openPositionStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
@@ -3887,7 +3898,7 @@ function updatePerformanceStrategyFilterOptions(strategyRows) {
   els.performanceStrategyFilter.replaceChildren();
   els.performanceStrategyFilter.append(new Option(t("allStrategies"), ""));
   strategies.forEach((strategy) => {
-    els.performanceStrategyFilter.append(new Option(strategy, strategy));
+    els.performanceStrategyFilter.append(new Option(displayStrategyName(strategy), strategy));
   });
   els.performanceStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
   updateKellyStrategyOptions(strategies);
@@ -3901,10 +3912,10 @@ function updateBacktestStrategyOptions(strategies, preferredValue = els.backtest
   els.backtestStrategy.replaceChildren();
   els.backtestStrategy.append(new Option(t("strategy"), ""));
   normalizedStrategies.forEach((strategy) => {
-    els.backtestStrategy.append(new Option(strategy, strategy));
+    els.backtestStrategy.append(new Option(displayStrategyName(strategy), strategy));
   });
   if (preferredValue && !normalizedStrategies.includes(preferredValue)) {
-    els.backtestStrategy.append(new Option(preferredValue, preferredValue));
+    els.backtestStrategy.append(new Option(displayStrategyName(preferredValue), preferredValue));
   }
   els.backtestStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
     ? preferredValue
@@ -3917,10 +3928,10 @@ function updateKellyStrategyOptions(strategies, preferredValue = els.kellyStrate
   els.kellyStrategy.replaceChildren();
   els.kellyStrategy.append(new Option(t("allStrategies"), ""));
   normalizedStrategies.forEach((strategy) => {
-    els.kellyStrategy.append(new Option(strategy, strategy));
+    els.kellyStrategy.append(new Option(displayStrategyName(strategy), strategy));
   });
   if (preferredValue && !normalizedStrategies.includes(preferredValue)) {
-    els.kellyStrategy.append(new Option(preferredValue, preferredValue));
+    els.kellyStrategy.append(new Option(displayStrategyName(preferredValue), preferredValue));
   }
   els.kellyStrategy.value = preferredValue && [...normalizedStrategies, preferredValue].includes(preferredValue)
     ? preferredValue
@@ -4010,10 +4021,10 @@ function renderAverageLossBanner() {
             type="button"
             data-banner-position-key="${escapeHtml(tickerStrategyKey(trade.ticker, trade.strategy))}"
             data-banner-ticker="${escapeHtml(trade.ticker)}"
-            title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${stripHtml(averageLossSignalDetail(signal))}`)}"
+            title="${escapeHtml(`${trade.ticker} · ${displayStrategyName(trade.strategy) || "-"} · ${stripHtml(averageLossSignalDetail(signal))}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")} · ${stripHtml(averageLossSignalDetail(signal))}</span>
+            <span>${escapeHtml(displayStrategyName(trade.strategy) || "-")} · ${stripHtml(averageLossSignalDetail(signal))}</span>
           </button>
         `)
         .join("")}
@@ -4046,10 +4057,10 @@ function renderAverageGainBanner() {
             type="button"
             data-banner-position-key="${escapeHtml(tickerStrategyKey(trade.ticker, trade.strategy))}"
             data-banner-ticker="${escapeHtml(trade.ticker)}"
-            title="${escapeHtml(`${trade.ticker} - ${trade.strategy || "-"} - ${stripHtml(averageGainSignalDetail(signal))}`)}"
+            title="${escapeHtml(`${trade.ticker} - ${displayStrategyName(trade.strategy) || "-"} - ${stripHtml(averageGainSignalDetail(signal))}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")} - ${stripHtml(averageGainSignalDetail(signal))}</span>
+            <span>${escapeHtml(displayStrategyName(trade.strategy) || "-")} - ${stripHtml(averageGainSignalDetail(signal))}</span>
           </button>
         `)
         .join("")}
@@ -4075,10 +4086,10 @@ function renderRecentTradeGroup(label, trades, timeField, tone) {
             type="button"
             data-banner-position-key="${escapeHtml(tickerStrategyKey(trade.ticker, trade.strategy))}"
             data-banner-ticker="${escapeHtml(trade.ticker)}"
-            title="${escapeHtml(`${trade.ticker} · ${trade.strategy || "-"} · ${formatDate(trade[timeField])}`)}"
+            title="${escapeHtml(`${trade.ticker} · ${displayStrategyName(trade.strategy) || "-"} · ${formatDate(trade[timeField])}`)}"
           >
             <strong>${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")} · ${escapeHtml(formatDateOnly(trade[timeField]))}</span>
+            <span>${escapeHtml(displayStrategyName(trade.strategy) || "-")} · ${escapeHtml(formatDateOnly(trade[timeField]))}</span>
           </button>
         `)
         .join("")}
@@ -4242,7 +4253,7 @@ function renderRiskOverview() {
       const width = Math.min(100, Math.max(4, item.value));
       return `
         <button class="riskBreakdownRow" type="button" data-risk-strategy="${escapeHtml(item.key)}">
-          <span>${escapeHtml(item.key)}</span>
+          <span>${escapeHtml(displayStrategyName(item.key))}</span>
           <strong>${formatPercent(item.value)}</strong>
           <i style="width:${width}%"></i>
         </button>
@@ -4284,7 +4295,7 @@ function renderRiskAlerts() {
     alerts.push({
       level: "warning",
       title: t("strategyConcentrationAlert"),
-      detail: `${strategyExposure[0].key} ${formatPercent(strategyExposure[0].value)}`,
+      detail: `${displayStrategyName(strategyExposure[0].key)} ${formatPercent(strategyExposure[0].value)}`,
     });
   }
   (state.dividendAlerts || [])
@@ -4303,7 +4314,7 @@ function renderRiskAlerts() {
     .forEach(({ trade, signal }) => alerts.push({
       level: "warning",
       title: t("avgLossTouchAlert"),
-      detail: `${trade.ticker} ${trade.strategy || "-"} ${averageLossSignalDetail(signal)}`,
+      detail: `${trade.ticker} ${displayStrategyName(trade.strategy) || "-"} ${averageLossSignalDetail(signal)}`,
       ticker: trade.ticker,
     }));
   averageGainSignals()
@@ -4311,7 +4322,7 @@ function renderRiskAlerts() {
     .forEach(({ trade, signal }) => alerts.push({
       level: "success",
       title: t("avgGainTouchAlert"),
-      detail: `${trade.ticker} ${trade.strategy || "-"} ${averageGainSignalDetail(signal)}`,
+      detail: `${trade.ticker} ${displayStrategyName(trade.strategy) || "-"} ${averageGainSignalDetail(signal)}`,
       ticker: trade.ticker,
     }));
   rows
@@ -4345,7 +4356,7 @@ function renderRiskAlerts() {
     alerts.push({
       level: "info",
       title: t("newSellAlert"),
-      detail: `${trade.ticker} ${trade.strategy || "-"} ${formatDateOnly(trade.exit_time)}`,
+      detail: `${trade.ticker} ${displayStrategyName(trade.strategy) || "-"} ${formatDateOnly(trade.exit_time)}`,
       ticker: trade.ticker,
     });
   });
@@ -4451,7 +4462,7 @@ function renderPerformance(strategies) {
       return `
         <tr class="clickableRow" data-performance-ticker="${escapeHtml(strategy.ticker)}" data-performance-strategy="${escapeHtml(strategy.strategy)}">
           <td><strong>${escapeHtml(strategy.ticker)}</strong></td>
-          <td><strong>${escapeHtml(strategy.strategy)}</strong></td>
+          <td><strong>${escapeHtml(displayStrategyName(strategy.strategy))}</strong></td>
           <td>${formatKellyPercent(weightPct)}</td>
           <td>${strategy.closed_trades}</td>
           <td>${strategy.open_trades}</td>
@@ -4483,7 +4494,7 @@ function renderBacktestStats(stats) {
     .map((stat) => `
       <tr class="clickableRow" data-backtest-stat-id="${escapeHtml(stat.id)}">
         <td><strong>${escapeHtml(stat.ticker || "-")}</strong></td>
-        <td><strong>${escapeHtml(stat.strategy || "-")}</strong></td>
+        <td><strong>${escapeHtml(displayStrategyName(stat.strategy) || "-")}</strong></td>
         <td>${stat.closed_trades ?? "-"}</td>
         <td>${stat.negative_trades ?? "-"}</td>
         <td>${formatSignedPercent(stat.max_loss_pct)}</td>
@@ -4526,7 +4537,7 @@ function updateBacktestSavedStrategyFilterOptions(stats) {
   els.backtestStrategyFilter.replaceChildren();
   els.backtestStrategyFilter.append(new Option(t("allStrategies"), ""));
   strategies.forEach((strategy) => {
-    els.backtestStrategyFilter.append(new Option(strategy, strategy));
+    els.backtestStrategyFilter.append(new Option(displayStrategyName(strategy), strategy));
   });
   els.backtestStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
@@ -4548,7 +4559,7 @@ function renderPerformanceClosedTrades(closedTrades) {
       return `
         <tr data-performance-history-ticker="${escapeHtml(trade.ticker)}">
           <td><strong>${escapeHtml(trade.ticker)}</strong></td>
-          <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+          <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
           <td>${escapeHtml(trade.timeframe || "-")}</td>
           <td>${formatPrice(trade.entry_price)}</td>
           <td>${formatPrice(trade.exit_price)}</td>
@@ -4592,7 +4603,7 @@ function renderOpenPositions() {
       return `
       <tr data-position-key="${escapeHtml(positionKey)}">
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
-        <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+        <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
         <td>${escapeHtml(trade.timeframe || "-")}</td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
@@ -4634,7 +4645,7 @@ function renderOpenPositions() {
         <div class="positionCardHead">
           <div>
             <strong class="${trade.has_confirm_buy ? "confirmedTicker" : ""}">${escapeHtml(trade.ticker)}</strong>
-            <span>${escapeHtml(trade.strategy || "-")} · ${escapeHtml(trade.timeframe || "-")}</span>
+            <span>${escapeHtml(displayStrategyName(trade.strategy) || "-")} · ${escapeHtml(trade.timeframe || "-")}</span>
           </div>
           ${formatSignedPercent(trade.return_pct)}
         </div>
@@ -4708,7 +4719,7 @@ function bindOpenPositionDeleteButton(button) {
 }
 
 async function deleteOpenPosition(signalId, ticker, strategy) {
-  const label = [ticker, strategy].filter(Boolean).join(" - ");
+  const label = [ticker, displayStrategyName(strategy)].filter(Boolean).join(" - ");
   const message = label
     ? `${t("deleteOpenPositionConfirm")}\n\n${label}`
     : t("deleteOpenPositionConfirm");
@@ -4736,7 +4747,7 @@ function openPositionInsight(positionKey) {
   const backtestStat = backtestStatForTrade(trade);
 
   els.positionInsightTitle.textContent = trade.ticker || "-";
-  els.positionInsightSubtitle.textContent = `${trade.strategy || "-"} · ${trade.timeframe || "-"}`;
+  els.positionInsightSubtitle.textContent = `${displayStrategyName(trade.strategy) || "-"} · ${trade.timeframe || "-"}`;
   els.positionInsightChart.dataset.positionInsightTicker = trade.ticker || "";
   els.positionInsightBody.innerHTML = `
     ${renderInsightSection(t("currentPosition"), [
@@ -4857,7 +4868,7 @@ function renderConfirmations(confirmations) {
           const isAvgGain = confirmation.action === "avg_gain";
           return `
           <span class="confirmBadge ${isAvgLoss ? "avgLossBadge" : ""} ${isAvgGain ? "avgGainBadge" : ""}" title="${escapeHtml(formatDate(confirmation.time))}">
-            ${escapeHtml(confirmation.strategy || confirmation.action || "-")}
+            ${escapeHtml(displayStrategyName(confirmation.strategy) || confirmation.action || "-")}
             <small>${isAvgLoss || isAvgGain
               ? confirmation.detail
               : `${escapeHtml(formatPrice(confirmation.price))} · ${escapeHtml(formatDateOnly(confirmation.time))}`}</small>
@@ -4928,7 +4939,7 @@ function renderClosedTrades(closedTrades) {
       return `
       <tr data-ticker="${escapeHtml(trade.ticker)}">
         <td><strong>${escapeHtml(trade.ticker)}</strong></td>
-        <td><strong>${escapeHtml(trade.strategy)}</strong></td>
+        <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
         <td>${formatSignedPercent(trade.return_pct)}</td>
@@ -5000,7 +5011,7 @@ function updateClosedTradesFilterLabel() {
   }
   els.closedTradesFilter.hidden = false;
   els.closedTradesFilterLabel.textContent =
-    `${t("filteredTrades")} ${state.closedTradeFilter.ticker} / ${state.closedTradeFilter.strategy}`;
+    `${t("filteredTrades")} ${state.closedTradeFilter.ticker} / ${displayStrategyName(state.closedTradeFilter.strategy)}`;
 }
 
 function updateWatchlistControls() {
@@ -5044,7 +5055,7 @@ function renderInvalidSignals(invalidSignals) {
         <td><strong>${escapeHtml(signal.ticker || "-")}</strong></td>
         <td>${escapeHtml(signal.action || "-")}</td>
         <td>${escapeHtml(signal.timeframe || "-")}</td>
-        <td>${escapeHtml(signal.strategy || "-")}</td>
+        <td>${escapeHtml(displayStrategyName(signal.strategy) || "-")}</td>
         <td>${escapeHtml(formatReason(signal.reason))}</td>
       </tr>
     `)
@@ -5356,7 +5367,7 @@ function renderUserAttention() {
           <strong>${escapeHtml(trade.ticker)}</strong>
           ${formatSignedPercent(trade.return_pct)}
         </div>
-        <p>${escapeHtml(reason)} · ${escapeHtml(trade.strategy || "-")}</p>
+        <p>${escapeHtml(reason)} · ${escapeHtml(displayStrategyName(trade.strategy) || "-")}</p>
       </article>
     `)
     .join("");
@@ -5400,7 +5411,7 @@ function renderSignals() {
           <td><span class="side ${action}">${escapeHtml(signal.action)}</span></td>
           <td>${formatPrice(signal.price)}</td>
           <td>${escapeHtml(signal.timeframe || "-")}</td>
-          <td>${escapeHtml(signal.strategy || "-")}</td>
+          <td>${escapeHtml(displayStrategyName(signal.strategy) || "-")}</td>
           <td class="adminOnly">
             <button class="deleteButton" type="button" data-delete-id="${signal.id}" title="${escapeHtml(t("deleteTitle"))}" aria-label="${escapeHtml(`${t("deleteTitle")} ${signal.id}`)}">${escapeHtml(t("delete"))}</button>
           </td>
@@ -5416,7 +5427,7 @@ function renderSignals() {
           <span class="side ${action}">${escapeHtml(signal.action)}</span>
           <div>
             <strong>${escapeHtml(signal.ticker)}</strong>
-            <span class="signalCardMeta">${escapeHtml(signal.strategy || "-")} · ${escapeHtml(signal.timeframe || "-")}</span>
+            <span class="signalCardMeta">${escapeHtml(displayStrategyName(signal.strategy) || "-")} · ${escapeHtml(signal.timeframe || "-")}</span>
           </div>
           <strong>${formatPrice(signal.price)}</strong>
           <time>${formatSignalTime(signal)}</time>
@@ -5523,7 +5534,7 @@ function renderTickerTimeline(ticker) {
           <span class="side ${escapeHtml(action)}">${escapeHtml(signal.action || "-")}</span>
           <div>
             <strong>${formatPrice(signal.price)}</strong>
-            <span>${escapeHtml(signal.timeframe || "-")} / ${escapeHtml(signal.strategy || "-")}</span>
+            <span>${escapeHtml(signal.timeframe || "-")} / ${escapeHtml(displayStrategyName(signal.strategy) || "-")}</span>
           </div>
           <time>${formatSignalTime(signal)}</time>
         </div>
