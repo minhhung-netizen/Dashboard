@@ -1121,6 +1121,8 @@ Object.assign(translations.en, {
   dcaRiskBudget: "Risk / capital",
   dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
   dcaRiskExceededShort: "Over risk",
+  dcaTrackingNote: "Tracking note",
+  dcaTouchedLevel: "Touched level {level} · {price}",
 });
 
 Object.assign(translations.vi, {
@@ -1135,6 +1137,8 @@ Object.assign(translations.vi, {
   dcaRiskBudget: "R\u1ee7i ro / v\u1ed1n",
   dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
   dcaRiskExceededShort: "V\u01b0\u1ee3t r\u1ee7i ro",
+  dcaTrackingNote: "Theo d\u00f5i",
+  dcaTouchedLevel: "Ch\u1ea1m l\u1edbp {level} \u00b7 {price}",
 });
 
 Object.assign(translations.en, {
@@ -2175,6 +2179,42 @@ function saveDcaRiskLimitPreference() {
   localStorage.setItem(DCA_RISK_LIMIT_STORAGE_KEY, rawNumber(Math.max(0, riskLimit)));
 }
 
+function dcaPlanTouchNote(plan, openTrade = findOpenTradeForDca(plan?.ticker, plan?.strategy)) {
+  if (!openTrade) return null;
+  const marketPrice = optionalNumber(
+    openTrade.exit_price ?? openTrade.current_price ?? openTrade.mark_price
+  );
+  if (marketPrice === null || marketPrice <= 0) return null;
+  const rows = Array.isArray(plan?.result?.rows) ? plan.result.rows : [];
+  const touchedRows = rows
+    .map((row) => ({
+      level: Number(row.index) || 0,
+      buyPrice: optionalNumber(row.buyPrice ?? row.buy_price),
+    }))
+    .filter((row) => row.level > 1 && row.buyPrice !== null && row.buyPrice > 0 && marketPrice <= row.buyPrice)
+    .sort((left, right) => right.level - left.level);
+  const touched = touchedRows[0];
+  if (!touched) return null;
+  return {
+    level: touched.level,
+    buyPrice: touched.buyPrice,
+    marketPrice,
+  };
+}
+
+function renderDcaTouchNote(note) {
+  if (!note) return `<span class="mutedText">-</span>`;
+  return `
+    <span class="statusBadge dcaTouchBadge">
+      ${escapeHtml(
+        t("dcaTouchedLevel")
+          .replace("{level}", String(note.level))
+          .replace("{price}", formatPrice(note.buyPrice))
+      )}
+    </span>
+  `;
+}
+
 async function saveCurrentDcaPlan() {
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
@@ -2238,21 +2278,24 @@ function renderDcaPlans() {
   }
   const plans = (state.dcaPlans || []).map(normalizeDcaPlan);
   if (!plans.length) {
-    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="10">${t("noDcaPlans")}</td></tr>`;
+    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="11">${t("noDcaPlans")}</td></tr>`;
     return;
   }
   els.dcaPlansTable.innerHTML = plans
     .map((plan) => {
       const result = plan.result || {};
-      const hasOpenPosition = Boolean(findOpenTradeForDca(plan.ticker, plan.strategy));
+      const openTrade = findOpenTradeForDca(plan.ticker, plan.strategy);
+      const hasOpenPosition = Boolean(openTrade);
       const statusClass = hasOpenPosition ? "open" : "neutral";
       const statusLabel = hasOpenPosition ? t("dcaHasOpenPosition") : t("dcaNoOpenPosition");
       const riskExceeded = Boolean(result.riskLimitExceeded);
+      const touchNote = dcaPlanTouchNote(plan, openTrade);
       return `
         <tr class="clickableRow" data-dca-plan-id="${escapeHtml(plan.id)}">
           <td><strong>${escapeHtml(plan.ticker || "-")}</strong></td>
           <td>${escapeHtml(plan.strategy || "-")}</td>
           <td><span class="statusBadge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
+          <td>${renderDcaTouchNote(touchNote)}</td>
           <td>${formatVnd(result.allocatedCapital)}</td>
           <td>${formatPrice(result.totalShares)}</td>
           <td>${formatPrice(result.averagePrice)}</td>
@@ -2297,6 +2340,7 @@ function openDcaPlanDetail(planId) {
   if (!plan) return;
   const result = plan.result || {};
   const rows = Array.isArray(result.rows) ? result.rows : [];
+  const touchNote = dcaPlanTouchNote(plan);
   els.dcaPlanTitle.textContent = plan.ticker || "-";
   els.dcaPlanSubtitle.textContent = `${plan.strategy || "-"} · ${formatDate(plan.updatedAt || plan.createdAt)}`;
   els.dcaPlanBody.innerHTML = `
@@ -2308,6 +2352,12 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaMaxLossPct"), formatKellyPercent(plan.maxLossPct)),
       insightMetric(t("dcaLotSize"), formatPrice(plan.lotSize)),
       insightMetric(t("dcaPriceStep"), formatPrice(plan.priceStep)),
+      insightMetric(t("dcaTrackingNote"), touchNote
+        ? t("dcaTouchedLevel")
+            .replace("{level}", String(touchNote.level))
+            .replace("{price}", formatPrice(touchNote.buyPrice))
+        : "-"),
+      insightMetric(t("currentPrice"), touchNote ? formatPrice(touchNote.marketPrice) : "-"),
     ])}
     ${renderInsightSection(t("dcaSizingTitle"), [
       insightMetric(t("dcaAllocatedCapital"), formatVnd(result.allocatedCapital)),
