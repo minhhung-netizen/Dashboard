@@ -141,6 +141,7 @@ const els = {
   dcaSizingNote: document.querySelector("#dcaSizingNote"),
   dcaSuggestionNote: document.querySelector("#dcaSuggestionNote"),
   dcaLevelsTable: document.querySelector("#dcaLevelsTable"),
+  applyDcaHalfSuggestion: document.querySelector("#applyDcaHalfSuggestion"),
   applyDcaSuggestion: document.querySelector("#applyDcaSuggestion"),
   saveDcaPlan: document.querySelector("#saveDcaPlan"),
   dcaPlansTable: document.querySelector("#dcaPlansTable"),
@@ -232,31 +233,13 @@ const DEFAULT_DCA_LEVELS = [
 ];
 const DCA_PRESETS = {
   conservative: {
-    levels: [
-      { distancePct: 0, multiplier: 1 },
-      { distancePct: 5, multiplier: 1 },
-      { distancePct: 10, multiplier: 1.2 },
-      { distancePct: 15, multiplier: 1.5 },
-      { distancePct: 20, multiplier: 1.8 },
-    ],
+    multipliers: [1, 1, 1.2, 1.5, 1.8],
   },
   balanced: {
-    levels: [
-      { distancePct: 0, multiplier: 1 },
-      { distancePct: 4, multiplier: 1 },
-      { distancePct: 8, multiplier: 1.5 },
-      { distancePct: 12, multiplier: 2 },
-      { distancePct: 16, multiplier: 2.5 },
-    ],
+    multipliers: [1, 1, 1.5, 2, 2.5],
   },
   aggressive: {
-    levels: [
-      { distancePct: 0, multiplier: 1 },
-      { distancePct: 3, multiplier: 1.5 },
-      { distancePct: 6, multiplier: 2 },
-      { distancePct: 10, multiplier: 2.5 },
-      { distancePct: 15, multiplier: 3 },
-    ],
+    multipliers: [1, 1.5, 2, 2.5, 3],
   },
 };
 let dcaInitialCapitalSaveTimer = null;
@@ -1132,6 +1115,8 @@ Object.assign(translations.en, {
   dcaPresetConservative: "Conservative",
   dcaPresetBalanced: "Balanced",
   dcaPresetAggressive: "Aggressive",
+  applyDcaHalfSuggestion: "50% suggested distance",
+  dcaHalfSuggestionApplied: "Applied 50% of suggested distance: {step}% instead of {base}%.",
   dcaRiskLimitPct: "Risk limit (% capital)",
   dcaRiskBudget: "Risk / capital",
   dcaRiskExceeded: "Risk exceeds limit: projected loss is {risk}% of capital, above the {limit}% limit.",
@@ -1139,11 +1124,13 @@ Object.assign(translations.en, {
 });
 
 Object.assign(translations.vi, {
-  dcaPreset: "M\u1eabu ph\u00e2n b\u1ed5",
+  dcaPreset: "M\u1eabu multiplier",
   dcaPresetCustom: "T\u00f9y ch\u1ec9nh",
   dcaPresetConservative: "Th\u1eadn tr\u1ecdng",
   dcaPresetBalanced: "C\u00e2n b\u1eb1ng",
   dcaPresetAggressive: "M\u1ea1nh",
+  applyDcaHalfSuggestion: "50% kho\u1ea3ng c\u00e1ch g\u1ee3i \u00fd",
+  dcaHalfSuggestionApplied: "\u0110\u00e3 \u00e1p d\u1ee5ng 50% kho\u1ea3ng c\u00e1ch g\u1ee3i \u00fd: {step}% thay v\u00ec {base}%.",
   dcaRiskLimitPct: "Ng\u01b0\u1ee1ng r\u1ee7i ro (% v\u1ed1n)",
   dcaRiskBudget: "R\u1ee7i ro / v\u1ed1n",
   dcaRiskExceeded: "V\u01b0\u1ee3t ng\u01b0\u1ee1ng r\u1ee7i ro: l\u1ed7 d\u1ef1 ki\u1ebfn chi\u1ebfm {risk}% v\u1ed1n, cao h\u01a1n ng\u01b0\u1ee1ng {limit}%.",
@@ -1786,8 +1773,11 @@ function setDcaLevelCount(count) {
 function applyDcaPreset(presetKey) {
   const preset = DCA_PRESETS[presetKey];
   if (!preset) return;
-  state.dcaLevels = preset.levels.map((level) => ({ ...level }));
-  els.dcaCount.value = String(Math.max(1, state.dcaLevels.length - 1));
+  const multipliers = preset.multipliers || [];
+  state.dcaLevels = state.dcaLevels.map((level, index) => ({
+    ...level,
+    multiplier: multipliers[index] ?? multipliers[multipliers.length - 1] ?? level.multiplier,
+  }));
   renderDcaSuggestionPreview();
   renderDcaSizing();
 }
@@ -1810,11 +1800,13 @@ function dcaBacktestLossRange() {
   return { avgLoss, maxLoss };
 }
 
-function suggestedDcaDistances() {
+function suggestedDcaDistances(distanceScale = 1) {
   const range = dcaBacktestLossRange();
   if (!range) return null;
   const count = dcaCount();
-  const step = (range.maxLoss - range.avgLoss) / count;
+  const baseStep = (range.maxLoss - range.avgLoss) / count;
+  const scale = Math.max(0, Number(distanceScale) || 1);
+  const step = baseStep * scale;
   const entryPrice = optionalNumber(els.dcaEntryPrice.value);
   const usePriceStep = els.dcaDistanceMode.value === "priceStep";
   if (!Number.isFinite(Number(entryPrice)) || Number(entryPrice) <= 0) {
@@ -1840,7 +1832,7 @@ function suggestedDcaDistances() {
       buyPrice: targetPrice,
     });
   }
-  return { ...range, count, step, distances, priceStep: Number(priceStep) || 0 };
+  return { ...range, count, step, baseStep, scale, distances, priceStep: Number(priceStep) || 0 };
 }
 
 function renderDcaSuggestionPreview(message = "") {
@@ -1867,8 +1859,8 @@ function renderDcaSuggestionPreview(message = "") {
       : "");
 }
 
-function applyDcaSuggestion() {
-  const suggestion = suggestedDcaDistances();
+function applyDcaSuggestion(distanceScale = 1) {
+  const suggestion = suggestedDcaDistances(distanceScale);
   if (!suggestion || suggestion.error) {
     renderDcaSuggestionPreview(suggestion?.error || t("dcaSuggestionMissingBacktest"));
     return;
@@ -1879,9 +1871,14 @@ function applyDcaSuggestion() {
     distancePct: distance.distancePct,
     multiplier: previousLevels[index]?.multiplier || (index === 0 ? 1 : 1.2),
   }));
-  markDcaPresetCustom();
-  renderDcaSuggestionPreview();
   renderDcaSizing();
+  if (distanceScale === 0.5) {
+    renderDcaSuggestionPreview(
+      t("dcaHalfSuggestionApplied")
+        .replace("{step}", rawNumber(suggestion.step))
+        .replace("{base}", rawNumber(suggestion.baseStep))
+    );
+  }
 }
 
 function calculateDcaSizing(inputs) {
@@ -2099,7 +2096,9 @@ function renderDcaLevelsTable(calculatedRows = []) {
       const index = Number(input.dataset.dcaLevelIndex);
       const field = input.dataset.dcaLevelField;
       state.dcaLevels[index][field] = optionalNumber(input.value) ?? 0;
-      markDcaPresetCustom();
+      if (field === "multiplier") {
+        markDcaPresetCustom();
+      }
       renderDcaSizing();
     });
   });
@@ -5828,7 +5827,10 @@ els.dcaDistanceMode.addEventListener("change", () => {
 });
 els.dcaCount.addEventListener("change", () => {
   setDcaLevelCount(dcaCount());
-  markDcaPresetCustom();
+  if (els.dcaPreset.value !== "custom") {
+    applyDcaPreset(els.dcaPreset.value);
+    return;
+  }
   renderDcaSuggestionPreview();
   renderDcaSizing();
 });
@@ -5840,7 +5842,8 @@ els.dcaPreset.addEventListener("change", () => {
   applyDcaPreset(els.dcaPreset.value);
 });
 els.dcaRiskLimitPct.addEventListener("change", saveDcaRiskLimitPreference);
-els.applyDcaSuggestion.addEventListener("click", applyDcaSuggestion);
+els.applyDcaHalfSuggestion.addEventListener("click", () => applyDcaSuggestion(0.5));
+els.applyDcaSuggestion.addEventListener("click", () => applyDcaSuggestion(1));
 els.dcaSizingForm.addEventListener("submit", (event) => event.preventDefault());
 els.saveDcaPlan.addEventListener("click", saveCurrentDcaPlan);
 els.dcaPlanClose.addEventListener("click", closeDcaPlanDetail);
