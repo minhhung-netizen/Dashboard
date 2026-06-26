@@ -213,6 +213,13 @@ CREATE TABLE IF NOT EXISTS dca_plans (
 CREATE INDEX IF NOT EXISTS idx_dca_plans_user_lookup
 ON dca_plans (user_id, strategy, ticker, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS dca_user_settings (
+    user_id INTEGER PRIMARY KEY,
+    initial_capital REAL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -1347,6 +1354,40 @@ class SignalStore:
                 params,
             )
             return cursor.rowcount > 0
+
+    def get_dca_user_settings(self, *, user_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, initial_capital, updated_at
+                FROM dca_user_settings
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return {"user_id": user_id, "initial_capital": None, "updated_at": None}
+        return dict(row)
+
+    def upsert_dca_user_settings(
+        self,
+        *,
+        user_id: int,
+        initial_capital: float | None,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO dca_user_settings (user_id, initial_capital, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    initial_capital = excluded.initial_capital,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, initial_capital, now),
+            )
+        return self.get_dca_user_settings(user_id=user_id)
 
     def insert_dividend_event(
         self,

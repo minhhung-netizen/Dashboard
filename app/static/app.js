@@ -224,6 +224,7 @@ const DEFAULT_DCA_LEVELS = [
   { distancePct: 15, multiplier: 2 },
   { distancePct: 20, multiplier: 2.5 },
 ];
+let dcaInitialCapitalSaveTimer = null;
 const FEATURE_LABELS = {
   overview: "Tổng quan",
   positions: "Vị thế",
@@ -1258,6 +1259,7 @@ const state = {
   backtestStats: [],
   kellyEntries: [],
   dcaPlans: [],
+  dcaSettings: { initialCapital: null, updatedAt: "" },
   kellyMigrationDone: false,
   dcaLevels: DEFAULT_DCA_LEVELS.map((level) => ({ ...level })),
   activeKellyEntryKey: "",
@@ -2022,6 +2024,48 @@ function normalizeDcaPlan(plan) {
   };
 }
 
+function normalizeDcaSettings(settings = {}) {
+  return {
+    userId: settings.userId ?? settings.user_id ?? null,
+    initialCapital: optionalNumber(settings.initialCapital ?? settings.initial_capital),
+    updatedAt: settings.updatedAt || settings.updated_at || "",
+  };
+}
+
+function applyDcaSettingsToForm({ force = false } = {}) {
+  if (!featureEnabled("dcaSizing")) return;
+  const savedCapital = optionalNumber(state.dcaSettings?.initialCapital);
+  if (savedCapital === null) return;
+  if (!force && els.dcaInitialCapital.dataset.dirty === "true") return;
+  els.dcaInitialCapital.value = rawNumber(savedCapital);
+  delete els.dcaInitialCapital.dataset.dirty;
+}
+
+async function saveDcaInitialCapital() {
+  window.clearTimeout(dcaInitialCapitalSaveTimer);
+  if (!featureEnabled("dcaSizing")) return;
+  const valueAtSave = els.dcaInitialCapital.value;
+  const response = await fetch("/api/dca-settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      initialCapital: optionalNumber(valueAtSave),
+    }),
+  });
+  if (!response.ok) return;
+  const payload = await response.json();
+  state.dcaSettings = normalizeDcaSettings(payload.dca_settings);
+  if (els.dcaInitialCapital.value === valueAtSave) {
+    delete els.dcaInitialCapital.dataset.dirty;
+  }
+}
+
+function scheduleDcaInitialCapitalSave() {
+  els.dcaInitialCapital.dataset.dirty = "true";
+  window.clearTimeout(dcaInitialCapitalSaveTimer);
+  dcaInitialCapitalSaveTimer = window.setTimeout(saveDcaInitialCapital, 700);
+}
+
 async function saveCurrentDcaPlan() {
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
@@ -2486,6 +2530,9 @@ function setAuthenticatedUser(user, availableFeatures, availableStrategies = [])
 
 function showLogin() {
   state.user = null;
+  state.dcaSettings = { initialCapital: null, updatedAt: "" };
+  els.dcaInitialCapital.value = els.dcaInitialCapital.defaultValue || "";
+  delete els.dcaInitialCapital.dataset.dirty;
   els.loginScreen.hidden = false;
   els.loginPassword.value = "";
   els.loginUsername.focus();
@@ -2725,6 +2772,7 @@ async function refresh() {
     featureFetch(["performance", "dcaSizing"], "/api/backtest-stats", { backtest_stats: [] }),
     featureFetch(["positions", "performance", "kelly", "dcaSizing"], "/api/kelly-entries", { kelly_entries: state.kellyEntries }),
     featureFetch("dcaSizing", "/api/dca-plans", { dca_plans: state.dcaPlans }),
+    featureFetch("dcaSizing", "/api/dca-settings", { dca_settings: state.dcaSettings }),
   ]);
 
   const settingsPayload = settledPayload(
@@ -2785,6 +2833,11 @@ async function refresh() {
     { dca_plans: state.dcaPlans },
     "DCA plans"
   );
+  const dcaSettingsPayload = settledPayload(
+    results[12],
+    { dca_settings: state.dcaSettings },
+    "DCA settings"
+  );
 
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.summary = summary;
@@ -2795,6 +2848,8 @@ async function refresh() {
     (kellyPayload.kelly_entries || []).map(normalizeKellyEntry)
   );
   state.dcaPlans = (dcaPlansPayload.dca_plans || []).map(normalizeDcaPlan);
+  state.dcaSettings = normalizeDcaSettings(dcaSettingsPayload.dca_settings || {});
+  applyDcaSettingsToForm();
   state.openTrades = positionPayload.open_trades || [];
   updateOpenPositionStrategyFilterOptions(filterTradesForWatchlist(state.openTrades));
   state.performanceStrategies = positionPayload.strategies || [];
@@ -5645,6 +5700,8 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaLotSize,
   els.dcaPriceStep,
 ].forEach((input) => input.addEventListener("input", renderDcaSizing));
+els.dcaInitialCapital.addEventListener("input", scheduleDcaInitialCapitalSave);
+els.dcaInitialCapital.addEventListener("change", saveDcaInitialCapital);
 els.dcaDistanceMode.addEventListener("change", () => {
   renderDcaSuggestionPreview();
   renderDcaSizing();

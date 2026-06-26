@@ -156,7 +156,7 @@ FEATURE_PATHS = {
     "manualPortfolio": ("/api/manual-portfolio",),
     "performance": ("/api/performance", "/api/backtest-stats", "/api/kelly-entries"),
     "kelly": ("/api/kelly-entries",),
-    "dcaSizing": ("/api/dca-plans", "/api/backtest-stats", "/api/kelly-entries"),
+    "dcaSizing": ("/api/dca-plans", "/api/dca-settings", "/api/backtest-stats", "/api/kelly-entries"),
     "dividends": ("/api/dividend-events",),
     "logs": ("/api/invalid-signals", "/api/export/"),
 }
@@ -190,7 +190,10 @@ async def authorize_dashboard_request(request: Request, call_next):
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if path == "/api/auth/logout":
             return await call_next(request)
-        if path.startswith("/api/dca-plans") and "dcaSizing" in set(user.get("features") or []):
+        if (
+            (path.startswith("/api/dca-plans") or path.startswith("/api/dca-settings"))
+            and "dcaSizing" in set(user.get("features") or [])
+        ):
             return await call_next(request)
         if user["role"] != "admin":
             return JSONResponse({"detail": "Read-only account"}, status_code=403)
@@ -323,6 +326,10 @@ class DcaPlanPayload(BaseModel):
     lotSize: float | None = Field(default=None, ge=1)
     levels: list[dict[str, Any]] = Field(default_factory=list)
     result: dict[str, Any] = Field(default_factory=dict)
+
+
+class DcaSettingsPayload(BaseModel):
+    initialCapital: float | None = Field(default=None, ge=0)
 
 
 class LoginPayload(BaseModel):
@@ -978,6 +985,24 @@ def delete_kelly_entry(entry_id: int) -> dict[str, Any]:
     if not store.delete_kelly_entry(entry_id):
         raise HTTPException(status_code=404, detail="Kelly entry not found")
     return {"status": "deleted", "entry_id": entry_id}
+
+
+@app.get("/api/dca-settings")
+def dca_settings(request: Request) -> dict[str, Any]:
+    return {
+        "dca_settings": store.get_dca_user_settings(
+            user_id=request.state.user["id"],
+        )
+    }
+
+
+@app.patch("/api/dca-settings")
+def update_dca_settings(payload: DcaSettingsPayload, request: Request) -> dict[str, Any]:
+    settings_payload = store.upsert_dca_user_settings(
+        user_id=request.state.user["id"],
+        initial_capital=payload.initialCapital,
+    )
+    return {"status": "saved", "dca_settings": settings_payload}
 
 
 @app.get("/api/dca-plans")
