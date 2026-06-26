@@ -130,7 +130,9 @@ const els = {
   dcaUsedCapital: document.querySelector("#dcaUsedCapital"),
   dcaAveragePrice: document.querySelector("#dcaAveragePrice"),
   dcaRiskPrice: document.querySelector("#dcaRiskPrice"),
+  dcaTargetPrice: document.querySelector("#dcaTargetPrice"),
   dcaProjectedLoss: document.querySelector("#dcaProjectedLoss"),
+  dcaProjectedProfit: document.querySelector("#dcaProjectedProfit"),
   dcaCashLeft: document.querySelector("#dcaCashLeft"),
   dcaSizingNote: document.querySelector("#dcaSizingNote"),
   dcaSuggestionNote: document.querySelector("#dcaSuggestionNote"),
@@ -994,7 +996,9 @@ Object.assign(translations.en, {
   dcaUsedCapital: "Used capital",
   dcaAveragePrice: "Average buy price",
   dcaRiskPrice: "Risk price",
+  dcaTargetPrice: "Target price",
   dcaProjectedLoss: "Projected loss",
+  dcaProjectedProfit: "Projected profit",
   dcaCashLeft: "Cash left",
   dcaLevels: "DCA levels",
   dcaLevelsTitle: "Distance and multiplier",
@@ -1073,6 +1077,11 @@ Object.assign(translations.vi, {
   dcaSuggestionMissingEntryPrice: "Nhập giá mua đầu tiên để quy đổi gợi ý sang bước giá.",
   dcaSuggestionApplied: "Khoảng cách gợi ý = (âm lớn nhất {max}% - âm TB {avg}%) / {count} lần DCA = {step}%.",
   dcaSuggestionRounded: " Giá mua làm tròn theo bước {step}.",
+});
+
+Object.assign(translations.vi, {
+  dcaTargetPrice: "Gi\u00e1 m\u1ee5c ti\u00eau",
+  dcaProjectedProfit: "L\u00e3i d\u1ef1 ki\u1ebfn",
 });
 
 Object.assign(translations.en, {
@@ -1607,6 +1616,18 @@ function findBacktestStat(ticker, strategy = "") {
   );
 }
 
+function findOpenTradeForDca(ticker, strategy = "") {
+  const exactKey = tickerStrategyKey(ticker, strategy);
+  const normalizedTicker = String(ticker || "").trim().toUpperCase();
+  return (
+    (state.openTrades || []).find((trade) => tickerStrategyKey(trade.ticker, trade.strategy) === exactKey) ||
+    (!String(strategy || "").trim()
+      ? (state.openTrades || []).find((trade) => String(trade.ticker || "").trim().toUpperCase() === normalizedTicker)
+      : null) ||
+    null
+  );
+}
+
 function syncDcaSizingReferences() {
   const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
   const strategy = els.dcaSizingStrategy.value.trim();
@@ -1621,6 +1642,10 @@ function syncDcaSizingReferences() {
       els.dcaAllocationPct.value = rawNumber(recommended);
     }
   }
+  const openTrade = findOpenTradeForDca(ticker, strategy);
+  if (openTrade && !els.dcaEntryPrice.value) {
+    els.dcaEntryPrice.value = rawNumber(openTrade.entry_price);
+  }
   const stat = findBacktestStat(ticker, strategy);
   const maxLoss = Math.abs(Number(stat?.max_loss_pct));
   if (Number.isFinite(maxLoss) && maxLoss > 0) {
@@ -1631,14 +1656,19 @@ function syncDcaSizingReferences() {
 }
 
 function readDcaSizingInputs() {
+  const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
+  const strategy = els.dcaSizingStrategy.value.trim();
+  const stat = ticker ? findBacktestStat(ticker, strategy) : null;
+  const avgGainPct = Math.abs(Number(stat?.avg_gain_pct));
   return {
-    ticker: els.dcaSizingTicker.value.trim().toUpperCase(),
-    strategy: els.dcaSizingStrategy.value.trim(),
+    ticker,
+    strategy,
     initialCapital: optionalNumber(els.dcaInitialCapital.value),
     allocationPct: optionalNumber(els.dcaAllocationPct.value),
     entryPrice: optionalNumber(els.dcaEntryPrice.value),
     distanceMode: els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent",
     maxLossPct: optionalNumber(els.dcaMaxLossPct.value),
+    avgGainPct: Number.isFinite(avgGainPct) && avgGainPct > 0 ? avgGainPct : null,
     lotSize: Math.max(1, Math.floor(optionalNumber(els.dcaLotSize.value) || 1)),
     priceStep: Math.max(0, Number(optionalNumber(els.dcaPriceStep.value) || 0)),
   };
@@ -1838,8 +1868,15 @@ function calculateDcaSizing(inputs) {
   const riskPrice = Number.isFinite(Number(firstBuyPrice))
     ? roundDcaBuyPrice(Number(firstBuyPrice) * (1 - maxLossPct / 100), inputs.priceStep)
     : null;
+  const avgGainPct = Number(inputs.avgGainPct);
+  const targetPrice = Number.isFinite(Number(firstBuyPrice)) && Number.isFinite(avgGainPct) && avgGainPct > 0
+    ? roundDcaBuyPrice(Number(firstBuyPrice) * (1 + avgGainPct / 100), inputs.priceStep)
+    : null;
   const projectedLoss = averagePrice !== null && riskPrice !== null
     ? (averagePrice - riskPrice) * cumulativeShares
+    : null;
+  const projectedProfit = averagePrice !== null && targetPrice !== null
+    ? (targetPrice - averagePrice) * cumulativeShares
     : null;
 
   return {
@@ -1852,7 +1889,9 @@ function calculateDcaSizing(inputs) {
     averagePrice,
     firstBuyPrice,
     riskPrice,
+    targetPrice,
     projectedLoss,
+    projectedProfit,
     note: t("dcaSizingAutoNote"),
   };
 }
@@ -1869,7 +1908,9 @@ function renderDcaSizing() {
     els.dcaTotalShares.textContent = "-";
     els.dcaAveragePrice.textContent = "-";
     els.dcaRiskPrice.textContent = "-";
+    els.dcaTargetPrice.textContent = "-";
     els.dcaProjectedLoss.textContent = "-";
+    els.dcaProjectedProfit.textContent = "-";
     els.dcaCashLeft.textContent = "-";
     els.dcaSizingNote.textContent = result.note;
     return;
@@ -1880,7 +1921,9 @@ function renderDcaSizing() {
   els.dcaTotalShares.textContent = formatPrice(result.totalShares);
   els.dcaAveragePrice.textContent = formatPrice(result.averagePrice);
   els.dcaRiskPrice.textContent = formatPrice(result.riskPrice);
+  els.dcaTargetPrice.textContent = formatPrice(result.targetPrice);
   els.dcaProjectedLoss.innerHTML = formatSignedVnd(-Math.abs(result.projectedLoss || 0));
+  els.dcaProjectedProfit.innerHTML = formatSignedVnd(result.projectedProfit);
   els.dcaCashLeft.textContent = formatVnd(result.cashLeft);
   els.dcaSizingNote.textContent = result.note;
 }
@@ -1965,7 +2008,9 @@ async function saveCurrentDcaPlan() {
       averagePrice: result.averagePrice,
       firstBuyPrice: result.firstBuyPrice,
       riskPrice: result.riskPrice,
+      targetPrice: result.targetPrice,
       projectedLoss: result.projectedLoss,
+      projectedProfit: result.projectedProfit,
       priceStep: inputs.priceStep,
       rows: result.rows,
     },
@@ -1995,7 +2040,7 @@ function renderDcaPlans() {
   }
   const plans = (state.dcaPlans || []).map(normalizeDcaPlan);
   if (!plans.length) {
-    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="8">${t("noDcaPlans")}</td></tr>`;
+    els.dcaPlansTable.innerHTML = `<tr><td class="empty" colspan="9">${t("noDcaPlans")}</td></tr>`;
     return;
   }
   els.dcaPlansTable.innerHTML = plans
@@ -2009,6 +2054,7 @@ function renderDcaPlans() {
           <td>${formatPrice(result.totalShares)}</td>
           <td>${formatPrice(result.averagePrice)}</td>
           <td>${formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))}</td>
+          <td>${formatSignedVnd(result.projectedProfit)}</td>
           <td>${escapeHtml(formatDate(plan.updatedAt || plan.createdAt))}</td>
           <td><button class="smallButton ghostButton" type="button" data-dca-plan-delete="${escapeHtml(plan.id)}">${escapeHtml(t("delete"))}</button></td>
         </tr>
@@ -2063,7 +2109,9 @@ function openDcaPlanDetail(planId) {
       insightMetric(t("dcaTotalShares"), formatPrice(result.totalShares)),
       insightMetric(t("dcaAveragePrice"), formatPrice(result.averagePrice)),
       insightMetric(t("dcaRiskPrice"), formatPrice(result.riskPrice)),
+      insightMetric(t("dcaTargetPrice"), formatPrice(result.targetPrice)),
       insightMetric(t("dcaProjectedLoss"), formatSignedVnd(-Math.abs(Number(result.projectedLoss) || 0))),
+      insightMetric(t("dcaProjectedProfit"), formatSignedVnd(result.projectedProfit)),
     ])}
     ${renderDcaPlanRows(rows)}
   `;
