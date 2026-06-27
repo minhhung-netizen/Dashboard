@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VN Signals Dashboard</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260626-dca-plan-status" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-layout-refresh" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -855,79 +855,93 @@
           </div>
           <div class="dcaSizingGrid">
             <form id="dcaSizingForm" class="dcaSizingForm" autocomplete="off">
-              <label>
-                <span data-i18n="ticker">Ticker</span>
-                <input id="dcaSizingTicker" name="dca-sizing-ticker" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="VPB" />
-              </label>
-              <label>
-                <span data-i18n="strategy">Strategy</span>
-                <select id="dcaSizingStrategy" aria-label="DCA sizing strategy">
-                  <option value="" data-i18n="allStrategies">All strategies</option>
-                </select>
-              </label>
-              <label>
-                <span data-i18n="dcaInitialCapital">Initial capital</span>
-                <input id="dcaInitialCapital" min="0" step="1000000" type="number" value="500000000" />
-              </label>
-              <label>
-                <span data-i18n="dcaAllocationPct">Recommended allocation (%)</span>
-                <input id="dcaAllocationPct" min="0" max="100" step="0.01" type="number" />
-              </label>
-              <label>
-                <span data-i18n="dcaEntryPrice">First buy price</span>
-                <input id="dcaEntryPrice" min="0" step="0.01" type="number" />
-              </label>
-              <label>
-                <span data-i18n="dcaDistanceMode">Distance mode</span>
-                <select id="dcaDistanceMode" aria-label="DCA distance mode">
-                  <option value="percent" data-i18n="dcaDistanceModePercent">Percent from previous order</option>
-                  <option value="priceStep" data-i18n="dcaDistanceModePriceStep">Price step from previous order</option>
-                </select>
-              </label>
-              <label id="dcaPriceStepModeLabel" hidden>
-                <span data-i18n="dcaPriceStepMode">Price step mode</span>
-                <select id="dcaPriceStepMode" aria-label="DCA price step mode">
-                  <option value="custom" data-i18n="dcaPriceStepModeCustom">Custom per level</option>
-                  <option value="fixed" data-i18n="dcaPriceStepModeFixed">Fixed step</option>
-                </select>
-              </label>
-              <label id="dcaFixedPriceStepLabel" hidden>
-                <span data-i18n="dcaFixedPriceStep">Fixed step distance</span>
-                <input id="dcaFixedPriceStep" min="0" step="1" type="number" value="100" />
-              </label>
-              <label>
-                <span data-i18n="dcaCount">DCA count</span>
-                <input id="dcaCount" min="1" max="20" step="1" type="number" value="4" />
-              </label>
-              <label>
-                <span data-i18n="dcaPreset">Preset</span>
-                <select id="dcaPreset" aria-label="DCA preset">
-                  <option value="custom" data-i18n="dcaPresetCustom">Custom</option>
-                  <option value="conservative" data-i18n="dcaPresetConservative">Conservative</option>
-                  <option value="balanced" data-i18n="dcaPresetBalanced">Balanced</option>
-                  <option value="aggressive" data-i18n="dcaPresetAggressive">Aggressive</option>
-                </select>
-              </label>
-              <label>
-                <span data-i18n="dcaMaxLossPct">Max loss from backtest (%)</span>
-                <input id="dcaMaxLossPct" min="0" step="0.01" type="number" />
-              </label>
-              <label>
-                <span data-i18n="dcaRiskLimitPct">Risk limit (% capital)</span>
-                <input id="dcaRiskLimitPct" min="0" max="100" step="0.01" type="number" value="1.5" />
-              </label>
-              <label>
-                <span data-i18n="dcaLotSize">Lot size</span>
-                <input id="dcaLotSize" min="1" step="1" type="number" value="100" />
-              </label>
-              <label>
-                <span data-i18n="dcaPriceStep">Buy price rounding</span>
-                <input id="dcaPriceStep" min="0" step="1" type="number" value="100" />
-              </label>
-              <button id="applyDcaHalfSuggestion" class="ghostButton" type="button" data-i18n="applyDcaHalfSuggestion">50% suggested distance</button>
-              <button id="applyDcaSuggestion" class="ghostButton" type="button" data-i18n="applyDcaSuggestion">Suggest distance</button>
-              <button id="saveDcaPlan" type="button" data-i18n="saveDcaPlan">Save allocation</button>
-              <button id="cancelDcaPlanEdit" class="ghostButton" type="button" data-i18n="cancelDcaPlanEdit" hidden>Cancel edit</button>
+              <fieldset class="dcaFormGroup">
+                <legend data-i18n="currentPosition">Current Position</legend>
+                <label>
+                  <span data-i18n="ticker">Ticker</span>
+                  <input id="dcaSizingTicker" name="dca-sizing-ticker" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="VPB" />
+                </label>
+                <label>
+                  <span data-i18n="strategy">Strategy</span>
+                  <select id="dcaSizingStrategy" aria-label="DCA sizing strategy">
+                    <option value="" data-i18n="allStrategies">All strategies</option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="dcaInitialCapital">Initial capital</span>
+                  <input id="dcaInitialCapital" min="0" step="1000000" type="number" value="500000000" />
+                </label>
+                <label>
+                  <span data-i18n="dcaAllocationPct">Recommended allocation (%)</span>
+                  <input id="dcaAllocationPct" min="0" max="100" step="0.01" type="number" />
+                </label>
+                <label>
+                  <span data-i18n="dcaEntryPrice">First buy price</span>
+                  <input id="dcaEntryPrice" min="0" step="0.01" type="number" />
+                </label>
+              </fieldset>
+
+              <fieldset class="dcaFormGroup">
+                <legend data-i18n="dcaLevels">DCA levels</legend>
+                <label>
+                  <span data-i18n="dcaDistanceMode">Distance mode</span>
+                  <select id="dcaDistanceMode" aria-label="DCA distance mode">
+                    <option value="percent" data-i18n="dcaDistanceModePercent">Percent from previous order</option>
+                    <option value="priceStep" data-i18n="dcaDistanceModePriceStep">Price step from previous order</option>
+                  </select>
+                </label>
+                <label id="dcaPriceStepModeLabel" hidden>
+                  <span data-i18n="dcaPriceStepMode">Price step mode</span>
+                  <select id="dcaPriceStepMode" aria-label="DCA price step mode">
+                    <option value="custom" data-i18n="dcaPriceStepModeCustom">Custom per level</option>
+                    <option value="fixed" data-i18n="dcaPriceStepModeFixed">Fixed step</option>
+                  </select>
+                </label>
+                <label id="dcaFixedPriceStepLabel" hidden>
+                  <span data-i18n="dcaFixedPriceStep">Fixed step distance</span>
+                  <input id="dcaFixedPriceStep" min="0" step="1" type="number" value="100" />
+                </label>
+                <label>
+                  <span data-i18n="dcaCount">DCA count</span>
+                  <input id="dcaCount" min="1" max="20" step="1" type="number" value="4" />
+                </label>
+                <label>
+                  <span data-i18n="dcaPreset">Preset</span>
+                  <select id="dcaPreset" aria-label="DCA preset">
+                    <option value="custom" data-i18n="dcaPresetCustom">Custom</option>
+                    <option value="conservative" data-i18n="dcaPresetConservative">Conservative</option>
+                    <option value="balanced" data-i18n="dcaPresetBalanced">Balanced</option>
+                    <option value="aggressive" data-i18n="dcaPresetAggressive">Aggressive</option>
+                  </select>
+                </label>
+              </fieldset>
+
+              <fieldset class="dcaFormGroup">
+                <legend data-i18n="riskOverview">Risk Overview</legend>
+                <label>
+                  <span data-i18n="dcaMaxLossPct">Max loss from backtest (%)</span>
+                  <input id="dcaMaxLossPct" min="0" step="0.01" type="number" />
+                </label>
+                <label>
+                  <span data-i18n="dcaRiskLimitPct">Risk limit (% capital)</span>
+                  <input id="dcaRiskLimitPct" min="0" max="100" step="0.01" type="number" value="1.5" />
+                </label>
+                <label>
+                  <span data-i18n="dcaLotSize">Lot size</span>
+                  <input id="dcaLotSize" min="1" step="1" type="number" value="100" />
+                </label>
+                <label>
+                  <span data-i18n="dcaPriceStep">Buy price rounding</span>
+                  <input id="dcaPriceStep" min="0" step="1" type="number" value="100" />
+                </label>
+              </fieldset>
+
+              <div class="dcaFormActions">
+                <button id="applyDcaHalfSuggestion" class="ghostButton" type="button" data-i18n="applyDcaHalfSuggestion">50% suggested distance</button>
+                <button id="applyDcaSuggestion" class="ghostButton" type="button" data-i18n="applyDcaSuggestion">Suggest distance</button>
+                <button id="saveDcaPlan" type="button" data-i18n="saveDcaPlan">Save allocation</button>
+                <button id="cancelDcaPlanEdit" class="ghostButton" type="button" data-i18n="cancelDcaPlanEdit" hidden>Cancel edit</button>
+              </div>
             </form>
 
             <div class="dcaSizingOutput">
@@ -1195,6 +1209,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260626-dca-plan-status"></script>
+    <script src="/static/app.js?v=20260627-layout-refresh"></script>
   </body>
 </html>

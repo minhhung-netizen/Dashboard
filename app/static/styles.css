@@ -244,7 +244,7 @@ p {
 }
 
 h1 {
-  font-size: 25px;
+  font-size: 23px;
   font-weight: 760;
   letter-spacing: 0;
   line-height: 1.15;
@@ -262,9 +262,9 @@ h2 {
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--line) 76%, transparent), 0 12px 26px rgb(15 23 42 / 5%);
   display: flex;
-  gap: 22px;
+  gap: 18px;
   justify-content: space-between;
-  padding: 18px clamp(18px, 3.5vw, 40px);
+  padding: 12px clamp(18px, 3.5vw, 40px);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -504,7 +504,7 @@ button:active {
 }
 
 main {
-  padding: 20px clamp(18px, 3.5vw, 40px) 38px;
+  padding: 16px clamp(18px, 3.5vw, 40px) 38px;
 }
 
 .tabs {
@@ -515,7 +515,7 @@ main {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   padding: 5px;
   scrollbar-width: none;
 }
@@ -525,8 +525,8 @@ main {
 }
 
 .tabButton {
-  height: 34px;
-  padding: 0 13px;
+  height: 32px;
+  padding: 0 12px;
   font-weight: 720;
 }
 
@@ -1095,8 +1095,8 @@ main {
   display: flex;
   gap: 14px;
   justify-content: space-between;
-  min-height: 66px;
-  padding: 14px 16px;
+  min-height: 60px;
+  padding: 12px 16px;
 }
 
 .panelHead > div:first-child {
@@ -1305,15 +1305,37 @@ main {
 
 .dcaSizingGrid {
   display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
+  align-items: start;
+  gap: 18px;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
   padding: 16px;
 }
 
 .dcaSizingForm {
   display: grid;
   gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+.dcaFormGroup {
+  background: color-mix(in srgb, var(--panel-raised) 84%, var(--panel));
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  min-width: 0;
+  padding: 13px;
+}
+
+.dcaFormGroup legend {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0;
+  padding: 0 4px;
+  text-transform: uppercase;
 }
 
 .dcaSizingForm label {
@@ -1321,6 +1343,21 @@ main {
   display: grid;
   font-size: 12px;
   gap: 6px;
+}
+
+.dcaSizingForm [hidden] {
+  display: none !important;
+}
+
+.dcaFormActions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dcaFormActions button {
+  min-width: 0;
+  width: 100%;
 }
 
 .dcaSizingForm input,
@@ -1332,8 +1369,15 @@ main {
 }
 
 .dcaSizingOutput {
+  align-self: start;
   display: grid;
   gap: 12px;
+  position: sticky;
+  top: 96px;
+}
+
+.dcaResultGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .dcaHeroResult strong {
@@ -1580,7 +1624,7 @@ table {
 th,
 td {
   border-bottom: 1px solid var(--line-soft);
-  padding: 12px 14px;
+  padding: 10px 12px;
   text-align: left;
   white-space: nowrap;
 }
@@ -1596,7 +1640,26 @@ th {
   z-index: 1;
 }
 
+th:first-child,
+td:first-child {
+  left: 0;
+  position: sticky;
+}
+
+th:first-child {
+  z-index: 2;
+}
+
+td:first-child {
+  background: var(--panel);
+  z-index: 1;
+}
+
 tbody tr:hover {
+  background: var(--row-hover);
+}
+
+tbody tr:hover td:first-child {
   background: var(--row-hover);
 }
 
@@ -2019,6 +2082,14 @@ td strong {
     grid-template-columns: 1fr;
   }
 
+  .dcaSizingGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .dcaSizingOutput {
+    position: static;
+  }
+
   .riskMetrics {
     grid-template-columns: 1fr 1fr;
   }
@@ -2135,6 +2206,31 @@ td strong {
   .riskMetrics,
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .tabPanel[data-tab-panel="overview"].active {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tabPanel[data-tab-panel="overview"] .metrics {
+    order: 1;
+  }
+
+  .tabPanel[data-tab-panel="overview"] .workspace {
+    order: 2;
+  }
+
+  .tabPanel[data-tab-panel="overview"] .overviewGrid {
+    order: 3;
+  }
+
+  .tabPanel[data-tab-panel="overview"] .attentionPanel {
+    order: 4;
+  }
+
+  .tabPanel[data-tab-panel="overview"] .timelinePanel {
+    order: 5;
   }
 
   .performanceControls,
@@ -2336,6 +2432,8 @@ td strong {
   .kellyForm,
   .dcaSizingGrid,
   .dcaSizingForm,
+  .dcaFormGroup,
+  .dcaFormActions,
   .kellyResultGrid {
     grid-template-columns: 1fr;
   }
