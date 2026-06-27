@@ -1475,6 +1475,12 @@ function saveKellyEntries(entries) {
   state.kellyEntries = entries;
 }
 
+function normalizeKellyProfitFactor(value) {
+  const profitFactor = optionalNumber(value);
+  if (profitFactor === null) return null;
+  return profitFactor >= 100 ? profitFactor / 1000 : profitFactor;
+}
+
 function normalizeKellyEntry(entry) {
   return {
     id: entry.id,
@@ -1483,7 +1489,7 @@ function normalizeKellyEntry(entry) {
     winRate: optionalNumber(entry.winRate ?? entry.win_rate),
     winningTrades: optionalNumber(entry.winningTrades ?? entry.winning_trades),
     totalTrades: optionalNumber(entry.totalTrades ?? entry.total_trades),
-    profitFactor: optionalNumber(entry.profitFactor ?? entry.profit_factor),
+    profitFactor: normalizeKellyProfitFactor(entry.profitFactor ?? entry.profit_factor),
     maxDrawdown: optionalNumber(entry.maxDrawdown ?? entry.max_drawdown),
     targetDrawdown: optionalNumber(entry.targetDrawdown ?? entry.target_drawdown),
     fraction: optionalNumber(entry.fraction),
@@ -5900,7 +5906,7 @@ function optionalNumber(value) {
 
 function parsePriceInput(value) {
   const raw = String(value).trim();
-  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+  if (/^\d{1,3}(\.\d{3}){2,}$/.test(raw)) {
     return Number(raw.replaceAll(".", ""));
   }
   return Number(raw.replaceAll(",", ""));
