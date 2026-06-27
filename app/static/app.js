@@ -214,6 +214,7 @@ const els = {
 };
 
 const FALLBACK_SIGNAL_WEIGHT_PCT = 5;
+const NUMBER_FORMAT_LOCALE = "en-US";
 const KELLY_STORAGE_KEY = "dashboardKellyInputs";
 const KELLY_LIST_STORAGE_KEY = "dashboardKellyEntries";
 const DCA_RISK_LIMIT_STORAGE_KEY = "dashboardDcaRiskLimitPct";
@@ -5842,7 +5843,7 @@ function parseDateValue(value) {
 
 function formatPrice(value) {
   if (value === null || value === undefined) return "-";
-  return Number(value).toLocaleString(undefined, {
+  return Number(value).toLocaleString(NUMBER_FORMAT_LOCALE, {
     maximumFractionDigits: 3,
   });
 }
@@ -5898,7 +5899,11 @@ function optionalNumber(value) {
 }
 
 function parsePriceInput(value) {
-  return Number(String(value).trim().replaceAll(",", ""));
+  const raw = String(value).trim();
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+    return Number(raw.replaceAll(".", ""));
+  }
+  return Number(raw.replaceAll(",", ""));
 }
 
 function localDateToIsoDate(value) {
@@ -5953,7 +5958,7 @@ function formatSignedNumber(value) {
   const number = Number(value);
   const className = number >= 0 ? "positive" : "negative";
   const sign = number > 0 ? "+" : "";
-  return `<span class="${className}">${sign}${number.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>`;
+  return `<span class="${className}">${sign}${number.toLocaleString(NUMBER_FORMAT_LOCALE, { maximumFractionDigits: 2 })}</span>`;
 }
 
 function formatSignedVnd(value) {
@@ -5961,16 +5966,16 @@ function formatSignedVnd(value) {
   const number = Number(value);
   const className = number >= 0 ? "positive" : "negative";
   const sign = number > 0 ? "+" : "";
-  return `<span class="${className}">${sign}${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ</span>`;
+  return `<span class="${className}">${sign}${number.toLocaleString(NUMBER_FORMAT_LOCALE, { maximumFractionDigits: 0 })} đ</span>`;
 }
 
 function formatVnd(value) {
   if (value === null || value === undefined) return "-";
-  return `${Number(value).toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ`;
+  return `${Number(value).toLocaleString(NUMBER_FORMAT_LOCALE, { maximumFractionDigits: 0 })} đ`;
 }
 
 function compactVnd(value) {
-  return Number(value).toLocaleString("vi-VN", {
+  return Number(value).toLocaleString(NUMBER_FORMAT_LOCALE, {
     notation: "compact",
     maximumFractionDigits: 1,
   });
@@ -5985,7 +5990,7 @@ function formatDrawdownVnd(value) {
   if (value === null || value === undefined) return "-";
   const number = Number(value);
   if (number === 0) return "0 đ";
-  return `<span class="negative">-${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} đ</span>`;
+  return `<span class="negative">-${number.toLocaleString(NUMBER_FORMAT_LOCALE, { maximumFractionDigits: 0 })} đ</span>`;
 }
 
 function formatDrawdownPercent(value) {
