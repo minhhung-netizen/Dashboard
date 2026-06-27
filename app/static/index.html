@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VN Signals Dashboard</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-layout-refresh" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-dca-input-format" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -869,7 +869,7 @@
                 </label>
                 <label>
                   <span data-i18n="dcaInitialCapital">Initial capital</span>
-                  <input id="dcaInitialCapital" min="0" step="1000000" type="number" value="500000000" />
+                  <input id="dcaInitialCapital" inputmode="numeric" autocomplete="off" value="500,000,000" />
                 </label>
                 <label>
                   <span data-i18n="dcaAllocationPct">Recommended allocation (%)</span>
@@ -1209,6 +1209,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260627-layout-refresh"></script>
+    <script src="/static/app.js?v=20260627-dca-input-format"></script>
   </body>
 </html>

@@ -1736,7 +1736,7 @@ function syncDcaSizingReferences() {
   }
   const openTrade = findOpenTradeForDca(ticker, strategy);
   if (openTrade && !els.dcaEntryPrice.value) {
-    els.dcaEntryPrice.value = rawNumber(openTrade.entry_price);
+    els.dcaEntryPrice.value = rawNumber(normalizeDcaEntryPrice(openTrade.entry_price));
   }
   const stat = findBacktestStat(ticker, strategy);
   const maxLoss = Math.abs(Number(stat?.max_loss_pct));
@@ -1763,7 +1763,7 @@ function readDcaSizingInputs() {
     strategy,
     initialCapital: optionalNumber(els.dcaInitialCapital.value),
     allocationPct: optionalNumber(els.dcaAllocationPct.value),
-    entryPrice: optionalNumber(els.dcaEntryPrice.value),
+    entryPrice: normalizeDcaEntryPrice(els.dcaEntryPrice.value),
     distanceMode,
     priceStepMode,
     fixedPriceStep: optionalNumber(els.dcaFixedPriceStep.value),
@@ -2224,7 +2224,7 @@ function applyDcaSettingsToForm({ force = false } = {}) {
   const savedCapital = optionalNumber(state.dcaSettings?.initialCapital);
   if (savedCapital === null) return;
   if (!force && els.dcaInitialCapital.dataset.dirty === "true") return;
-  els.dcaInitialCapital.value = rawNumber(savedCapital);
+  els.dcaInitialCapital.value = formatDcaInitialCapitalValue(savedCapital);
   delete els.dcaInitialCapital.dataset.dirty;
 }
 
@@ -2303,7 +2303,7 @@ function editDcaPlan(planId) {
     plan.strategy || ""
   );
   els.dcaSizingStrategy.value = plan.strategy || "";
-  els.dcaInitialCapital.value = rawNumber(plan.initialCapital);
+  els.dcaInitialCapital.value = formatDcaInitialCapitalValue(plan.initialCapital);
   els.dcaAllocationPct.value = rawNumber(plan.allocationPct);
   els.dcaEntryPrice.value = rawNumber(plan.entryPrice);
   els.dcaDistanceMode.value = plan.distanceMode === "priceStep" ? "priceStep" : "percent";
@@ -2840,7 +2840,7 @@ function setAuthenticatedUser(user, availableFeatures, availableStrategies = [])
 function showLogin() {
   state.user = null;
   state.dcaSettings = { initialCapital: null, updatedAt: "" };
-  els.dcaInitialCapital.value = els.dcaInitialCapital.defaultValue || "";
+  els.dcaInitialCapital.value = formatDcaInitialCapitalValue(els.dcaInitialCapital.defaultValue || "");
   delete els.dcaInitialCapital.dataset.dirty;
   els.loginScreen.hidden = false;
   els.loginPassword.value = "";
@@ -5831,6 +5831,44 @@ function formatPrice(value) {
   });
 }
 
+function formatIntegerThousands(value) {
+  const digits = String(value ?? "").replace(/[^\d]/g, "");
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function formatDcaInitialCapitalValue(value) {
+  const number = optionalNumber(value);
+  if (number === null) return "";
+  return formatIntegerThousands(Math.max(0, Math.round(number)));
+}
+
+function formatDcaInitialCapitalInput() {
+  const input = els.dcaInitialCapital;
+  const selection = input.selectionStart ?? input.value.length;
+  const digitCountBeforeCursor = input.value.slice(0, selection).replace(/[^\d]/g, "").length;
+  input.value = formatIntegerThousands(input.value);
+  let nextCursor = input.value.length;
+  if (digitCountBeforeCursor > 0) {
+    let seenDigits = 0;
+    for (let index = 0; index < input.value.length; index += 1) {
+      if (/\d/.test(input.value[index])) seenDigits += 1;
+      if (seenDigits >= digitCountBeforeCursor) {
+        nextCursor = index + 1;
+        break;
+      }
+    }
+  } else {
+    nextCursor = 0;
+  }
+  input.setSelectionRange(nextCursor, nextCursor);
+}
+
+function normalizeDcaEntryPrice(value) {
+  const price = optionalNumber(value);
+  if (price === null || price <= 0) return null;
+  return price < 1000 ? price * 1000 : price;
+}
+
 function rawNumber(value) {
   if (value === null || value === undefined) return "";
   const number = Number(value);
@@ -6020,7 +6058,6 @@ els.dcaSizingTicker.addEventListener("input", () => {
 });
 els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
 [
-  els.dcaInitialCapital,
   els.dcaAllocationPct,
   els.dcaEntryPrice,
   els.dcaDistanceMode,
@@ -6031,8 +6068,20 @@ els.dcaSizingStrategy.addEventListener("change", syncDcaSizingReferences);
   els.dcaLotSize,
   els.dcaPriceStep,
 ].forEach((input) => input.addEventListener("input", renderDcaSizing));
-els.dcaInitialCapital.addEventListener("input", scheduleDcaInitialCapitalSave);
-els.dcaInitialCapital.addEventListener("change", saveDcaInitialCapital);
+els.dcaInitialCapital.addEventListener("input", () => {
+  formatDcaInitialCapitalInput();
+  renderDcaSizing();
+  scheduleDcaInitialCapitalSave();
+});
+els.dcaInitialCapital.addEventListener("change", () => {
+  els.dcaInitialCapital.value = formatDcaInitialCapitalValue(els.dcaInitialCapital.value);
+  renderDcaSizing();
+  saveDcaInitialCapital();
+});
+els.dcaEntryPrice.addEventListener("change", () => {
+  els.dcaEntryPrice.value = rawNumber(normalizeDcaEntryPrice(els.dcaEntryPrice.value));
+  renderDcaSizing();
+});
 els.dcaDistanceMode.addEventListener("change", () => {
   renderDcaPriceStepControls();
   renderDcaSuggestionPreview();
