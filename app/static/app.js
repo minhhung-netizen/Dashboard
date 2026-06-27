@@ -1720,10 +1720,22 @@ function findOpenTradeForDca(ticker, strategy = "") {
   );
 }
 
+function findExactOpenTradeForDca(ticker, strategy = "") {
+  const normalizedTicker = String(ticker || "").trim().toUpperCase();
+  const normalizedStrategy = String(strategy || "").trim();
+  if (!normalizedTicker || !normalizedStrategy) return null;
+  const exactKey = tickerStrategyKey(normalizedTicker, normalizedStrategy);
+  return (state.openTrades || []).find((trade) =>
+    tickerStrategyKey(trade.ticker, trade.strategy) === exactKey
+  ) || null;
+}
+
 function syncDcaSizingReferences() {
   const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
   const strategy = els.dcaSizingStrategy.value.trim();
   if (!ticker) {
+    els.dcaEntryPrice.value = "";
+    delete els.dcaEntryPrice.dataset.autoFilled;
     renderDcaSizing();
     return;
   }
@@ -1734,9 +1746,13 @@ function syncDcaSizingReferences() {
       els.dcaAllocationPct.value = rawNumber(recommended);
     }
   }
-  const openTrade = findOpenTradeForDca(ticker, strategy);
-  if (openTrade && !els.dcaEntryPrice.value) {
+  const openTrade = findExactOpenTradeForDca(ticker, strategy);
+  if (openTrade) {
     els.dcaEntryPrice.value = rawNumber(normalizeDcaEntryPrice(openTrade.entry_price));
+    els.dcaEntryPrice.dataset.autoFilled = "true";
+  } else {
+    els.dcaEntryPrice.value = "";
+    delete els.dcaEntryPrice.dataset.autoFilled;
   }
   const stat = findBacktestStat(ticker, strategy);
   const maxLoss = Math.abs(Number(stat?.max_loss_pct));
@@ -1865,7 +1881,7 @@ function suggestedDcaDistances(distanceScale = 1) {
   const baseStep = (range.maxLoss - range.avgLoss) / count;
   const scale = Math.max(0, Number(distanceScale) || 1);
   const step = baseStep * scale;
-  const entryPrice = optionalNumber(els.dcaEntryPrice.value);
+  const entryPrice = normalizeDcaEntryPrice(els.dcaEntryPrice.value);
   const usePriceStep = els.dcaDistanceMode.value === "priceStep";
   if (!Number.isFinite(Number(entryPrice)) || Number(entryPrice) <= 0) {
     return { error: t("dcaSuggestionMissingEntryPrice") };
@@ -6080,6 +6096,7 @@ els.dcaInitialCapital.addEventListener("change", () => {
 });
 els.dcaEntryPrice.addEventListener("change", () => {
   els.dcaEntryPrice.value = rawNumber(normalizeDcaEntryPrice(els.dcaEntryPrice.value));
+  delete els.dcaEntryPrice.dataset.autoFilled;
   renderDcaSizing();
 });
 els.dcaDistanceMode.addEventListener("change", () => {
