@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VN Signals Dashboard</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-kelly-number-fix" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260628-hide-hold-stats" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -657,8 +657,6 @@
             <input id="backtestTp1Hits" min="0" step="1" type="number" placeholder="TP1 Hits" />
             <input id="backtestTp2Hits" min="0" step="1" type="number" placeholder="TP2 Hits" />
             <input id="backtestTp3Hits" min="0" step="1" type="number" placeholder="TP3 Hits" />
-            <input id="backtestAvgHoldBars" min="0" step="0.01" type="number" placeholder="Avg Hold Bars" />
-            <input id="backtestAvgHoldDays" min="0" step="0.01" type="number" placeholder="Avg Hold Days" />
             <input id="backtestNote" name="backtest-note" autocomplete="off" placeholder="Note" />
             <button type="submit" data-i18n="save">Save</button>
           </form>
@@ -678,8 +676,6 @@
                   <th data-i18n="tp1HitRate">TP1 / Trades</th>
                   <th data-i18n="tp2HitRate">TP2 / Trades</th>
                   <th data-i18n="tp3HitRate">TP3 / Trades</th>
-                  <th data-i18n="avgHoldBars">Avg Hold Bars</th>
-                  <th data-i18n="avgHoldDays">Avg Hold Days</th>
                   <th data-i18n="note">Note</th>
                   <th class="adminOnly" data-i18n="actions">Actions</th>
                 </tr>
@@ -1209,6 +1205,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260627-kelly-number-fix"></script>
+    <script src="/static/app.js?v=20260628-hide-hold-stats"></script>
   </body>
 </html>

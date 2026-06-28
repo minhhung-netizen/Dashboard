@@ -80,8 +80,6 @@ const els = {
   backtestTp1Hits: document.querySelector("#backtestTp1Hits"),
   backtestTp2Hits: document.querySelector("#backtestTp2Hits"),
   backtestTp3Hits: document.querySelector("#backtestTp3Hits"),
-  backtestAvgHoldBars: document.querySelector("#backtestAvgHoldBars"),
-  backtestAvgHoldDays: document.querySelector("#backtestAvgHoldDays"),
   backtestNote: document.querySelector("#backtestNote"),
   backtestStatsTable: document.querySelector("#backtestStatsTable"),
   positionInsightModal: document.querySelector("#positionInsightModal"),
@@ -3786,8 +3784,8 @@ function readBacktestStatsForm() {
     tp2_total: closedTrades,
     tp3_hits: optionalInteger(els.backtestTp3Hits.value),
     tp3_total: closedTrades,
-    avg_hold_bars: optionalNumber(els.backtestAvgHoldBars.value),
-    avg_hold_days: optionalNumber(els.backtestAvgHoldDays.value),
+    avg_hold_bars: null,
+    avg_hold_days: null,
     note: els.backtestNote.value.trim() || null,
   };
 }
@@ -3851,8 +3849,6 @@ function loadBacktestStatsToForm(stat) {
   els.backtestTp1Hits.value = rawNumber(stat.tp1_hits);
   els.backtestTp2Hits.value = rawNumber(stat.tp2_hits);
   els.backtestTp3Hits.value = rawNumber(stat.tp3_hits);
-  els.backtestAvgHoldBars.value = rawNumber(stat.avg_hold_bars);
-  els.backtestAvgHoldDays.value = rawNumber(stat.avg_hold_days);
   els.backtestNote.value = stat.note || "";
   els.backtestTicker.focus();
 }
@@ -4509,7 +4505,7 @@ function renderBacktestStats(stats) {
   if (!els.backtestStatsTable) return;
   updateBacktestSavedStrategyFilterOptions(state.backtestStats);
   if (!stats.length) {
-    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="16">${t("noBacktestStats")}</td></tr>`;
+    els.backtestStatsTable.innerHTML = `<tr><td class="empty" colspan="14">${t("noBacktestStats")}</td></tr>`;
     return;
   }
 
@@ -4528,8 +4524,6 @@ function renderBacktestStats(stats) {
         <td>${formatHitRate(stat.tp1_hits, stat.tp1_total ?? stat.closed_trades)}</td>
         <td>${formatHitRate(stat.tp2_hits, stat.tp2_total ?? stat.closed_trades)}</td>
         <td>${formatHitRate(stat.tp3_hits, stat.tp3_total ?? stat.closed_trades)}</td>
-        <td>${formatPrice(stat.avg_hold_bars)}</td>
-        <td>${formatPrice(stat.avg_hold_days)}</td>
         <td>${escapeHtml(stat.note || "-")}</td>
         <td class="adminOnly">
           <button class="deleteButton" type="button" data-backtest-delete="${escapeHtml(stat.id)}">${escapeHtml(t("delete"))}</button>
@@ -4849,8 +4843,6 @@ function renderBacktestInsight(stat) {
     insightMetric(t("tp1HitRate"), formatHitRate(stat.tp1_hits, stat.tp1_total ?? stat.closed_trades)),
     insightMetric(t("tp2HitRate"), formatHitRate(stat.tp2_hits, stat.tp2_total ?? stat.closed_trades)),
     insightMetric(t("tp3HitRate"), formatHitRate(stat.tp3_hits, stat.tp3_total ?? stat.closed_trades)),
-    insightMetric(t("avgHoldBars"), formatPrice(stat.avg_hold_bars)),
-    insightMetric(t("avgHoldDays"), formatPrice(stat.avg_hold_days)),
   ]);
 }
 
