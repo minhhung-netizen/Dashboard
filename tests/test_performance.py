@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 
-from app.services.performance import build_performance
+from app.services.performance import build_performance, portfolio_metrics
 from app.services.dividends import upcoming_dividend_events_for_positions
 
 
@@ -349,6 +349,44 @@ class PerformanceTest(unittest.TestCase):
         self.assertAlmostEqual(trade["dividend_notes"][0]["cash_amount"], 1)
         self.assertAlmostEqual(trade["dividend_notes"][0]["issue_price"], 10)
         self.assertEqual(trade["dividend_notes"][0]["issue_ratio_pct"], 50)
+
+
+class PortfolioMetricsTest(unittest.TestCase):
+    def _trade(self, return_pct, exit_time):
+        return {"return_pct": return_pct, "exit_time": exit_time}
+
+    def test_empty_trades_return_null_metrics(self):
+        metrics = portfolio_metrics([])
+        self.assertEqual(metrics["closed_trades"], 0)
+        self.assertIsNone(metrics["sharpe"])
+        self.assertIsNone(metrics["max_drawdown_pct"])
+
+    def test_metrics_compute_drawdown_and_profit_factor(self):
+        trades = [
+            self._trade(10, "2026-01-01T00:00:00+00:00"),
+            self._trade(-20, "2026-01-02T00:00:00+00:00"),
+            self._trade(5, "2026-01-03T00:00:00+00:00"),
+        ]
+        metrics = portfolio_metrics(trades)
+        self.assertEqual(metrics["closed_trades"], 3)
+        # Equity: 100 -> 110 -> 88 -> 92.4; peak 110 => drawdown -20%.
+        self.assertAlmostEqual(metrics["max_drawdown_pct"], -20.0, places=6)
+        self.assertAlmostEqual(metrics["total_return_pct"], -7.6, places=6)
+        # Profit factor = (10 + 5) / 20 = 0.75.
+        self.assertAlmostEqual(metrics["profit_factor"], 0.75, places=6)
+        self.assertAlmostEqual(metrics["win_rate_pct"], 2 / 3 * 100, places=6)
+        self.assertIsNotNone(metrics["sharpe"])
+        self.assertIsNotNone(metrics["sortino"])
+
+    def test_build_performance_includes_metrics_block(self):
+        signals = [
+            signal(1, "FPT", "buy", 100, received_at="2026-01-01T00:00:00+00:00"),
+            signal(2, "FPT", "sell", 110, received_at="2026-01-02T00:00:00+00:00"),
+        ]
+        result = build_performance(signals)
+        self.assertIn("metrics", result)
+        self.assertEqual(result["metrics"]["closed_trades"], 1)
+        self.assertAlmostEqual(result["metrics"]["total_return_pct"], 10.0, places=6)
 
 
 if __name__ == "__main__":

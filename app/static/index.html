@@ -11,7 +11,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260629-pro-ui" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260629-features" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -250,6 +250,9 @@
               <select id="openPositionStrategyFilter" aria-label="Open position strategy filter">
                 <option value="" data-i18n="allStrategies">All strategies</option>
               </select>
+              <select id="openPositionSectorFilter" aria-label="Open position sector filter">
+                <option value="" data-i18n="allSectors">All sectors</option>
+              </select>
               <select id="openPositionConfirmFilter" aria-label="Open position trend filter">
                 <option value="all" data-i18n="confirmAll">All signal states</option>
                 <option value="confirmed" data-i18n="confirmedOnly">Has other signal</option>
@@ -273,6 +276,7 @@
                 <tr>
                   <th data-i18n="ticker">Ticker</th>
                   <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="sector">Sector</th>
                   <th data-i18n="timeframe">Timeframe</th>
                   <th data-i18n="entryPrice">Entry</th>
                   <th data-i18n="currentPrice">Current Price</th>
@@ -594,6 +598,7 @@
                 <h2 data-i18n="closedTradeGrowth">Closed Trade Growth</h2>
               </div>
             </div>
+            <div id="portfolioMetrics" class="portfolioMetrics"></div>
             <canvas id="equityChart" height="260"></canvas>
           </div>
 
@@ -1177,6 +1182,32 @@
             </table>
           </div>
         </section>
+
+        <section class="adminPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="sectorMappingEyebrow">Sectors</p>
+              <h2 data-i18n="sectorMappingTitle">Ticker sectors</h2>
+            </div>
+          </div>
+          <form id="sectorForm" class="userCreateForm sectorForm" autocomplete="off">
+            <input id="sectorTicker" name="sector-ticker" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Sector ticker" data-i18n-placeholder="sectorTickerPlaceholder" placeholder="Ticker" />
+            <input id="sectorName" name="sector-name" required autocomplete="off" aria-label="Sector name" data-i18n-placeholder="sectorNamePlaceholder" placeholder="Sector" />
+            <button type="submit" data-i18n="addSector">Save sector</button>
+          </form>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="sector">Sector</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="sectorTable"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </main>
 
@@ -1216,6 +1247,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260628-hide-hold-stats"></script>
+    <script src="/static/app.js?v=20260629-features"></script>
   </body>
 </html>

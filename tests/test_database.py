@@ -604,6 +604,43 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["note"], "FireAnt: Cổ tức cập nhật")
 
+    def test_sector_mappings_seed_upsert_and_delete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SignalStore(Path(tmp) / "signals.db")
+
+            seeded = store.sector_map()
+            self.assertEqual(seeded.get("VCB"), "Ngân hàng")
+            self.assertEqual(seeded.get("FPT"), "Công nghệ")
+
+            mapping = store.upsert_sector_mapping(ticker="abc", sector="Thử nghiệm")
+            self.assertEqual(mapping["ticker"], "ABC")
+            self.assertEqual(store.sector_map()["ABC"], "Thử nghiệm")
+
+            store.upsert_sector_mapping(ticker="ABC", sector="Cập nhật")
+            self.assertEqual(store.sector_map()["ABC"], "Cập nhật")
+
+            self.assertTrue(store.delete_sector_mapping("abc"))
+            self.assertNotIn("ABC", store.sector_map())
+            self.assertFalse(store.delete_sector_mapping("ABC"))
+
+    def test_latest_signal_received_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SignalStore(Path(tmp) / "signals.db")
+            self.assertIsNone(store.latest_signal_received_at())
+            store.insert_signal(
+                ticker="FPT",
+                exchange="HOSE",
+                action="buy",
+                price=100,
+                timeframe="1D",
+                strategy="RS",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+            self.assertIsNotNone(store.latest_signal_received_at())
+
 
 if __name__ == "__main__":
     unittest.main()

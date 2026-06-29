@@ -6,7 +6,7 @@ import io
 import logging
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
@@ -129,6 +129,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(signal_enrichment_worker()),
         asyncio.create_task(price_refresh_loop()),
         asyncio.create_task(manual_portfolio_automation_loop()),
+        asyncio.create_task(signal_monitor_loop()),
     ]
     try:
         yield
@@ -280,6 +281,11 @@ class DividendEventPayload(BaseModel):
 
 class DerivativeCapitalPayload(BaseModel):
     initial_capital: float = Field(..., gt=0, examples=[100000000])
+
+
+class SectorMappingPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    sector: str = Field(..., min_length=1, max_length=80, examples=["Ngân hàng"])
 
 
 class StrategyBacktestStatsPayload(BaseModel):
@@ -535,6 +541,7 @@ def dashboard_settings() -> dict[str, Any]:
             if dnse_enricher is not None
             else "vnstock"
         ),
+        "signal_monitor": signal_monitor_status(),
     }
 
 
@@ -993,6 +1000,31 @@ def delete_kelly_entry(entry_id: int) -> dict[str, Any]:
     return {"status": "deleted", "entry_id": entry_id}
 
 
+@app.get("/api/sectors")
+def sector_mappings() -> dict[str, Any]:
+    mappings = store.list_sector_mappings()
+    sectors = sorted({row["sector"] for row in mappings})
+    return {"sectors": mappings, "sector_names": sectors}
+
+
+@app.post("/api/sectors")
+def upsert_sector_mapping(payload: SectorMappingPayload) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    try:
+        mapping = store.upsert_sector_mapping(ticker=ticker, sector=payload.sector)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "saved", "sector": mapping}
+
+
+@app.delete("/api/sectors/{ticker}")
+def delete_sector_mapping(ticker: str) -> dict[str, Any]:
+    normalized = normalize_ticker(ticker)[0]
+    if not store.delete_sector_mapping(normalized):
+        raise HTTPException(status_code=404, detail="Sector mapping not found")
+    return {"status": "deleted", "ticker": normalized}
+
+
 @app.get("/api/dca-settings")
 def dca_settings(request: Request) -> dict[str, Any]:
     return {
@@ -1449,6 +1481,62 @@ async def manual_portfolio_automation_loop() -> None:
         except BaseException:
             logger.exception("Manual portfolio automation failed")
         await asyncio.sleep(60)
+
+
+def signal_monitor_status() -> dict[str, Any]:
+    """Webhook heartbeat: how long since the last signal, and whether that
+    gap is stale while the market is open (a likely broken TradingView alert)."""
+    latest = store.latest_signal_received_at()
+    market_open = is_market_open(sessions=settings.market_sessions)
+    minutes_since: float | None = None
+    if latest:
+        parsed = _parse_utc(latest)
+        if parsed is not None:
+            delta = datetime.now(timezone.utc) - parsed
+            minutes_since = max(0.0, delta.total_seconds() / 60)
+    stale = bool(
+        market_open
+        and (minutes_since is None or minutes_since >= settings.signal_stale_minutes)
+    )
+    return {
+        "last_signal_at": latest,
+        "minutes_since": round(minutes_since, 1) if minutes_since is not None else None,
+        "market_open": market_open,
+        "stale": stale,
+        "threshold_minutes": settings.signal_stale_minutes,
+        "checked_at": utc_now_iso(),
+    }
+
+
+def _parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+async def signal_monitor_loop() -> None:
+    interval_seconds = settings.signal_monitor_interval_minutes * 60
+    was_stale = False
+    while True:
+        try:
+            status = await asyncio.to_thread(signal_monitor_status)
+            if status["stale"] and not was_stale:
+                logger.warning(
+                    "Signal heartbeat stale: no webhook for %s+ minutes during market hours",
+                    status["threshold_minutes"],
+                )
+            was_stale = status["stale"]
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Signal monitor check failed")
+        await asyncio.sleep(interval_seconds)
 
 
 async def refresh_open_position_prices(*, include_manual: bool = True) -> int:

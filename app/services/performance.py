@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from math import prod
+from math import prod, sqrt
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -111,8 +111,80 @@ def build_performance(
         "closed_trades": trades,
         "open_trades": open_trades,
         "confirmation_stats": _confirmation_stats(trades),
+        "metrics": portfolio_metrics(trades),
         "ignored_signals": ignored_signals,
     }
+
+
+def portfolio_metrics(closed_trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Risk-adjusted summary of the closed-trade equity curve.
+
+    Sharpe and Sortino are computed per trade (not annualized), so they read
+    as a quality-of-edge score across the realized trade sequence rather than
+    a calendar-time ratio.
+    """
+    returns = [
+        value
+        for value in (_safe_float(trade.get("return_pct")) for trade in closed_trades)
+        if value is not None
+    ]
+    count = len(returns)
+    if count == 0:
+        return {
+            "closed_trades": 0,
+            "total_return_pct": None,
+            "max_drawdown_pct": None,
+            "profit_factor": None,
+            "win_rate_pct": None,
+            "avg_win_pct": None,
+            "avg_loss_pct": None,
+            "expectancy_pct": None,
+            "sharpe": None,
+            "sortino": None,
+        }
+
+    ordered = sorted(closed_trades, key=_exit_sort_key)
+    equity = 100.0
+    peak = equity
+    max_drawdown = 0.0
+    for trade in ordered:
+        change = _safe_float(trade.get("return_pct"))
+        if change is None:
+            continue
+        equity *= 1 + change / 100
+        peak = max(peak, equity)
+        if peak > 0:
+            max_drawdown = min(max_drawdown, (equity - peak) / peak * 100)
+
+    wins = [value for value in returns if value > 0]
+    losses = [value for value in returns if value < 0]
+    gain_sum = sum(wins)
+    loss_sum = abs(sum(losses))
+    mean = sum(returns) / count
+    variance = sum((value - mean) ** 2 for value in returns) / count
+    std = sqrt(variance)
+    downside_var = sum(value**2 for value in losses) / count if losses else 0.0
+    downside_std = sqrt(downside_var)
+
+    return {
+        "closed_trades": count,
+        "total_return_pct": (equity / 100 - 1) * 100,
+        "max_drawdown_pct": max_drawdown,
+        "profit_factor": (gain_sum / loss_sum) if loss_sum > 0 else None,
+        "win_rate_pct": len(wins) / count * 100,
+        "avg_win_pct": (gain_sum / len(wins)) if wins else None,
+        "avg_loss_pct": (sum(losses) / len(losses)) if losses else None,
+        "expectancy_pct": mean,
+        "sharpe": (mean / std) if std > 0 else None,
+        "sortino": (mean / downside_std) if downside_std > 0 else None,
+    }
+
+
+def _exit_sort_key(trade: dict[str, Any]) -> str:
+    parsed = _parse_datetime(trade.get("exit_time"))
+    if parsed is not None:
+        return parsed.isoformat()
+    return str(trade.get("exit_time") or "")
 
 
 def _strategy_summary(

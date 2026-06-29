@@ -220,6 +220,15 @@ CREATE TABLE IF NOT EXISTS dca_user_settings (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS sector_mappings (
+    ticker TEXT PRIMARY KEY,
+    sector TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sector_mappings_sector
+ON sector_mappings (sector);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -249,6 +258,52 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Built-in sector map for common Vietnamese tickers. Seeded only when the
+# sector_mappings table is empty, so admin edits and deletions are preserved
+# across restarts. Sectors use Vietnamese labels to match the UI language.
+DEFAULT_SECTOR_MAP: dict[str, str] = {
+    # Ngân hàng
+    "VCB": "Ngân hàng", "BID": "Ngân hàng", "CTG": "Ngân hàng", "TCB": "Ngân hàng",
+    "MBB": "Ngân hàng", "VPB": "Ngân hàng", "ACB": "Ngân hàng", "HDB": "Ngân hàng",
+    "STB": "Ngân hàng", "SHB": "Ngân hàng", "VIB": "Ngân hàng", "TPB": "Ngân hàng",
+    "LPB": "Ngân hàng", "MSB": "Ngân hàng", "EIB": "Ngân hàng", "OCB": "Ngân hàng",
+    "SSB": "Ngân hàng", "NAB": "Ngân hàng",
+    # Bất động sản
+    "VIC": "Bất động sản", "VHM": "Bất động sản", "VRE": "Bất động sản",
+    "NVL": "Bất động sản", "PDR": "Bất động sản", "KDH": "Bất động sản",
+    "DXG": "Bất động sản", "NLG": "Bất động sản", "DIG": "Bất động sản",
+    "HDG": "Bất động sản", "KBC": "Bất động sản", "BCM": "Bất động sản",
+    "IDC": "Bất động sản", "SZC": "Bất động sản", "CEO": "Bất động sản",
+    # Chứng khoán
+    "SSI": "Chứng khoán", "VND": "Chứng khoán", "VCI": "Chứng khoán",
+    "HCM": "Chứng khoán", "VIX": "Chứng khoán", "SHS": "Chứng khoán",
+    "MBS": "Chứng khoán", "FTS": "Chứng khoán", "BSI": "Chứng khoán",
+    "CTS": "Chứng khoán",
+    # Thép & vật liệu
+    "HPG": "Thép & vật liệu", "HSG": "Thép & vật liệu", "NKG": "Thép & vật liệu",
+    "SMC": "Thép & vật liệu", "TLH": "Thép & vật liệu",
+    # Dầu khí & năng lượng
+    "GAS": "Dầu khí & năng lượng", "PLX": "Dầu khí & năng lượng",
+    "PVS": "Dầu khí & năng lượng", "PVD": "Dầu khí & năng lượng",
+    "BSR": "Dầu khí & năng lượng", "POW": "Dầu khí & năng lượng",
+    "PVT": "Dầu khí & năng lượng", "NT2": "Dầu khí & năng lượng",
+    # Bán lẻ & tiêu dùng
+    "MWG": "Bán lẻ & tiêu dùng", "PNJ": "Bán lẻ & tiêu dùng",
+    "FRT": "Bán lẻ & tiêu dùng", "DGW": "Bán lẻ & tiêu dùng",
+    "MSN": "Bán lẻ & tiêu dùng", "VNM": "Bán lẻ & tiêu dùng",
+    "SAB": "Bán lẻ & tiêu dùng", "DGC": "Bán lẻ & tiêu dùng",
+    # Công nghệ
+    "FPT": "Công nghệ", "CMG": "Công nghệ", "ELC": "Công nghệ",
+    # Hàng không & vận tải
+    "HVN": "Hàng không & vận tải", "VJC": "Hàng không & vận tải",
+    "GMD": "Hàng không & vận tải", "HAH": "Hàng không & vận tải",
+    "ACV": "Hàng không & vận tải",
+    # Xây dựng
+    "CTD": "Xây dựng", "HBC": "Xây dựng", "VCG": "Xây dựng", "C4G": "Xây dựng",
+    "FCN": "Xây dựng",
+}
+
+
 class SignalStore:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
@@ -273,6 +328,7 @@ class SignalStore:
             self._ensure_dividend_event_columns(conn)
             self._ensure_strategy_backtest_stat_columns(conn)
             self._ensure_user_columns(conn)
+            self._seed_sector_mappings(conn)
             conn.execute(
                 """
                 UPDATE signals
@@ -340,6 +396,16 @@ class SignalStore:
         }
         if "strategies_json" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN strategies_json TEXT NOT NULL DEFAULT '[]'")
+
+    def _seed_sector_mappings(self, conn: sqlite3.Connection) -> None:
+        existing = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()
+        if existing and existing["total"]:
+            return
+        now = utc_now_iso()
+        conn.executemany(
+            "INSERT OR IGNORE INTO sector_mappings (ticker, sector, updated_at) VALUES (?, ?, ?)",
+            [(ticker, sector, now) for ticker, sector in DEFAULT_SECTOR_MAP.items()],
+        )
 
     def _normalize_signal_actions(self, conn: sqlite3.Connection) -> None:
         action_expr = """
@@ -1257,6 +1323,52 @@ class SignalStore:
                 (entry_id,),
             )
             return cursor.rowcount > 0
+
+    def list_sector_mappings(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT ticker, sector, updated_at FROM sector_mappings ORDER BY sector ASC, ticker ASC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def sector_map(self) -> dict[str, str]:
+        return {row["ticker"]: row["sector"] for row in self.list_sector_mappings()}
+
+    def upsert_sector_mapping(self, *, ticker: str, sector: str) -> dict[str, Any]:
+        normalized_ticker = ticker.strip().upper()
+        normalized_sector = sector.strip()
+        if not normalized_ticker or not normalized_sector:
+            raise ValueError("ticker and sector are required")
+        now = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO sector_mappings (ticker, sector, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(ticker) DO UPDATE SET
+                    sector = excluded.sector,
+                    updated_at = excluded.updated_at
+                """,
+                (normalized_ticker, normalized_sector, now),
+            )
+            row = conn.execute(
+                "SELECT ticker, sector, updated_at FROM sector_mappings WHERE ticker = ?",
+                (normalized_ticker,),
+            ).fetchone()
+        return dict(row)
+
+    def delete_sector_mapping(self, ticker: str) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM sector_mappings WHERE ticker = ?",
+                (ticker.strip().upper(),),
+            )
+            return cursor.rowcount > 0
+
+    def latest_signal_received_at(self) -> str | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT MAX(received_at) AS latest FROM signals").fetchone()
+        return row["latest"] if row else None
 
     def insert_dca_plan(
         self,

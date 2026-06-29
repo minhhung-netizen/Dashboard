@@ -60,7 +60,13 @@ const els = {
   openPositionTickerFilter: document.querySelector("#openPositionTickerFilter"),
   openPositionStrategyFilter: document.querySelector("#openPositionStrategyFilter"),
   openPositionConfirmFilter: document.querySelector("#openPositionConfirmFilter"),
+  openPositionSectorFilter: document.querySelector("#openPositionSectorFilter"),
   openPositionSort: document.querySelector("#openPositionSort"),
+  portfolioMetrics: document.querySelector("#portfolioMetrics"),
+  sectorForm: document.querySelector("#sectorForm"),
+  sectorTicker: document.querySelector("#sectorTicker"),
+  sectorName: document.querySelector("#sectorName"),
+  sectorTable: document.querySelector("#sectorTable"),
   performanceTickerFilter: document.querySelector("#performanceTickerFilter"),
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
   performanceSort: document.querySelector("#performanceSort"),
@@ -670,6 +676,78 @@ const translations = {
     openPositionStrategyPlaceholder: "Chiến lược",
   },
 };
+
+Object.assign(translations.en, {
+  allSectors: "All sectors",
+  sector: "Sector",
+  sectorExposure: "Sector exposure",
+  sectorConcentrationAlert: "Sector concentration",
+  sectorUnknown: "Unclassified",
+  noSectorMappings: "No sector mappings yet",
+  sectorSaveError: "Could not save sector",
+  sectorDeleteError: "Could not delete sector",
+  sectorTickerPlaceholder: "Ticker",
+  sectorNamePlaceholder: "Sector",
+  addSector: "Save sector",
+  sectorMappingTitle: "Ticker sectors",
+  sectorMappingEyebrow: "Sectors",
+  portfolioMetricsEyebrow: "Risk-adjusted",
+  portfolioMetricsTitle: "Portfolio metrics",
+  noClosedTradeMetrics: "Metrics appear after the first closed trade",
+  metricTotalReturn: "Total return",
+  metricMaxDrawdown: "Max drawdown",
+  metricProfitFactor: "Profit factor",
+  metricWinRate: "Win rate",
+  metricExpectancy: "Expectancy / trade",
+  metricSharpe: "Sharpe (per trade)",
+  metricSortino: "Sortino (per trade)",
+  metricClosedTradesCount: "Closed trades",
+  lastSignal: "Last signal",
+  noSignalsYet: "No signals yet",
+  signalStale: "No recent signals",
+  signalStaleAlert: "Webhook may be down",
+  signalStaleDetail: "No signal during market hours",
+  justNow: "just now",
+  minutesAgo: "min ago",
+  hoursAgo: "h ago",
+  daysAgo: "days ago",
+});
+
+Object.assign(translations.vi, {
+  allSectors: "Tất cả ngành",
+  sector: "Ngành",
+  sectorExposure: "Phơi nhiễm ngành",
+  sectorConcentrationAlert: "Tập trung ngành",
+  sectorUnknown: "Chưa phân loại",
+  noSectorMappings: "Chưa có ánh xạ ngành",
+  sectorSaveError: "Không thể lưu ngành",
+  sectorDeleteError: "Không thể xóa ngành",
+  sectorTickerPlaceholder: "Mã",
+  sectorNamePlaceholder: "Ngành",
+  addSector: "Lưu ngành",
+  sectorMappingTitle: "Ngành của mã",
+  sectorMappingEyebrow: "Ngành",
+  portfolioMetricsEyebrow: "Điều chỉnh rủi ro",
+  portfolioMetricsTitle: "Chỉ số danh mục",
+  noClosedTradeMetrics: "Chỉ số hiện sau giao dịch đóng đầu tiên",
+  metricTotalReturn: "Tổng lợi nhuận",
+  metricMaxDrawdown: "Sụt giảm tối đa",
+  metricProfitFactor: "Hệ số lợi nhuận",
+  metricWinRate: "Tỷ lệ thắng",
+  metricExpectancy: "Kỳ vọng / lệnh",
+  metricSharpe: "Sharpe (mỗi lệnh)",
+  metricSortino: "Sortino (mỗi lệnh)",
+  metricClosedTradesCount: "Số lệnh đóng",
+  lastSignal: "Tín hiệu gần nhất",
+  noSignalsYet: "Chưa có tín hiệu",
+  signalStale: "Lâu chưa có tín hiệu",
+  signalStaleAlert: "Webhook có thể đã hỏng",
+  signalStaleDetail: "Không có tín hiệu trong giờ giao dịch",
+  justNow: "vừa xong",
+  minutesAgo: "phút trước",
+  hoursAgo: "giờ trước",
+  daysAgo: "ngày trước",
+});
 
 Object.assign(translations.vi, {
   webhookLabel: "Bảng tín hiệu",
@@ -1352,6 +1430,10 @@ const state = {
   summary: {},
   lastRefreshAt: null,
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
+  performanceMetrics: null,
+  sectorMap: {},
+  sectorNames: [],
+  signalMonitor: null,
 };
 
 const priceChartState = {
@@ -3103,6 +3185,7 @@ async function refresh() {
     featureFetch(["positions", "performance", "kelly", "dcaSizing"], "/api/kelly-entries", { kelly_entries: state.kellyEntries }),
     featureFetch("dcaSizing", "/api/dca-plans", { dca_plans: state.dcaPlans }),
     featureFetch("dcaSizing", "/api/dca-settings", { dca_settings: state.dcaSettings }),
+    fetchJson("/api/sectors"),
   ]);
 
   const settingsPayload = settledPayload(
@@ -3168,7 +3251,19 @@ async function refresh() {
     { dca_settings: state.dcaSettings },
     "DCA settings"
   );
+  const sectorPayload = settledPayload(
+    results[13],
+    { sectors: [], sector_names: [] },
+    "sectors"
+  );
 
+  state.sectorMap = Object.fromEntries(
+    (sectorPayload.sectors || []).map((row) => [row.ticker, row.sector])
+  );
+  state.sectorNames = sectorPayload.sector_names || [];
+  renderSectorMappings();
+  state.signalMonitor = settingsPayload.signal_monitor || null;
+  state.performanceMetrics = performancePayload.metrics || positionPayload.metrics || null;
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.summary = summary;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
@@ -3189,6 +3284,7 @@ async function refresh() {
   applyDcaSettingsToForm();
   state.openTrades = positionPayload.open_trades || [];
   updateOpenPositionStrategyFilterOptions(filterTradesForWatchlist(state.openTrades));
+  updateOpenPositionSectorFilterOptions(filterTradesForWatchlist(state.openTrades));
   state.performanceStrategies = positionPayload.strategies || [];
   updatePerformanceStrategyFilterOptions([...state.performanceStrategies, ...state.backtestStats]);
   updateDcaSizingStrategyOptions([...state.performanceStrategies, ...state.backtestStats, ...state.kellyEntries]);
@@ -3211,6 +3307,7 @@ async function refresh() {
   ];
   renderInvalidSignals(state.invalidSignals);
   renderPerformance(sortPerformance(performancePayload.strategies || []));
+  renderPortfolioMetrics();
   renderPerformanceClosedTrades(performancePayload.closed_trades || []);
   renderBacktestStats(filterBacktestStats(state.backtestStats));
   renderDcaSizing();
@@ -3229,7 +3326,7 @@ async function refresh() {
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
   state.lastRefreshAt = new Date();
-  els.syncStatus.textContent = t("syncedJustNow");
+  renderSignalMonitor();
 
   const firstTicker = state.selectedTicker || state.signals[0]?.ticker || "";
   if (firstTicker) {
@@ -3910,6 +4007,138 @@ function updateOpenPositionStrategyFilterOptions(openTrades) {
   els.openPositionStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
 
+function sectorFor(ticker) {
+  return state.sectorMap[String(ticker || "").trim().toUpperCase()] || "";
+}
+
+function updateOpenPositionSectorFilterOptions(openTrades) {
+  if (!els.openPositionSectorFilter) return;
+  const currentValue = els.openPositionSectorFilter.value;
+  const sectors = [
+    ...new Set((openTrades || []).map((trade) => sectorFor(trade.ticker)).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right));
+
+  els.openPositionSectorFilter.replaceChildren();
+  els.openPositionSectorFilter.append(new Option(t("allSectors"), ""));
+  sectors.forEach((sector) => {
+    els.openPositionSectorFilter.append(new Option(sector, sector));
+  });
+  els.openPositionSectorFilter.value = sectors.includes(currentValue) ? currentValue : "";
+}
+
+function formatRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toFixed(2);
+}
+
+function renderPortfolioMetrics() {
+  if (!els.portfolioMetrics) return;
+  const metrics = state.performanceMetrics;
+  if (!metrics || !metrics.closed_trades) {
+    els.portfolioMetrics.innerHTML = `<div class="empty">${escapeHtml(t("noClosedTradeMetrics"))}</div>`;
+    return;
+  }
+  const items = [
+    { label: t("metricTotalReturn"), value: formatSignedPercent(metrics.total_return_pct), signed: true, raw: metrics.total_return_pct },
+    { label: t("metricMaxDrawdown"), value: formatSignedPercent(metrics.max_drawdown_pct), signed: true, raw: metrics.max_drawdown_pct },
+    { label: t("metricProfitFactor"), value: formatRatio(metrics.profit_factor) },
+    { label: t("metricWinRate"), value: metrics.win_rate_pct == null ? "-" : formatPercent(metrics.win_rate_pct) },
+    { label: t("metricExpectancy"), value: formatSignedPercent(metrics.expectancy_pct), signed: true, raw: metrics.expectancy_pct },
+    { label: t("metricSharpe"), value: formatRatio(metrics.sharpe) },
+    { label: t("metricSortino"), value: formatRatio(metrics.sortino) },
+    { label: t("metricClosedTradesCount"), value: String(metrics.closed_trades) },
+  ];
+  els.portfolioMetrics.innerHTML = items
+    .map((item) => `
+      <article>
+        <span>${escapeHtml(item.label)}</span>
+        <strong>${item.signed ? item.value : escapeHtml(item.value)}</strong>
+      </article>
+    `)
+    .join("");
+}
+
+function formatRelativeMinutes(minutes) {
+  const value = Number(minutes);
+  if (!Number.isFinite(value)) return "-";
+  if (value < 1) return t("justNow");
+  if (value < 60) return `${Math.round(value)} ${t("minutesAgo")}`;
+  const hours = value / 60;
+  if (hours < 24) return `${hours.toFixed(1)} ${t("hoursAgo")}`;
+  return `${Math.floor(hours / 24)} ${t("daysAgo")}`;
+}
+
+function renderSignalMonitor() {
+  if (!els.syncStatus) return;
+  const monitor = state.signalMonitor;
+  els.syncStatus.classList.remove("isStale");
+  if (!monitor) {
+    els.syncStatus.textContent = t("syncedJustNow");
+    return;
+  }
+  if (monitor.stale) {
+    els.syncStatus.classList.add("isStale");
+    els.syncStatus.textContent = t("signalStale");
+    return;
+  }
+  if (monitor.last_signal_at) {
+    els.syncStatus.textContent = `${t("lastSignal")}: ${formatRelativeMinutes(monitor.minutes_since)}`;
+    return;
+  }
+  els.syncStatus.textContent = t("noSignalsYet");
+}
+
+function renderSectorMappings() {
+  if (!els.sectorTable) return;
+  const entries = Object.entries(state.sectorMap).sort(
+    (left, right) => left[1].localeCompare(right[1]) || left[0].localeCompare(right[0])
+  );
+  if (!entries.length) {
+    els.sectorTable.innerHTML = `<tr><td class="empty" colspan="3">${escapeHtml(t("noSectorMappings"))}</td></tr>`;
+    return;
+  }
+  els.sectorTable.innerHTML = entries
+    .map(([ticker, sector]) => `
+      <tr>
+        <td><strong>${escapeHtml(ticker)}</strong></td>
+        <td>${escapeHtml(sector)}</td>
+        <td><button class="deleteButton" type="button" data-sector-delete="${escapeHtml(ticker)}">${escapeHtml(t("delete"))}</button></td>
+      </tr>
+    `)
+    .join("");
+  els.sectorTable.querySelectorAll("[data-sector-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteSectorMapping(button.dataset.sectorDelete));
+  });
+}
+
+async function submitSectorMapping(event) {
+  event.preventDefault();
+  const ticker = els.sectorTicker.value.trim().toUpperCase();
+  const sector = els.sectorName.value.trim();
+  if (!ticker || !sector) return;
+  const response = await fetch("/api/sectors", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticker, sector }),
+  });
+  if (!response.ok) {
+    window.alert((await response.json().catch(() => ({}))).detail || t("sectorSaveError"));
+    return;
+  }
+  els.sectorForm.reset();
+  await refresh();
+}
+
+async function deleteSectorMapping(ticker) {
+  const response = await fetch(`/api/sectors/${encodeURIComponent(ticker)}`, { method: "DELETE" });
+  if (!response.ok) {
+    window.alert((await response.json().catch(() => ({}))).detail || t("sectorDeleteError"));
+    return;
+  }
+  await refresh();
+}
+
 function updatePerformanceStrategyFilterOptions(strategyRows) {
   const currentValue = els.performanceStrategyFilter.value;
   const strategies = uniqueStrategyNames(strategyRows);
@@ -4259,6 +4488,7 @@ function renderRiskOverview() {
   }, 0);
   const tickerExposure = aggregateRisk(rows, (trade) => trade.ticker);
   const strategyExposure = aggregateRisk(rows, (trade) => trade.strategy);
+  const sectorExposure = aggregateRisk(rows, (trade) => sectorFor(trade.ticker) || t("sectorUnknown"));
   const topTicker = tickerExposure[0];
   const stressMinus5 = weightedPl - (totalExposure * 5) / 100;
 
@@ -4278,11 +4508,35 @@ function renderRiskOverview() {
         </button>
       `;
     }).join("")}
+    <div class="riskBreakdownTitle">${escapeHtml(t("sectorExposure"))}</div>
+    ${sectorExposure.slice(0, 5).map((item) => {
+      const width = Math.min(100, Math.max(4, item.value));
+      return `
+        <button class="riskBreakdownRow" type="button" data-risk-sector="${escapeHtml(item.key)}">
+          <span>${escapeHtml(item.key)}</span>
+          <strong>${formatPercent(item.value)}</strong>
+          <i style="width:${width}%"></i>
+        </button>
+      `;
+    }).join("")}
   `;
   els.riskStrategyBreakdown.querySelectorAll("[data-risk-strategy]").forEach((button) => {
     button.addEventListener("click", () => {
       setActiveTab("positions");
       els.openPositionStrategyFilter.value = button.dataset.riskStrategy;
+      renderOpenPositions();
+    });
+  });
+  els.riskStrategyBreakdown.querySelectorAll("[data-risk-sector]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("positions");
+      if (els.openPositionSectorFilter) {
+        const sector = button.dataset.riskSector;
+        if (![...els.openPositionSectorFilter.options].some((option) => option.value === sector)) {
+          els.openPositionSectorFilter.append(new Option(sector, sector));
+        }
+        els.openPositionSectorFilter.value = sector;
+      }
       renderOpenPositions();
     });
   });
@@ -4293,8 +4547,16 @@ function renderRiskAlerts() {
   const totalExposure = rows.reduce((sum, row) => sum + (Number(row.weightPct) || 0), 0);
   const tickerExposure = aggregateRisk(rows, (trade) => trade.ticker);
   const strategyExposure = aggregateRisk(rows, (trade) => trade.strategy);
+  const sectorExposure = aggregateRisk(rows, (trade) => sectorFor(trade.ticker) || t("sectorUnknown"));
   const alerts = [];
 
+  if (state.signalMonitor?.stale) {
+    alerts.push({
+      level: "danger",
+      title: t("signalStaleAlert"),
+      detail: t("signalStaleDetail"),
+    });
+  }
   if (totalExposure > 100) {
     alerts.push({
       level: "danger",
@@ -4315,6 +4577,13 @@ function renderRiskAlerts() {
       level: "warning",
       title: t("strategyConcentrationAlert"),
       detail: `${displayStrategyName(strategyExposure[0].key)} ${formatPercent(strategyExposure[0].value)}`,
+    });
+  }
+  if (sectorExposure[0] && sectorExposure[0].key !== t("sectorUnknown") && sectorExposure[0].value >= 40) {
+    alerts.push({
+      level: "warning",
+      title: t("sectorConcentrationAlert"),
+      detail: `${sectorExposure[0].key} ${formatPercent(sectorExposure[0].value)}`,
     });
   }
   (state.dividendAlerts || [])
@@ -4429,6 +4698,7 @@ function filterOpenPositions(openTrades) {
   const tickerFilter = els.openPositionTickerFilter.value.trim().toUpperCase();
   const strategyFilter = els.openPositionStrategyFilter.value.trim();
   const confirmFilter = els.openPositionConfirmFilter.value;
+  const sectorFilter = els.openPositionSectorFilter ? els.openPositionSectorFilter.value.trim() : "";
   return filterTradesForWatchlist(openTrades).filter((trade) => {
     const ticker = String(trade.ticker || "").toUpperCase();
     const tickerMatches = !tickerFilter || ticker.includes(tickerFilter);
@@ -4438,7 +4708,8 @@ function filterOpenPositions(openTrades) {
       confirmFilter === "all" ||
       (confirmFilter === "confirmed" && trade.has_confirm_buy) ||
       (confirmFilter === "unconfirmed" && !trade.has_confirm_buy);
-    return tickerMatches && strategyMatches && confirmMatches;
+    const sectorMatches = !sectorFilter || sectorFor(trade.ticker) === sectorFilter;
+    return tickerMatches && strategyMatches && confirmMatches && sectorMatches;
   });
 }
 
@@ -4604,7 +4875,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="13">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="14">${t("noOpenPositions")}</td></tr>`;
     els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
@@ -4621,6 +4892,7 @@ function renderOpenPositions() {
       <tr data-position-key="${escapeHtml(positionKey)}">
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
+        <td>${escapeHtml(sectorFor(trade.ticker) || "-")}</td>
         <td>${escapeHtml(trade.timeframe || "-")}</td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
@@ -6044,6 +6316,9 @@ els.addTickerToWatchlist.addEventListener("click", addSelectedTickerToWatchlist)
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
 els.openPositionStrategyFilter.addEventListener("change", renderOpenPositions);
 els.openPositionConfirmFilter.addEventListener("change", renderOpenPositions);
+if (els.openPositionSectorFilter) {
+  els.openPositionSectorFilter.addEventListener("change", renderOpenPositions);
+}
 els.openPositionSort.addEventListener("change", renderOpenPositions);
 els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);
 els.positionInsightClose.addEventListener("click", closePositionInsight);
@@ -6144,6 +6419,9 @@ els.manualRefreshPrices.addEventListener("click", refreshManualMarketPrices);
 els.manualRecordDailyPerformance.addEventListener("click", recordManualDailyPerformance);
 els.dividendEventForm.addEventListener("submit", addDividendEvent);
 els.derivativeCapitalForm.addEventListener("submit", saveDerivativeCapital);
+if (els.sectorForm) {
+  els.sectorForm.addEventListener("submit", submitSectorMapping);
+}
 window.addEventListener("resize", () => {
   resizePriceChart();
   if (state.activeTab === "manualPortfolio") {
