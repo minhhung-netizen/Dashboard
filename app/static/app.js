@@ -691,7 +691,7 @@ Object.assign(translations.en, {
   addSector: "Save sector",
   sectorMappingTitle: "Ticker sectors",
   sectorMappingEyebrow: "Sectors",
-  portfolioMetricsEyebrow: "Risk-adjusted",
+  portfolioMetricsEyebrow: "By allocated weight",
   portfolioMetricsTitle: "Portfolio metrics",
   noClosedTradeMetrics: "Metrics appear after the first closed trade",
   metricTotalReturn: "Total return",
@@ -727,7 +727,7 @@ Object.assign(translations.vi, {
   addSector: "Lưu ngành",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
-  portfolioMetricsEyebrow: "Điều chỉnh rủi ro",
+  portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
   portfolioMetricsTitle: "Chỉ số danh mục",
   noClosedTradeMetrics: "Chỉ số hiện sau giao dịch đóng đầu tiên",
   metricTotalReturn: "Tổng lợi nhuận",
@@ -1430,7 +1430,7 @@ const state = {
   summary: {},
   lastRefreshAt: null,
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
-  performanceMetrics: null,
+  performanceClosedTrades: [],
   sectorMap: {},
   sectorNames: [],
   signalMonitor: null,
@@ -3263,7 +3263,7 @@ async function refresh() {
   state.sectorNames = sectorPayload.sector_names || [];
   renderSectorMappings();
   state.signalMonitor = settingsPayload.signal_monitor || null;
-  state.performanceMetrics = performancePayload.metrics || positionPayload.metrics || null;
+  state.performanceClosedTrades = performancePayload.closed_trades || [];
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.summary = summary;
   state.signals = filterSignalsForWatchlist(signalsPayload.signals || []);
@@ -4032,9 +4032,68 @@ function formatRatio(value) {
   return number.toFixed(2);
 }
 
+function computeAllocatedPortfolioMetrics(closedTrades) {
+  const trades = (closedTrades || [])
+    .map((trade) => {
+      const weightPct = kellyAllocationPct(trade.ticker, trade.strategy);
+      const allocated = allocatedReturnPct(trade.return_pct, weightPct);
+      return Number.isFinite(Number(allocated))
+        ? { allocated: Number(allocated), exitTime: String(trade.exit_time || "") }
+        : null;
+    })
+    .filter(Boolean);
+  const count = trades.length;
+  if (!count) {
+    return {
+      closed_trades: 0,
+      total_return_pct: null,
+      max_drawdown_pct: null,
+      profit_factor: null,
+      win_rate_pct: null,
+      expectancy_pct: null,
+      sharpe: null,
+      sortino: null,
+    };
+  }
+
+  const ordered = [...trades].sort((left, right) => left.exitTime.localeCompare(right.exitTime));
+  let equity = 100;
+  let peak = 100;
+  let maxDrawdown = 0;
+  ordered.forEach(({ allocated }) => {
+    equity *= 1 + allocated / 100;
+    peak = Math.max(peak, equity);
+    if (peak > 0) maxDrawdown = Math.min(maxDrawdown, ((equity - peak) / peak) * 100);
+  });
+
+  const returns = trades.map((trade) => trade.allocated);
+  const wins = returns.filter((value) => value > 0);
+  const losses = returns.filter((value) => value < 0);
+  const gainSum = wins.reduce((sum, value) => sum + value, 0);
+  const lossSum = Math.abs(losses.reduce((sum, value) => sum + value, 0));
+  const mean = returns.reduce((sum, value) => sum + value, 0) / count;
+  const variance = returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / count;
+  const std = Math.sqrt(variance);
+  const downsideVar = losses.length
+    ? losses.reduce((sum, value) => sum + value * value, 0) / count
+    : 0;
+  const downsideStd = Math.sqrt(downsideVar);
+
+  return {
+    closed_trades: count,
+    total_return_pct: (equity / 100 - 1) * 100,
+    max_drawdown_pct: maxDrawdown,
+    profit_factor: lossSum > 0 ? gainSum / lossSum : null,
+    win_rate_pct: (wins.length / count) * 100,
+    expectancy_pct: mean,
+    sharpe: std > 0 ? mean / std : null,
+    sortino: downsideStd > 0 ? mean / downsideStd : null,
+  };
+}
+
 function renderPortfolioMetrics() {
   if (!els.portfolioMetrics) return;
-  const metrics = state.performanceMetrics;
+  const metrics = computeAllocatedPortfolioMetrics(state.performanceClosedTrades);
   if (!metrics || !metrics.closed_trades) {
     els.portfolioMetrics.innerHTML = `<div class="empty">${escapeHtml(t("noClosedTradeMetrics"))}</div>`;
     return;
