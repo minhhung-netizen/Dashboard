@@ -1,0 +1,17 @@
+# Keep the build context small and the image clean.
+.git
+.gitignore
+.venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+data/
+uvicorn.*.log
+*.log
+tests/
+pinescript/
+README.md
+.python-version
