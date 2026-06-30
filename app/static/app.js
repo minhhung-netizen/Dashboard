@@ -4211,7 +4211,9 @@ async function refreshSectorsFromListing() {
       return;
     }
     if (els.sectorRefreshStatus) {
-      els.sectorRefreshStatus.textContent = `${t("sectorRefreshDone")}: +${data.added ?? 0} / ${data.fetched ?? 0}`;
+      const added = data.added ?? 0;
+      const updated = data.updated ?? 0;
+      els.sectorRefreshStatus.textContent = `${t("sectorRefreshDone")}: +${added} · ~${updated} / ${data.fetched ?? 0}`;
     }
     await refresh();
   } catch (error) {

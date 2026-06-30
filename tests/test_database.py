@@ -623,18 +623,22 @@ class SignalStoreTest(unittest.TestCase):
             self.assertNotIn("ABC", store.sector_map())
             self.assertFalse(store.delete_sector_mapping("ABC"))
 
-    def test_fill_missing_sector_mappings_is_additive(self):
+    def test_apply_auto_sector_mappings_protects_manual_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SignalStore(Path(tmp) / "signals.db")
-            store.upsert_sector_mapping(ticker="VCB", sector="Manual choice")
+            # Seeded rows are source='seed' and should be overwritable.
+            self.assertEqual(store.sector_map()["VCB"], "Ngân hàng")
+            store.upsert_sector_mapping(ticker="FPT", sector="Manual choice")
 
-            added = store.fill_missing_sector_mappings(
-                {"VCB": "Should not overwrite", "ZZZ": "Mới", "": "skip"}
+            result = store.apply_auto_sector_mappings(
+                {"VCB": "Ngân hàng ICB", "FPT": "Should not overwrite", "ZZZ": "Mới", "": "skip"}
             )
-            self.assertEqual(added, 1)
-            self.assertEqual(store.sector_map()["VCB"], "Manual choice")
+            self.assertEqual(result["added"], 1)  # ZZZ is new
+            self.assertEqual(result["updated"], 1)  # VCB seed overwritten
+            self.assertEqual(store.sector_map()["VCB"], "Ngân hàng ICB")
+            self.assertEqual(store.sector_map()["FPT"], "Manual choice")  # protected
             self.assertEqual(store.sector_map()["ZZZ"], "Mới")
-            self.assertEqual(store.fill_missing_sector_mappings({}), 0)
+            self.assertEqual(store.apply_auto_sector_mappings({}), {"added": 0, "updated": 0})
 
     def test_latest_signal_received_at(self):
         with tempfile.TemporaryDirectory() as tmp:

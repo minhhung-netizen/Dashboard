@@ -910,17 +910,21 @@ def _json_ready(row: dict[str, Any]) -> dict[str, Any]:
 
 _SYMBOL_COLUMN_CANDIDATES = ("symbol", "ticker", "Symbol", "Ticker", "code", "stock_symbol")
 _INDUSTRY_COLUMN_CANDIDATES = (
+    "industry_name",
     "icb_name2",
     "icb_name3",
     "icb_name4",
     "icb_name1",
+    "icb_name",
     "industry",
-    "industry_name",
     "industryName",
     "sector",
+    "en_icb_name",
     "en_icb_name2",
-    "en_icb_name3",
 )
+# vnstock returns one row per ICB level (1-4). Level 2 is the readable sector
+# tier ("Bất động sản", "Tài nguyên Cơ bản"); prefer it, then the nearest level.
+_ICB_LEVEL_PREFERENCE = (2, 3, 1, 4)
 
 
 def fetch_industry_map() -> dict[str, str]:
@@ -976,16 +980,29 @@ def _industry_map_from_records(records: list[dict[str, Any]]) -> dict[str, str]:
     if not records:
         return {}
     columns: set[str] = set()
-    for row in records[:50]:
+    for row in records[:100]:
         if isinstance(row, dict):
             columns.update(row.keys())
     symbol_col = _first_present(columns, _SYMBOL_COLUMN_CANDIDATES)
     industry_col = _first_present(columns, _INDUSTRY_COLUMN_CANDIDATES)
     if not symbol_col or not industry_col:
         return {}
+
+    # Some listing schemas emit one row per ICB level; keep a single level so
+    # each symbol maps to one readable sector instead of the deepest leaf.
+    level_col = "icb_level" if "icb_level" in columns else None
+    target_level = None
+    if level_col:
+        levels = {row.get(level_col) for row in records if isinstance(row, dict)}
+        target_level = next(
+            (level for level in _ICB_LEVEL_PREFERENCE if level in levels), None
+        )
+
     mapping: dict[str, str] = {}
     for row in records:
         if not isinstance(row, dict):
+            continue
+        if target_level is not None and row.get(level_col) != target_level:
             continue
         symbol = str(row.get(symbol_col) or "").strip().upper()
         industry = str(row.get(industry_col) or "").strip()

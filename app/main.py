@@ -1554,15 +1554,16 @@ def populate_sectors_from_listing() -> dict[str, Any]:
     when vnstock is unavailable, leaving the built-in seed in place.
     """
     mapping = fetch_industry_map()
-    added = store.fill_missing_sector_mappings(mapping) if mapping else 0
+    result = store.apply_auto_sector_mappings(mapping) if mapping else {"added": 0, "updated": 0}
     store.set_app_setting("sectors_refreshed_at", utc_now_iso())
     store.set_app_setting("sectors_source_count", str(len(mapping)))
     logger.info(
-        "Sector auto-fill: %s symbols from vnstock listing, %s newly mapped",
+        "Sector auto-fill: %s symbols from vnstock listing, %s added, %s updated",
         len(mapping),
-        added,
+        result["added"],
+        result["updated"],
     )
-    return {"fetched": len(mapping), "added": added}
+    return {"fetched": len(mapping), **result}
 
 
 async def sector_autofill_loop() -> None:

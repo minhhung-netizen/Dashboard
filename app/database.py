@@ -223,6 +223,7 @@ CREATE TABLE IF NOT EXISTS dca_user_settings (
 CREATE TABLE IF NOT EXISTS sector_mappings (
     ticker TEXT PRIMARY KEY,
     sector TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'auto',
     updated_at TEXT NOT NULL
 );
 
@@ -328,6 +329,7 @@ class SignalStore:
             self._ensure_dividend_event_columns(conn)
             self._ensure_strategy_backtest_stat_columns(conn)
             self._ensure_user_columns(conn)
+            self._ensure_sector_mapping_columns(conn)
             self._seed_sector_mappings(conn)
             conn.execute(
                 """
@@ -397,13 +399,25 @@ class SignalStore:
         if "strategies_json" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN strategies_json TEXT NOT NULL DEFAULT '[]'")
 
+    def _ensure_sector_mapping_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(sector_mappings)").fetchall()
+        }
+        if "source" not in columns:
+            # Existing rows predate the source column; treat them as 'auto' so a
+            # vnstock refresh can replace their labels with consistent ICB names.
+            conn.execute(
+                "ALTER TABLE sector_mappings ADD COLUMN source TEXT NOT NULL DEFAULT 'auto'"
+            )
+
     def _seed_sector_mappings(self, conn: sqlite3.Connection) -> None:
         existing = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()
         if existing and existing["total"]:
             return
         now = utc_now_iso()
         conn.executemany(
-            "INSERT OR IGNORE INTO sector_mappings (ticker, sector, updated_at) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO sector_mappings (ticker, sector, source, updated_at) VALUES (?, ?, 'seed', ?)",
             [(ticker, sector, now) for ticker, sector in DEFAULT_SECTOR_MAP.items()],
         )
 
@@ -1327,7 +1341,7 @@ class SignalStore:
     def list_sector_mappings(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT ticker, sector, updated_at FROM sector_mappings ORDER BY sector ASC, ticker ASC"
+                "SELECT ticker, sector, source, updated_at FROM sector_mappings ORDER BY sector ASC, ticker ASC"
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -1343,16 +1357,17 @@ class SignalStore:
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO sector_mappings (ticker, sector, updated_at)
-                VALUES (?, ?, ?)
+                INSERT INTO sector_mappings (ticker, sector, source, updated_at)
+                VALUES (?, ?, 'manual', ?)
                 ON CONFLICT(ticker) DO UPDATE SET
                     sector = excluded.sector,
+                    source = 'manual',
                     updated_at = excluded.updated_at
                 """,
                 (normalized_ticker, normalized_sector, now),
             )
             row = conn.execute(
-                "SELECT ticker, sector, updated_at FROM sector_mappings WHERE ticker = ?",
+                "SELECT ticker, sector, source, updated_at FROM sector_mappings WHERE ticker = ?",
                 (normalized_ticker,),
             ).fetchone()
         return dict(row)
@@ -1365,29 +1380,47 @@ class SignalStore:
             )
             return cursor.rowcount > 0
 
-    def fill_missing_sector_mappings(self, mapping: dict[str, str]) -> int:
-        """Insert sectors only for tickers not already mapped.
+    def apply_auto_sector_mappings(self, mapping: dict[str, str]) -> dict[str, int]:
+        """Apply an automatic ticker->sector map from a data provider.
 
-        Existing rows (seeded or admin-edited) are never overwritten, so an
-        automatic refresh can only add coverage, never clobber a manual choice.
-        Returns the number of newly inserted tickers.
+        Overwrites seeded and previously auto-filled rows so labels stay
+        consistent, but never touches rows an admin set manually. Returns the
+        number of newly added and updated tickers.
         """
         rows = []
         for ticker, sector in (mapping or {}).items():
             normalized_ticker = str(ticker or "").strip().upper()
             normalized_sector = str(sector or "").strip()
             if normalized_ticker and normalized_sector:
-                rows.append((normalized_ticker, normalized_sector, utc_now_iso()))
+                rows.append((normalized_ticker, normalized_sector))
         if not rows:
-            return 0
+            return {"added": 0, "updated": 0}
+        now = utc_now_iso()
         with self.connect() as conn:
+            manual = {
+                row["ticker"]
+                for row in conn.execute(
+                    "SELECT ticker FROM sector_mappings WHERE source = 'manual'"
+                ).fetchall()
+            }
             before = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()["total"]
+            to_apply = [
+                (ticker, sector, now) for ticker, sector in rows if ticker not in manual
+            ]
             conn.executemany(
-                "INSERT OR IGNORE INTO sector_mappings (ticker, sector, updated_at) VALUES (?, ?, ?)",
-                rows,
+                """
+                INSERT INTO sector_mappings (ticker, sector, source, updated_at)
+                VALUES (?, ?, 'auto', ?)
+                ON CONFLICT(ticker) DO UPDATE SET
+                    sector = excluded.sector,
+                    source = 'auto',
+                    updated_at = excluded.updated_at
+                """,
+                to_apply,
             )
             after = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()["total"]
-        return after - before
+        added = after - before
+        return {"added": added, "updated": len(to_apply) - added}
 
     def latest_signal_received_at(self) -> str | None:
         with self.connect() as conn:
