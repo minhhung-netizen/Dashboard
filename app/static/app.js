@@ -69,6 +69,8 @@ const els = {
   sectorTable: document.querySelector("#sectorTable"),
   refreshSectorsButton: document.querySelector("#refreshSectorsButton"),
   sectorRefreshStatus: document.querySelector("#sectorRefreshStatus"),
+  refreshDividendsButton: document.querySelector("#refreshDividendsButton"),
+  dividendRefreshStatus: document.querySelector("#dividendRefreshStatus"),
   performanceTickerFilter: document.querySelector("#performanceTickerFilter"),
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
   performanceSort: document.querySelector("#performanceSort"),
@@ -695,6 +697,10 @@ Object.assign(translations.en, {
   sectorRefreshing: "Fetching sectors…",
   sectorRefreshDone: "Updated",
   sectorRefreshError: "Could not fetch sectors",
+  refreshDividends: "Auto-fetch dividends",
+  dividendRefreshing: "Fetching dividends…",
+  dividendRefreshDone: "Saved",
+  dividendRefreshError: "Could not fetch dividends",
   sectorMappingTitle: "Ticker sectors",
   sectorMappingEyebrow: "Sectors",
   portfolioMetricsEyebrow: "By allocated weight",
@@ -735,6 +741,10 @@ Object.assign(translations.vi, {
   sectorRefreshing: "Đang lấy ngành…",
   sectorRefreshDone: "Đã cập nhật",
   sectorRefreshError: "Không lấy được dữ liệu ngành",
+  refreshDividends: "Tự động lấy cổ tức",
+  dividendRefreshing: "Đang lấy cổ tức…",
+  dividendRefreshDone: "Đã lưu",
+  dividendRefreshError: "Không lấy được dữ liệu cổ tức",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -4224,6 +4234,29 @@ async function refreshSectorsFromListing() {
   }
 }
 
+async function refreshDividendsFromVnstock() {
+  if (!els.refreshDividendsButton) return;
+  els.refreshDividendsButton.disabled = true;
+  if (els.dividendRefreshStatus) els.dividendRefreshStatus.textContent = t("dividendRefreshing");
+  try {
+    const response = await fetch("/api/dividend-events/refresh", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.detail || t("dividendRefreshError"));
+      return;
+    }
+    if (els.dividendRefreshStatus) {
+      els.dividendRefreshStatus.textContent = `${t("dividendRefreshDone")}: ${data.upserted ?? 0} / ${data.tickers ?? 0}`;
+    }
+    await refresh();
+  } catch (error) {
+    console.error("Dividend refresh failed", error);
+    window.alert(t("dividendRefreshError"));
+  } finally {
+    els.refreshDividendsButton.disabled = false;
+  }
+}
+
 async function deleteSectorMapping(ticker) {
   const response = await fetch(`/api/sectors/${encodeURIComponent(ticker)}`, { method: "DELETE" });
   if (!response.ok) {
@@ -6518,6 +6551,9 @@ if (els.sectorForm) {
 }
 if (els.refreshSectorsButton) {
   els.refreshSectorsButton.addEventListener("click", refreshSectorsFromListing);
+}
+if (els.refreshDividendsButton) {
+  els.refreshDividendsButton.addEventListener("click", refreshDividendsFromVnstock);
 }
 window.addEventListener("resize", () => {
   resizePriceChart();

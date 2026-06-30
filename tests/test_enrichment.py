@@ -10,7 +10,9 @@ from app.services.enrichment import (
     _normalize_dnse_stock_history,
     _fireant_dividend_events,
     _normalize_fireant_history,
+    _vnstock_dividend_events,
     coerce_float,
+    fetch_dividend_events,
     fetch_industry_map,
     normalize_action,
     normalize_stock_price,
@@ -310,6 +312,54 @@ class IndustryMapTest(unittest.TestCase):
     def test_fetch_industry_map_is_safe_without_vnstock(self):
         # vnstock is optional; the fetch must degrade to an empty map, never raise.
         self.assertIsInstance(fetch_industry_map(), dict)
+
+
+class VnstockDividendEventsTest(unittest.TestCase):
+    def test_maps_cash_and_stock_dividends_with_unit_alignment(self):
+        records = [
+            {
+                "id": "evt-cash",
+                "category": "DIVIDEND",
+                "event_title_vi": "Trả cổ tức bằng tiền mặt - Cả năm 2025 - 500 VND",
+                "exright_date": "2026-05-15",
+                "value_per_share": 500.0,
+                "exercise_ratio": 0.05,
+            },
+            {
+                "id": "evt-stock",
+                "category": "DIVIDEND",
+                "event_title_vi": "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 15.0%",
+                "exright_date": "2026-06-20",
+                "value_per_share": None,
+                "exercise_ratio": 0.15,
+            },
+            {
+                "id": "evt-other",
+                "category": "MAJOR_SHAREHOLDER_TRADING",
+                "event_title_vi": "Giao dịch nội bộ",
+                "exright_date": "2026-06-21",
+            },
+            {
+                "id": "evt-no-date",
+                "category": "DIVIDEND",
+                "event_title_vi": "Cổ tức chưa có ngày",
+                "exright_date": None,
+            },
+        ]
+        events = _vnstock_dividend_events("VPB", records)
+        self.assertEqual(len(events), 2)
+        cash = events[0]
+        self.assertEqual(cash["ex_date"], "2026-05-15")
+        self.assertAlmostEqual(cash["cash_amount"], 0.5)  # 500 VND -> thousands
+        self.assertIsNone(cash["stock_ratio_pct"])
+        self.assertEqual(cash["source"], "vnstock")
+        self.assertEqual(cash["external_id"], "VPB:evt-cash")
+        stock = events[1]
+        self.assertAlmostEqual(stock["stock_ratio_pct"], 15.0)
+        self.assertIsNone(stock["cash_amount"])
+
+    def test_fetch_dividend_events_is_safe_without_vnstock(self):
+        self.assertIsInstance(fetch_dividend_events("VPB"), list)
 
 
 if __name__ == "__main__":

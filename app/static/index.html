@@ -1072,6 +1072,10 @@
               <p class="eyebrow" data-i18n="dividendCalendar">Dividend Calendar</p>
               <h2 data-i18n="dividendRules">Ex-rights Adjustments</h2>
             </div>
+            <div class="panelActions adminOnly">
+              <span id="dividendRefreshStatus" class="mutedText"></span>
+              <button id="refreshDividendsButton" class="smallButton" type="button" data-i18n="refreshDividends">Auto-fetch dividends</button>
+            </div>
           </div>
           <form id="dividendEventForm" class="manualForm dividendForm" autocomplete="off">
             <input id="dividendTicker" name="dividend-ticker-symbol" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Dividend ticker" placeholder="Ticker" />
@@ -1251,6 +1255,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260630-sector-fix"></script>
+    <script src="/static/app.js?v=20260630-auto-dividends"></script>
   </body>
 </html>

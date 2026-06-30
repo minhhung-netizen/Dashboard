@@ -23,6 +23,7 @@ from app.services.enrichment import (
     MarketDataEnricher,
     VnstockEnricher,
     coerce_float,
+    fetch_dividend_events,
     fetch_industry_map,
     normalize_stock_price,
     normalize_action,
@@ -132,6 +133,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(manual_portfolio_automation_loop()),
         asyncio.create_task(signal_monitor_loop()),
         asyncio.create_task(sector_autofill_loop()),
+        asyncio.create_task(dividend_autofetch_loop()),
     ]
     try:
         yield
@@ -1258,6 +1260,12 @@ def dividend_events(ticker: str | None = None) -> dict[str, Any]:
     }
 
 
+@app.post("/api/dividend-events/refresh")
+async def refresh_dividend_events() -> dict[str, Any]:
+    result = await refresh_dividend_events_for_open_positions()
+    return {"status": "ok", **result}
+
+
 @app.post("/api/dividend-events")
 def create_dividend_event(payload: DividendEventPayload) -> dict[str, Any]:
     ticker, _ = normalize_ticker(payload.ticker)
@@ -1576,6 +1584,47 @@ async def sector_autofill_loop() -> None:
         except BaseException:
             logger.exception("Sector auto-fill failed")
         await asyncio.sleep(24 * 3600)
+
+
+async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
+    """Pull ex-rights (GDKHQ) events from vnstock for every held ticker.
+
+    Additive: events are upserted by source+external_id, so this supplements
+    manual entries and FireAnt marks without creating duplicates.
+    """
+    tickers = sorted(open_position_tickers())
+    collected: list[dict[str, Any]] = []
+    for ticker in tickers:
+        try:
+            events = await asyncio.to_thread(fetch_dividend_events, ticker)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Dividend fetch failed for %s", ticker)
+            continue
+        collected.extend(events)
+        await asyncio.sleep(1)
+    upserted = store.upsert_external_dividend_events(collected) if collected else 0
+    store.set_app_setting("dividends_refreshed_at", utc_now_iso())
+    logger.info(
+        "Dividend auto-fetch: %s tickers checked, %s events, %s upserted",
+        len(tickers),
+        len(collected),
+        upserted,
+    )
+    return {"tickers": len(tickers), "events": len(collected), "upserted": upserted}
+
+
+async def dividend_autofetch_loop() -> None:
+    await asyncio.sleep(8)
+    while True:
+        try:
+            await refresh_dividend_events_for_open_positions()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Dividend auto-fetch failed")
+        await asyncio.sleep(12 * 3600)
 
 
 async def refresh_open_position_prices(*, include_manual: bool = True) -> int:

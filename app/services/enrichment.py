@@ -1016,3 +1016,81 @@ def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None
         if candidate in columns:
             return candidate
     return None
+
+
+def fetch_dividend_events(ticker: str) -> list[dict[str, Any]]:
+    """Best-effort dividend / ex-rights events for one ticker from vnstock.
+
+    Returns [] when vnstock is unavailable, so callers treat this as an
+    additive supplement to manually entered dividend events.
+    """
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return []
+    company = _resolve_vnstock_company(symbol)
+    if company is None:
+        return []
+    events_fn = getattr(company, "events", None)
+    if events_fn is None:
+        return []
+    try:
+        data = events_fn()
+    except BaseException:
+        return []
+    return _vnstock_dividend_events(symbol, _records_from_dataframe_like(data))
+
+
+def _resolve_vnstock_company(ticker: str) -> Any:
+    for module_name in ("vnstock", "vnstock.api.company"):
+        try:
+            module = import_module(module_name)
+        except BaseException:
+            continue
+        company_class = getattr(module, "Company", None)
+        if company_class is None:
+            continue
+        for source in ("VCI", "KBS"):
+            try:
+                return company_class(symbol=ticker, source=source)
+            except BaseException:
+                continue
+    return None
+
+
+def _vnstock_dividend_events(ticker: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("category") or "").strip().upper() != "DIVIDEND":
+            continue
+        # exright_date is the ex-rights / ex-dividend trading date (GDKHQ).
+        ex_date = _iso_date(row.get("exright_date"))
+        if not ex_date:
+            continue
+        title = str(row.get("event_title_vi") or row.get("event_name_vi") or "").strip()
+        folded = _ascii_fold(title)
+        cash = coerce_float(row.get("value_per_share"))
+        ratio = coerce_float(row.get("exercise_ratio"))
+        cash_amount = None
+        stock_ratio_pct = None
+        if "tien mat" in folded and cash and cash > 0:
+            # Prices are stored in thousands of VND; align the cash dividend.
+            cash_amount = cash / 1000
+        elif ("co phieu" in folded or "thuong" in folded) and ratio and 0 < ratio < 5:
+            stock_ratio_pct = ratio * 100
+        event_id = str(row.get("id") or f"{ex_date}:{title}")
+        events.append(
+            {
+                "ticker": ticker,
+                "ex_date": ex_date,
+                "cash_amount": cash_amount,
+                "stock_ratio_pct": stock_ratio_pct,
+                "issue_ratio_pct": None,
+                "issue_price": None,
+                "note": f"VNStock: {title}" if title else "VNStock dividend",
+                "source": "vnstock",
+                "external_id": f"{ticker}:{event_id}",
+            }
+        )
+    return events
