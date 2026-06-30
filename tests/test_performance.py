@@ -2,7 +2,10 @@ import unittest
 from datetime import date
 
 from app.services.performance import build_performance
-from app.services.dividends import upcoming_dividend_events_for_positions
+from app.services.dividends import (
+    relevant_dividend_events_for_positions,
+    upcoming_dividend_events_for_positions,
+)
 
 
 def signal(
@@ -59,6 +62,20 @@ class PerformanceTest(unittest.TestCase):
 
         self.assertEqual(result[0]["days_until"], 0)
         self.assertEqual(result[0]["alert_status"], "ex_date_today")
+
+    def test_relevant_dividend_calendar_requires_open_entry_before_ex_date(self):
+        events = [
+            {"id": 1, "ticker": "FPT", "ex_date": "2026-06-15"},
+            {"id": 2, "ticker": "FPT", "ex_date": "2026-06-10"},
+            {"id": 3, "ticker": "VCB", "ex_date": "2026-06-15"},
+        ]
+
+        result = relevant_dividend_events_for_positions(
+            events,
+            [{"ticker": "FPT", "entry_time": "2026-06-10T09:00:00+07:00"}],
+        )
+
+        self.assertEqual([event["id"] for event in result], [1])
 
     def test_pairs_buy_then_sell_by_strategy(self):
         result = build_performance(

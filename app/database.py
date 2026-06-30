@@ -1742,6 +1742,19 @@ class SignalStore:
             cursor = conn.execute("DELETE FROM dividend_events WHERE id = ?", (event_id,))
             return cursor.rowcount > 0
 
+    def delete_dividend_events_except_ids(self, keep_ids: set[int] | list[int]) -> int:
+        normalized_ids = sorted({int(event_id) for event_id in keep_ids})
+        with self.connect() as conn:
+            if not normalized_ids:
+                cursor = conn.execute("DELETE FROM dividend_events")
+                return cursor.rowcount
+            placeholders = ", ".join("?" for _ in normalized_ids)
+            cursor = conn.execute(
+                f"DELETE FROM dividend_events WHERE id NOT IN ({placeholders})",
+                normalized_ids,
+            )
+            return cursor.rowcount
+
     def delete_dividend_events_for_ticker(self, ticker: str) -> int:
         with self.connect() as conn:
             cursor = conn.execute(

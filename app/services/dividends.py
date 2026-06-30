@@ -36,6 +36,49 @@ def upcoming_dividend_events_for_positions(
     )
 
 
+def relevant_dividend_events_for_positions(
+    events: list[dict[str, Any]] | None,
+    positions: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    eligible_positions = []
+    for position in positions or []:
+        ticker = _normalize_ticker(position.get("ticker"))
+        entry_date = _parse_date(
+            position.get("entry_time")
+            or position.get("entry_date")
+            or position.get("created_at")
+        )
+        if ticker and entry_date is not None:
+            eligible_positions.append({"ticker": ticker, "entry_date": entry_date})
+
+    if not eligible_positions:
+        return []
+
+    relevant: list[dict[str, Any]] = []
+    seen_ids: set[Any] = set()
+    for event in events or []:
+        ticker = _normalize_ticker(event.get("ticker"))
+        ex_date = _parse_date(event.get("ex_date"))
+        if not ticker or ex_date is None:
+            continue
+        if not any(
+            position["ticker"] == ticker and position["entry_date"] < ex_date
+            for position in eligible_positions
+        ):
+            continue
+        event_id = event.get("id")
+        if event_id is not None:
+            if event_id in seen_ids:
+                continue
+            seen_ids.add(event_id)
+        relevant.append(dict(event))
+
+    return sorted(
+        relevant,
+        key=lambda event: (str(event.get("ex_date") or ""), str(event.get("ticker") or "")),
+    )
+
+
 def dividend_adjustment(
     *,
     ticker: str,

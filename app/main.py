@@ -33,7 +33,10 @@ from app.services.derivatives import (
     build_derivative_performance,
     normalize_derivative_action,
 )
-from app.services.dividends import upcoming_dividend_events_for_positions
+from app.services.dividends import (
+    relevant_dividend_events_for_positions,
+    upcoming_dividend_events_for_positions,
+)
 from app.services.market_hours import is_market_open
 from app.services.manual_portfolio import (
     build_daily_performance_record,
@@ -1241,10 +1244,16 @@ def manual_portfolio() -> dict[str, Any]:
 @app.get("/api/dividend-events")
 def dividend_events(ticker: str | None = None) -> dict[str, Any]:
     normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
-    events = store.list_dividend_events(normalized_ticker)
-    open_tickers = open_position_tickers()
+    all_events = store.list_dividend_events(normalized_ticker)
+    positions = open_stock_positions_for_dividends()
     if normalized_ticker:
-        open_tickers &= {normalized_ticker}
+        positions = [
+            position
+            for position in positions
+            if str(position.get("ticker") or "").upper() == normalized_ticker
+        ]
+    events = relevant_dividend_events_for_positions(all_events, positions)
+    open_tickers = {str(event.get("ticker") or "").upper() for event in events}
     alerts = upcoming_dividend_events_for_positions(events, open_tickers)
     alerts_by_id = {
         alert["id"]: alert
@@ -1257,6 +1266,26 @@ def dividend_events(ticker: str | None = None) -> dict[str, Any]:
             for event in events
         ],
         "dividend_alerts": alerts,
+    }
+
+
+@app.post("/api/dividend-events/prune")
+def prune_dividend_events() -> dict[str, Any]:
+    all_events = store.list_dividend_events()
+    relevant_events = relevant_dividend_events_for_positions(
+        all_events,
+        open_stock_positions_for_dividends(),
+    )
+    keep_ids = {
+        int(event["id"])
+        for event in relevant_events
+        if event.get("id") is not None
+    }
+    removed = store.delete_dividend_events_except_ids(keep_ids)
+    return {
+        "status": "pruned",
+        "removed": removed,
+        "kept": len(keep_ids),
     }
 
 
@@ -1592,7 +1621,12 @@ async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
     Additive: events are upserted by source+external_id, so this supplements
     manual entries and FireAnt marks without creating duplicates.
     """
-    tickers = sorted(open_position_tickers())
+    positions = open_stock_positions_for_dividends()
+    tickers = sorted({
+        str(position.get("ticker") or "").upper()
+        for position in positions
+        if position.get("ticker")
+    })
     collected: list[dict[str, Any]] = []
     for ticker in tickers:
         try:
@@ -1602,7 +1636,7 @@ async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
         except BaseException:
             logger.exception("Dividend fetch failed for %s", ticker)
             continue
-        collected.extend(events)
+        collected.extend(relevant_dividend_events_for_positions(events, positions))
         await asyncio.sleep(1)
     upserted = store.upsert_external_dividend_events(collected) if collected else 0
     store.set_app_setting("dividends_refreshed_at", utc_now_iso())
@@ -1712,10 +1746,25 @@ def sync_enrichment_dividends(enrichment: dict[str, Any]) -> int:
     events = enrichment.get("dividend_events") or []
     if not isinstance(events, list) or not events:
         return 0
-    upcoming_events = upcoming_dividend_events_for_positions(events, open_position_tickers())
-    if not upcoming_events:
+    relevant_events = relevant_dividend_events_for_positions(
+        events,
+        open_stock_positions_for_dividends(),
+    )
+    if not relevant_events:
         return 0
-    return store.upsert_external_dividend_events(upcoming_events)
+    return store.upsert_external_dividend_events(relevant_events)
+
+
+def open_stock_positions_for_dividends() -> list[dict[str, Any]]:
+    performance_data = build_performance(store.list_all_signals())
+    return [
+        {
+            "ticker": trade.get("ticker"),
+            "entry_time": trade.get("entry_time"),
+        }
+        for trade in performance_data["open_trades"]
+        if trade.get("ticker") and trade.get("entry_time")
+    ]
 
 
 def open_position_tickers() -> set[str]:

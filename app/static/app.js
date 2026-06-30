@@ -184,6 +184,7 @@ const els = {
   dividendIssueRatio: document.querySelector("#dividendIssueRatio"),
   dividendIssuePrice: document.querySelector("#dividendIssuePrice"),
   dividendNote: document.querySelector("#dividendNote"),
+  pruneDividendEvents: document.querySelector("#pruneDividendEvents"),
   dividendEventsTable: document.querySelector("#dividendEventsTable"),
   exDateAlerts: document.querySelector("#exDateAlerts"),
   derivativeOpenCount: document.querySelector("#derivativeOpenCount"),
@@ -359,13 +360,17 @@ const translations = {
     additionalIssue: "Issue %",
     issuePrice: "Issue Price",
     addDividendEvent: "Add event",
+    pruneDividendEvents: "Clean calendar",
     noDividendEvents: "No dividend events",
     noDividends: "No dividend events",
     upcomingDividend: "Upcoming",
     appliedDividend: "Adjusted",
     dividendDeleteConfirm: "Delete this dividend event?",
+    pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
+    pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
     dividendSaveFailed: "Could not save dividend event",
     dividendDeleteFailed: "Could not delete dividend event",
+    pruneDividendEventsFailed: "Could not clean dividend calendar",
     exDateToday: "Ex-date today",
     exDateTodayShort: "Ex-rights today",
     exDateAlertMessage: "Ex-rights date today for open positions",
@@ -698,9 +703,13 @@ Object.assign(translations.en, {
   sectorRefreshDone: "Updated",
   sectorRefreshError: "Could not fetch sectors",
   refreshDividends: "Auto-fetch dividends",
+  pruneDividendEvents: "Clean calendar",
   dividendRefreshing: "Fetching dividends…",
   dividendRefreshDone: "Saved",
   dividendRefreshError: "Could not fetch dividends",
+  pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
+  pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
+  pruneDividendEventsFailed: "Could not clean dividend calendar",
   sectorMappingTitle: "Ticker sectors",
   sectorMappingEyebrow: "Sectors",
   portfolioMetricsEyebrow: "By allocated weight",
@@ -1096,6 +1105,13 @@ Object.assign(translations.en, {
   deleteOpenPositionTitle: "Delete open position",
   deleteOpenPositionConfirm: "Delete this open position? This removes its opening buy signal.",
   deleteOpenPositionFailed: "Could not delete open position",
+});
+
+Object.assign(translations.vi, {
+  pruneDividendEvents: "D\u1ecdn l\u1ecbch",
+  pruneDividendEventsConfirm: "X\u00f3a c\u00e1c s\u1ef1 ki\u1ec7n c\u1ed5 t\u1ee9c kh\u00f4ng g\u1eafn v\u1edbi v\u1ecb th\u1ebf \u0111ang m\u1edf c\u00f3 ng\u00e0y v\u00e0o l\u1ec7nh tr\u01b0\u1edbc ng\u00e0y GDKHQ?",
+  pruneDividendEventsDone: "\u0110\u00e3 d\u1ecdn l\u1ecbch c\u1ed5 t\u1ee9c: x\u00f3a {removed}, gi\u1eef {kept}.",
+  pruneDividendEventsFailed: "Kh\u00f4ng th\u1ec3 d\u1ecdn l\u1ecbch c\u1ed5 t\u1ee9c",
 });
 
 Object.assign(translations.vi, {
@@ -3837,6 +3853,26 @@ async function deleteDividendEvent(eventId) {
   await refresh();
 }
 
+async function pruneDividendEvents() {
+  if (!window.confirm(t("pruneDividendEventsConfirm"))) {
+    return;
+  }
+  const response = await fetch("/api/dividend-events/prune", {
+    method: "POST",
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    window.alert(data.detail || t("pruneDividendEventsFailed"));
+    return;
+  }
+  window.alert(
+    t("pruneDividendEventsDone")
+      .replace("{removed}", String(data.removed ?? 0))
+      .replace("{kept}", String(data.kept ?? 0))
+  );
+  await refresh();
+}
+
 async function refreshOpenPositionMarketPrices() {
   const response = await fetch("/api/open-positions/refresh-prices", {
     method: "POST",
@@ -6554,6 +6590,9 @@ if (els.refreshSectorsButton) {
 }
 if (els.refreshDividendsButton) {
   els.refreshDividendsButton.addEventListener("click", refreshDividendsFromVnstock);
+}
+if (els.pruneDividendEvents) {
+  els.pruneDividendEvents.addEventListener("click", pruneDividendEvents);
 }
 window.addEventListener("resize", () => {
   resizePriceChart();
