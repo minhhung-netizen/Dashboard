@@ -1365,6 +1365,30 @@ class SignalStore:
             )
             return cursor.rowcount > 0
 
+    def fill_missing_sector_mappings(self, mapping: dict[str, str]) -> int:
+        """Insert sectors only for tickers not already mapped.
+
+        Existing rows (seeded or admin-edited) are never overwritten, so an
+        automatic refresh can only add coverage, never clobber a manual choice.
+        Returns the number of newly inserted tickers.
+        """
+        rows = []
+        for ticker, sector in (mapping or {}).items():
+            normalized_ticker = str(ticker or "").strip().upper()
+            normalized_sector = str(sector or "").strip()
+            if normalized_ticker and normalized_sector:
+                rows.append((normalized_ticker, normalized_sector, utc_now_iso()))
+        if not rows:
+            return 0
+        with self.connect() as conn:
+            before = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()["total"]
+            conn.executemany(
+                "INSERT OR IGNORE INTO sector_mappings (ticker, sector, updated_at) VALUES (?, ?, ?)",
+                rows,
+            )
+            after = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()["total"]
+        return after - before
+
     def latest_signal_received_at(self) -> str | None:
         with self.connect() as conn:
             row = conn.execute("SELECT MAX(received_at) AS latest FROM signals").fetchone()

@@ -23,6 +23,7 @@ from app.services.enrichment import (
     MarketDataEnricher,
     VnstockEnricher,
     coerce_float,
+    fetch_industry_map,
     normalize_stock_price,
     normalize_action,
     normalize_ticker,
@@ -130,6 +131,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(price_refresh_loop()),
         asyncio.create_task(manual_portfolio_automation_loop()),
         asyncio.create_task(signal_monitor_loop()),
+        asyncio.create_task(sector_autofill_loop()),
     ]
     try:
         yield
@@ -1017,6 +1019,12 @@ def upsert_sector_mapping(payload: SectorMappingPayload) -> dict[str, Any]:
     return {"status": "saved", "sector": mapping}
 
 
+@app.post("/api/sectors/refresh")
+async def refresh_sectors() -> dict[str, Any]:
+    result = await asyncio.to_thread(populate_sectors_from_listing)
+    return {"status": "ok", **result}
+
+
 @app.delete("/api/sectors/{ticker}")
 def delete_sector_mapping(ticker: str) -> dict[str, Any]:
     normalized = normalize_ticker(ticker)[0]
@@ -1537,6 +1545,36 @@ async def signal_monitor_loop() -> None:
         except BaseException:
             logger.exception("Signal monitor check failed")
         await asyncio.sleep(interval_seconds)
+
+
+def populate_sectors_from_listing() -> dict[str, Any]:
+    """Fill missing ticker sectors from vnstock's full industry listing.
+
+    Additive only: seeded and admin-edited rows are preserved. No-ops cleanly
+    when vnstock is unavailable, leaving the built-in seed in place.
+    """
+    mapping = fetch_industry_map()
+    added = store.fill_missing_sector_mappings(mapping) if mapping else 0
+    store.set_app_setting("sectors_refreshed_at", utc_now_iso())
+    store.set_app_setting("sectors_source_count", str(len(mapping)))
+    logger.info(
+        "Sector auto-fill: %s symbols from vnstock listing, %s newly mapped",
+        len(mapping),
+        added,
+    )
+    return {"fetched": len(mapping), "added": added}
+
+
+async def sector_autofill_loop() -> None:
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(populate_sectors_from_listing)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Sector auto-fill failed")
+        await asyncio.sleep(24 * 3600)
 
 
 async def refresh_open_position_prices(*, include_manual: bool = True) -> int:

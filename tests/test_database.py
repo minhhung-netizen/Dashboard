@@ -623,6 +623,19 @@ class SignalStoreTest(unittest.TestCase):
             self.assertNotIn("ABC", store.sector_map())
             self.assertFalse(store.delete_sector_mapping("ABC"))
 
+    def test_fill_missing_sector_mappings_is_additive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SignalStore(Path(tmp) / "signals.db")
+            store.upsert_sector_mapping(ticker="VCB", sector="Manual choice")
+
+            added = store.fill_missing_sector_mappings(
+                {"VCB": "Should not overwrite", "ZZZ": "Mới", "": "skip"}
+            )
+            self.assertEqual(added, 1)
+            self.assertEqual(store.sector_map()["VCB"], "Manual choice")
+            self.assertEqual(store.sector_map()["ZZZ"], "Mới")
+            self.assertEqual(store.fill_missing_sector_mappings({}), 0)
+
     def test_latest_signal_received_at(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SignalStore(Path(tmp) / "signals.db")

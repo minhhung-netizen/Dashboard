@@ -1189,6 +1189,10 @@
               <p class="eyebrow" data-i18n="sectorMappingEyebrow">Sectors</p>
               <h2 data-i18n="sectorMappingTitle">Ticker sectors</h2>
             </div>
+            <div class="panelActions">
+              <span id="sectorRefreshStatus" class="mutedText"></span>
+              <button id="refreshSectorsButton" class="smallButton" type="button" data-i18n="refreshSectors">Auto-fill sectors</button>
+            </div>
           </div>
           <form id="sectorForm" class="userCreateForm sectorForm" autocomplete="off">
             <input id="sectorTicker" name="sector-ticker" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Sector ticker" data-i18n-placeholder="sectorTickerPlaceholder" placeholder="Ticker" />
@@ -1247,6 +1251,6 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=20260629-alloc-metrics"></script>
+    <script src="/static/app.js?v=20260629-auto-sector"></script>
   </body>
 </html>

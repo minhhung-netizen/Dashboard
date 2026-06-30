@@ -906,3 +906,96 @@ def _json_ready(row: dict[str, Any]) -> dict[str, Any]:
         else:
             cleaned[str(key)] = value
     return cleaned
+
+
+_SYMBOL_COLUMN_CANDIDATES = ("symbol", "ticker", "Symbol", "Ticker", "code", "stock_symbol")
+_INDUSTRY_COLUMN_CANDIDATES = (
+    "icb_name2",
+    "icb_name3",
+    "icb_name4",
+    "icb_name1",
+    "industry",
+    "industry_name",
+    "industryName",
+    "sector",
+    "en_icb_name2",
+    "en_icb_name3",
+)
+
+
+def fetch_industry_map() -> dict[str, str]:
+    """Best-effort symbol -> ICB industry map from vnstock's listing API.
+
+    Returns an empty dict when vnstock is unavailable or its listing API
+    differs, so callers can treat sector auto-fill as purely additive.
+    """
+    listing = _resolve_vnstock_listing()
+    if listing is None:
+        return {}
+    for method_name in ("symbols_by_industries", "industries_icb"):
+        method = getattr(listing, method_name, None)
+        if method is None:
+            continue
+        try:
+            data = method()
+        except BaseException:
+            continue
+        mapping = _industry_map_from_records(_records_from_dataframe_like(data))
+        if mapping:
+            return mapping
+    return {}
+
+
+def _resolve_vnstock_listing() -> Any:
+    try:
+        listing_module = import_module("vnstock.api.listing")
+        listing_class = getattr(listing_module, "Listing", None)
+        if listing_class is not None:
+            try:
+                return listing_class(source="VCI")
+            except BaseException:
+                return listing_class()
+    except BaseException:
+        pass
+    try:
+        module = import_module("vnstock")
+        listing_class = getattr(module, "Listing", None)
+        if listing_class is not None:
+            try:
+                return listing_class(source="VCI")
+            except BaseException:
+                return listing_class()
+        if hasattr(module, "Vnstock"):
+            return module.Vnstock().stock(symbol="ACB", source="VCI").listing
+    except BaseException:
+        pass
+    return None
+
+
+def _industry_map_from_records(records: list[dict[str, Any]]) -> dict[str, str]:
+    if not records:
+        return {}
+    columns: set[str] = set()
+    for row in records[:50]:
+        if isinstance(row, dict):
+            columns.update(row.keys())
+    symbol_col = _first_present(columns, _SYMBOL_COLUMN_CANDIDATES)
+    industry_col = _first_present(columns, _INDUSTRY_COLUMN_CANDIDATES)
+    if not symbol_col or not industry_col:
+        return {}
+    mapping: dict[str, str] = {}
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get(symbol_col) or "").strip().upper()
+        industry = str(row.get(industry_col) or "").strip()
+        if symbol and industry and 1 <= len(symbol) <= 12:
+            mapping[symbol] = industry
+    return mapping
+
+
+def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None

@@ -67,6 +67,8 @@ const els = {
   sectorTicker: document.querySelector("#sectorTicker"),
   sectorName: document.querySelector("#sectorName"),
   sectorTable: document.querySelector("#sectorTable"),
+  refreshSectorsButton: document.querySelector("#refreshSectorsButton"),
+  sectorRefreshStatus: document.querySelector("#sectorRefreshStatus"),
   performanceTickerFilter: document.querySelector("#performanceTickerFilter"),
   performanceStrategyFilter: document.querySelector("#performanceStrategyFilter"),
   performanceSort: document.querySelector("#performanceSort"),
@@ -689,6 +691,10 @@ Object.assign(translations.en, {
   sectorTickerPlaceholder: "Ticker",
   sectorNamePlaceholder: "Sector",
   addSector: "Save sector",
+  refreshSectors: "Auto-fill sectors",
+  sectorRefreshing: "Fetching sectors…",
+  sectorRefreshDone: "Updated",
+  sectorRefreshError: "Could not fetch sectors",
   sectorMappingTitle: "Ticker sectors",
   sectorMappingEyebrow: "Sectors",
   portfolioMetricsEyebrow: "By allocated weight",
@@ -725,6 +731,10 @@ Object.assign(translations.vi, {
   sectorTickerPlaceholder: "Mã",
   sectorNamePlaceholder: "Ngành",
   addSector: "Lưu ngành",
+  refreshSectors: "Tự động điền ngành",
+  sectorRefreshing: "Đang lấy ngành…",
+  sectorRefreshDone: "Đã cập nhật",
+  sectorRefreshError: "Không lấy được dữ liệu ngành",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -4189,6 +4199,29 @@ async function submitSectorMapping(event) {
   await refresh();
 }
 
+async function refreshSectorsFromListing() {
+  if (!els.refreshSectorsButton) return;
+  els.refreshSectorsButton.disabled = true;
+  if (els.sectorRefreshStatus) els.sectorRefreshStatus.textContent = t("sectorRefreshing");
+  try {
+    const response = await fetch("/api/sectors/refresh", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.detail || t("sectorRefreshError"));
+      return;
+    }
+    if (els.sectorRefreshStatus) {
+      els.sectorRefreshStatus.textContent = `${t("sectorRefreshDone")}: +${data.added ?? 0} / ${data.fetched ?? 0}`;
+    }
+    await refresh();
+  } catch (error) {
+    console.error("Sector refresh failed", error);
+    window.alert(t("sectorRefreshError"));
+  } finally {
+    els.refreshSectorsButton.disabled = false;
+  }
+}
+
 async function deleteSectorMapping(ticker) {
   const response = await fetch(`/api/sectors/${encodeURIComponent(ticker)}`, { method: "DELETE" });
   if (!response.ok) {
@@ -6480,6 +6513,9 @@ els.dividendEventForm.addEventListener("submit", addDividendEvent);
 els.derivativeCapitalForm.addEventListener("submit", saveDerivativeCapital);
 if (els.sectorForm) {
   els.sectorForm.addEventListener("submit", submitSectorMapping);
+}
+if (els.refreshSectorsButton) {
+  els.refreshSectorsButton.addEventListener("click", refreshSectorsFromListing);
 }
 window.addEventListener("resize", () => {
   resizePriceChart();

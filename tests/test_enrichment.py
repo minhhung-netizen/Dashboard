@@ -6,10 +6,12 @@ from app.services.enrichment import (
     MarketDataEnricher,
     VnstockEnricher,
     _dnse_ohlc_records,
+    _industry_map_from_records,
     _normalize_dnse_stock_history,
     _fireant_dividend_events,
     _normalize_fireant_history,
     coerce_float,
+    fetch_industry_map,
     normalize_action,
     normalize_stock_price,
     normalize_ticker,
@@ -288,6 +290,26 @@ class EnrichmentHelpersTest(unittest.TestCase):
         self.assertEqual(headers["version"], "2026-05-07")
         self.assertIn('algorithm="hmac-sha256"', headers["X-Signature"])
         self.assertNotIn("private-secret", str(headers))
+
+
+class IndustryMapTest(unittest.TestCase):
+    def test_parses_symbol_and_industry_columns(self):
+        records = [
+            {"symbol": "vcb", "icb_name2": "Ngân hàng", "icb_name3": "Ngân hàng"},
+            {"symbol": "FPT", "icb_name2": "Công nghệ"},
+            {"symbol": "", "icb_name2": "Bỏ qua"},
+            {"symbol": "GAS", "icb_name2": ""},
+        ]
+        mapping = _industry_map_from_records(records)
+        self.assertEqual(mapping, {"VCB": "Ngân hàng", "FPT": "Công nghệ"})
+
+    def test_returns_empty_when_columns_missing(self):
+        self.assertEqual(_industry_map_from_records([{"foo": "bar"}]), {})
+        self.assertEqual(_industry_map_from_records([]), {})
+
+    def test_fetch_industry_map_is_safe_without_vnstock(self):
+        # vnstock is optional; the fetch must degrade to an empty map, never raise.
+        self.assertIsInstance(fetch_industry_map(), dict)
 
 
 if __name__ == "__main__":
