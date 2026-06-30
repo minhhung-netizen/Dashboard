@@ -317,6 +317,30 @@ class PerformanceTest(unittest.TestCase):
         self.assertTrue(trade["dividend_adjusted"])
         self.assertEqual(trade["dividend_notes"][0]["status"], "applied")
 
+    def test_dividend_event_does_not_adjust_when_entry_is_on_ex_date(self):
+        result = build_performance(
+            [
+                signal(1, "DBC", "buy", 100, "ST", source_time="2026-01-10T09:00:00+07:00"),
+                signal(2, "DBC", "note", 110, "ST", source_time="2026-01-12T09:00:00+07:00"),
+            ],
+            dividend_events=[
+                {
+                    "ticker": "DBC",
+                    "ex_date": "2026-01-10",
+                    "cash_amount": 10,
+                    "stock_ratio_pct": None,
+                    "note": "cash dividend",
+                }
+            ],
+            as_of_date=date(2026, 1, 12),
+        )
+
+        trade = result["open_trades"][0]
+        self.assertAlmostEqual(trade["entry_price"], 100)
+        self.assertAlmostEqual(trade["return_pct"], 10)
+        self.assertFalse(trade["dividend_adjusted"])
+        self.assertEqual(trade["dividend_notes"], [])
+
     def test_upcoming_dividend_is_noted_for_open_trade(self):
         result = build_performance(
             [

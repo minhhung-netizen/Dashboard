@@ -114,7 +114,7 @@ def dividend_adjustment(
         ex_date = _parse_date(event.get("ex_date"))
         if ex_date is None:
             continue
-        if entry_date is not None and ex_date < entry_date:
+        if entry_date is not None and ex_date <= entry_date:
             continue
 
         cash_amount = _safe_float(event.get("cash_amount")) or 0.0
