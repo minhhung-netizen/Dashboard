@@ -1616,10 +1616,10 @@ async def sector_autofill_loop() -> None:
 
 
 async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
-    """Pull ex-rights (GDKHQ) events from vnstock for every held ticker.
+    """Pull ex-rights (GDKHQ) events for every held ticker.
 
     Additive: events are upserted by source+external_id, so this supplements
-    manual entries and FireAnt marks without creating duplicates.
+    manual entries, VNStock events and FireAnt marks without creating duplicates.
     """
     positions = open_stock_positions_for_dividends()
     tickers = sorted({
@@ -1629,13 +1629,7 @@ async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
     })
     collected: list[dict[str, Any]] = []
     for ticker in tickers:
-        try:
-            events = await asyncio.to_thread(fetch_dividend_events, ticker)
-        except asyncio.CancelledError:
-            raise
-        except BaseException:
-            logger.exception("Dividend fetch failed for %s", ticker)
-            continue
+        events = await collect_dividend_events_for_ticker(ticker)
         collected.extend(relevant_dividend_events_for_positions(events, positions))
         await asyncio.sleep(1)
     upserted = store.upsert_external_dividend_events(collected) if collected else 0
@@ -1647,6 +1641,29 @@ async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
         upserted,
     )
     return {"tickers": len(tickers), "events": len(collected), "upserted": upserted}
+
+
+async def collect_dividend_events_for_ticker(ticker: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    try:
+        events.extend(await asyncio.to_thread(fetch_dividend_events, ticker))
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        logger.exception("VNStock dividend fetch failed for %s", ticker)
+
+    try:
+        enrichment = await asyncio.to_thread(enricher.enrich, ticker)
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        logger.exception("Market-data dividend fetch failed for %s", ticker)
+    else:
+        enrichment_events = enrichment.get("dividend_events")
+        if isinstance(enrichment_events, list):
+            events.extend(enrichment_events)
+
+    return events
 
 
 async def dividend_autofetch_loop() -> None:
