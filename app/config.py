@@ -17,6 +17,8 @@ class Settings:
     duplicate_window_minutes: int = 5
     signal_stale_minutes: int = 90
     signal_monitor_interval_minutes: int = 5
+    login_max_attempts: int = 8
+    login_lockout_minutes: int = 15
     vnstock_cache_ttl_minutes: int = 240
     vnstock_min_request_interval_seconds: float = 4.0
     vnstock_lookback_days: int = 90
@@ -54,6 +56,8 @@ def get_settings() -> Settings:
     duplicate_window_minutes = int(os.getenv("DUPLICATE_WINDOW_MINUTES", "5"))
     signal_stale_minutes = int(os.getenv("SIGNAL_STALE_MINUTES", "90"))
     signal_monitor_interval_minutes = int(os.getenv("SIGNAL_MONITOR_INTERVAL_MINUTES", "5"))
+    login_max_attempts = int(os.getenv("LOGIN_MAX_ATTEMPTS", "8"))
+    login_lockout_minutes = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15"))
     vnstock_cache_ttl_minutes = int(os.getenv("VNSTOCK_CACHE_TTL_MINUTES", "240"))
     vnstock_min_request_interval_seconds = float(
         os.getenv("VNSTOCK_MIN_REQUEST_INTERVAL_SECONDS", "4")
@@ -89,6 +93,8 @@ def get_settings() -> Settings:
         duplicate_window_minutes=max(1, duplicate_window_minutes),
         signal_stale_minutes=max(1, signal_stale_minutes),
         signal_monitor_interval_minutes=max(1, signal_monitor_interval_minutes),
+        login_max_attempts=max(1, login_max_attempts),
+        login_lockout_minutes=max(1, login_lockout_minutes),
         vnstock_cache_ttl_minutes=max(1, vnstock_cache_ttl_minutes),
         vnstock_min_request_interval_seconds=max(0.0, vnstock_min_request_interval_seconds),
         vnstock_lookback_days=max(30, vnstock_lookback_days),

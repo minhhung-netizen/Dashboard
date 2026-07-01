@@ -114,6 +114,8 @@ def dividend_adjustment(
         ex_date = _parse_date(event.get("ex_date"))
         if ex_date is None:
             continue
+        # A buyer on the ex-rights date (GDKHQ) is not entitled to the dividend
+        # and already pays the ex-price, so only adjust events strictly after entry.
         if entry_date is not None and ex_date <= entry_date:
             continue
 

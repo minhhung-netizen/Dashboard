@@ -1673,15 +1673,41 @@ class SignalStore:
                     (source, external_id),
                 ).fetchone()
                 if existing:
+                    # Refresh terms too, so corrected amounts from the provider land.
                     conn.execute(
                         """
                         UPDATE dividend_events
-                        SET ticker = ?, ex_date = ?, note = ?, updated_at = ?
+                        SET ticker = ?, ex_date = ?, cash_amount = ?, stock_ratio_pct = ?,
+                            issue_ratio_pct = ?, issue_price = ?, note = ?, updated_at = ?
                         WHERE id = ?
                         """,
-                        (ticker, ex_date, event.get("note"), now, existing["id"]),
+                        (
+                            ticker,
+                            ex_date,
+                            event.get("cash_amount"),
+                            event.get("stock_ratio_pct"),
+                            event.get("issue_ratio_pct"),
+                            event.get("issue_price"),
+                            event.get("note"),
+                            now,
+                            existing["id"],
+                        ),
                     )
                     updated += 1
+                    continue
+                # Cross-source de-dup: never create a second row for the same
+                # ticker + ex_date. This protects manual entries and prevents a
+                # dividend from being counted twice when it arrives from more
+                # than one provider (e.g. FireAnt and vnstock).
+                duplicate = conn.execute(
+                    """
+                    SELECT id
+                    FROM dividend_events
+                    WHERE ticker = ? AND ex_date = ?
+                    """,
+                    (ticker, ex_date),
+                ).fetchone()
+                if duplicate:
                     continue
                 conn.execute(
                     """

@@ -629,6 +629,35 @@ class SignalStoreTest(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["note"], "FireAnt: Cổ tức cập nhật")
 
+    def test_external_dividend_events_do_not_duplicate_same_ex_date(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            # A manual entry with the real cash amount.
+            store.insert_dividend_event(
+                ticker="VPB", ex_date="2026-05-15", cash_amount=0.5,
+                stock_ratio_pct=None, note="manual",
+            )
+            # An auto event for the same ticker + ex_date must not create a second row.
+            store.upsert_external_dividend_events([
+                {
+                    "ticker": "VPB", "ex_date": "2026-05-15", "cash_amount": 0.5,
+                    "stock_ratio_pct": None, "issue_ratio_pct": None, "issue_price": None,
+                    "note": "VNStock", "source": "vnstock", "external_id": "VPB:evt-1",
+                }
+            ])
+            rows = store.list_dividend_events("VPB")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["note"], "manual")
+            # A different ex_date is still added.
+            store.upsert_external_dividend_events([
+                {
+                    "ticker": "VPB", "ex_date": "2026-08-01", "cash_amount": 1.0,
+                    "stock_ratio_pct": None, "issue_ratio_pct": None, "issue_price": None,
+                    "note": "VNStock later", "source": "vnstock", "external_id": "VPB:evt-2",
+                }
+            ])
+            self.assertEqual(len(store.list_dividend_events("VPB")), 2)
+
     def test_sector_mappings_seed_upsert_and_delete(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SignalStore(Path(tmp) / "signals.db")

@@ -5,6 +5,8 @@ import csv
 import io
 import logging
 import sqlite3
+import threading
+import time as _time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from typing import Any
@@ -385,15 +387,54 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+_login_lock = threading.Lock()
+_login_attempts: dict[str, list[float]] = {}
+
+
+def _login_client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or "unknown"
+    client = request.client
+    return client.host if client else "unknown"
+
+
+def _login_rate_limited(key: str) -> bool:
+    window = settings.login_lockout_minutes * 60
+    now = _time.monotonic()
+    with _login_lock:
+        attempts = [ts for ts in _login_attempts.get(key, []) if now - ts < window]
+        _login_attempts[key] = attempts
+        return len(attempts) >= settings.login_max_attempts
+
+
+def _record_login_failure(key: str) -> None:
+    with _login_lock:
+        _login_attempts.setdefault(key, []).append(_time.monotonic())
+
+
+def _clear_login_failures(key: str) -> None:
+    with _login_lock:
+        _login_attempts.pop(key, None)
+
+
 @app.post("/api/auth/login")
 def login(payload: LoginPayload, request: Request) -> Response:
+    client_key = _login_client_key(request)
+    if _login_rate_limited(client_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please wait a few minutes and try again.",
+        )
     user = store.get_user_credentials(payload.username)
     if (
         user is None
         or not user.get("active")
         or not verify_password(payload.password, user["password_hash"])
     ):
+        _record_login_failure(client_key)
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    _clear_login_failures(client_key)
     token, token_hash, expires_at = new_session(settings.session_days)
     store.create_session(token_hash=token_hash, user_id=user["id"], expires_at=expires_at)
     response = JSONResponse({"user": public_user(user)})
