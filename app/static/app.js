@@ -19,6 +19,7 @@ const els = {
   riskWeightedPl: document.querySelector("#riskWeightedPl"),
   riskTopTicker: document.querySelector("#riskTopTicker"),
   riskStressMinus5: document.querySelector("#riskStressMinus5"),
+  riskHeat: document.querySelector("#riskHeat"),
   riskStrategyBreakdown: document.querySelector("#riskStrategyBreakdown"),
   riskAlertList: document.querySelector("#riskAlertList"),
   userAttentionPanel: document.querySelector("#userAttentionPanel"),
@@ -250,6 +251,10 @@ Object.assign(translations.en, {
   dividendRefreshError: "Could not fetch dividends",
   legendPortfolio: "Portfolio",
   legendVnindex: "VN-Index",
+  portfolioHeat: "Portfolio heat",
+  heatContribution: "Risk contribution",
+  heatAlert: "Heat above limit",
+  noStopData: "No stop data",
   pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
   pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
   pruneDividendEventsFailed: "Could not clean dividend calendar",
@@ -299,6 +304,10 @@ Object.assign(translations.vi, {
   dividendRefreshError: "Không lấy được dữ liệu cổ tức",
   legendPortfolio: "Danh mục",
   legendVnindex: "VN-Index",
+  portfolioHeat: "Nhiệt danh mục",
+  heatContribution: "Đóng góp rủi ro",
+  heatAlert: "Nhiệt vượt ngưỡng",
+  noStopData: "Chưa có dữ liệu stop",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -4067,6 +4076,33 @@ function openTradeRiskRows() {
   });
 }
 
+function positionStopDistancePct(trade) {
+  // Distance from entry to the stop, as a positive %. Prefer the empirical
+  // worst loss from backtest; fall back to a default when none is recorded.
+  const maxLoss = maxLossThreshold(backtestStatForTrade(trade));
+  if (maxLoss !== null) return Math.abs(maxLoss);
+  return DEFAULT_STOP_DISTANCE_PCT;
+}
+
+function portfolioHeat() {
+  const contributions = openTradeRiskRows().map((row) => {
+    const stopDistPct = positionStopDistancePct(row.trade);
+    const weightPct = Number(row.weightPct) || 0;
+    // Capital at risk if this position hits its stop, as a % of total capital.
+    const riskPct = (weightPct * stopDistPct) / 100;
+    return { trade: row.trade, weightPct, stopDistPct, riskPct };
+  });
+  const heatPct = contributions.reduce((sum, item) => sum + item.riskPct, 0);
+  contributions.sort((left, right) => right.riskPct - left.riskPct);
+  return { heatPct, contributions };
+}
+
+function heatLevel(heatPct) {
+  if (heatPct >= MAX_PORTFOLIO_HEAT_PCT) return "danger";
+  if (heatPct >= MAX_PORTFOLIO_HEAT_PCT * 0.75) return "warning";
+  return "success";
+}
+
 function backtestStatForTrade(trade) {
   const targetKey = tickerStrategyKey(trade.ticker, trade.strategy);
   return (state.backtestStats || []).find((stat) => {
@@ -4188,9 +4224,15 @@ function renderRiskOverview() {
     els.riskWeightedPl.textContent = "-";
     els.riskTopTicker.textContent = "-";
     els.riskStressMinus5.textContent = "-";
+    if (els.riskHeat) {
+      els.riskHeat.textContent = "-";
+      els.riskHeat.className = "";
+    }
     els.riskStrategyBreakdown.innerHTML = `<div class="empty">${escapeHtml(t("noOpenPositions"))}</div>`;
     return;
   }
+
+  const heat = portfolioHeat();
 
   const totalExposure = rows.reduce((sum, row) => sum + (Number(row.weightPct) || 0), 0);
   const weightedPl = rows.reduce((sum, row) => {
@@ -4207,7 +4249,25 @@ function renderRiskOverview() {
   els.riskWeightedPl.innerHTML = formatSignedPercent(weightedPl);
   els.riskTopTicker.textContent = topTicker ? `${topTicker.key} ${formatPercent(topTicker.value)}` : "-";
   els.riskStressMinus5.innerHTML = formatSignedPercent(stressMinus5);
+  if (els.riskHeat) {
+    els.riskHeat.textContent = `${formatPercent(heat.heatPct)} / ${formatPercent(MAX_PORTFOLIO_HEAT_PCT)}`;
+    els.riskHeat.className = `heat-${heatLevel(heat.heatPct)}`;
+  }
+  const heatBreakdown = heat.contributions.filter((item) => item.riskPct > 0).slice(0, 5);
   els.riskStrategyBreakdown.innerHTML = `
+    <div class="riskBreakdownTitle">${escapeHtml(t("heatContribution"))}</div>
+    ${heatBreakdown.length
+      ? heatBreakdown.map((item) => {
+          const width = Math.min(100, Math.max(4, (item.riskPct / Math.max(heat.heatPct, 0.01)) * 100));
+          return `
+        <button class="riskBreakdownRow" type="button" data-risk-ticker="${escapeHtml(item.trade.ticker)}">
+          <span>${escapeHtml(item.trade.ticker)} <small>${escapeHtml(displayStrategyName(item.trade.strategy) || "-")}</small></span>
+          <strong>${formatPercent(item.riskPct)}</strong>
+          <i style="width:${width}%"></i>
+        </button>
+      `;
+        }).join("")
+      : `<div class="empty">${escapeHtml(t("noStopData"))}</div>`}
     <div class="riskBreakdownTitle">${escapeHtml(t("strategyExposure"))}</div>
     ${strategyExposure.slice(0, 5).map((item) => {
       const width = Math.min(100, Math.max(4, item.value));
@@ -4251,6 +4311,13 @@ function renderRiskOverview() {
       renderOpenPositions();
     });
   });
+  els.riskStrategyBreakdown.querySelectorAll("[data-risk-ticker]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab("positions");
+      els.openPositionTickerFilter.value = button.dataset.riskTicker;
+      renderOpenPositions();
+    });
+  });
 }
 
 function renderRiskAlerts() {
@@ -4260,6 +4327,15 @@ function renderRiskAlerts() {
   const strategyExposure = aggregateRisk(rows, (trade) => trade.strategy);
   const sectorExposure = aggregateRisk(rows, (trade) => sectorFor(trade.ticker) || t("sectorUnknown"));
   const alerts = [];
+
+  const heatPct = portfolioHeat().heatPct;
+  if (heatPct >= MAX_PORTFOLIO_HEAT_PCT) {
+    alerts.push({
+      level: "danger",
+      title: t("heatAlert"),
+      detail: `${formatPercent(heatPct)} / ${formatPercent(MAX_PORTFOLIO_HEAT_PCT)}`,
+    });
+  }
 
   if (state.signalMonitor?.stale) {
     alerts.push({

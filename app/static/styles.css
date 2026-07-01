@@ -765,7 +765,7 @@ main {
 .riskMetrics {
   display: grid;
   gap: 0;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .riskMetrics article {
@@ -803,6 +803,24 @@ main {
 .riskMetrics strong {
   font-size: 18px;
   line-height: 1.15;
+}
+
+.riskMetrics strong.heat-success {
+  color: var(--buy);
+}
+
+.riskMetrics strong.heat-warning {
+  color: var(--warning);
+}
+
+.riskMetrics strong.heat-danger {
+  color: var(--sell);
+}
+
+.riskBreakdownRow small {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: none;
 }
 
 .riskBreakdown {

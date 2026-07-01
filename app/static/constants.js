@@ -7,6 +7,11 @@ const KELLY_STORAGE_KEY = "dashboardKellyInputs";
 const KELLY_LIST_STORAGE_KEY = "dashboardKellyEntries";
 const DCA_RISK_LIMIT_STORAGE_KEY = "dashboardDcaRiskLimitPct";
 const DEFAULT_DCA_RISK_LIMIT_PCT = 1.5;
+// Portfolio heat = total open risk if every position hit its stop, as a % of
+// total capital. Stop distance comes from each ticker/strategy backtest max
+// loss, falling back to DEFAULT_STOP_DISTANCE_PCT when none is recorded.
+const MAX_PORTFOLIO_HEAT_PCT = 6;
+const DEFAULT_STOP_DISTANCE_PCT = 8;
 const DEFAULT_KELLY_INPUTS = {
   ticker: "",
   strategy: "",
