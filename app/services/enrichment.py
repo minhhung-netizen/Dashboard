@@ -1026,6 +1026,26 @@ def _coerce_level(value: Any) -> int | None:
         return None
 
 
+def average_daily_value(history: list[dict[str, Any]] | None, sessions: int = 20) -> float | None:
+    """Average daily traded value in VND over the last `sessions` bars.
+
+    Stock closes are stored in thousands of VND, so value = close * 1000 * volume.
+    Returns None when there is no usable volume history.
+    """
+    rows = [row for row in (history or []) if isinstance(row, dict)]
+    if not rows:
+        return None
+    values: list[float] = []
+    for row in rows[-max(1, sessions):]:
+        close = coerce_float(row.get("close") or row.get("Close") or row.get("c"))
+        volume = coerce_float(row.get("volume") or row.get("Volume") or row.get("v"))
+        if close and volume and close > 0 and volume > 0:
+            values.append(close * 1000 * volume)
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None:
     for candidate in candidates:
         if candidate in columns:

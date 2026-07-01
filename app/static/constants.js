@@ -12,6 +12,11 @@ const DEFAULT_DCA_RISK_LIMIT_PCT = 1.5;
 // loss, falling back to DEFAULT_STOP_DISTANCE_PCT when none is recorded.
 const MAX_PORTFOLIO_HEAT_PCT = 6;
 const DEFAULT_STOP_DISTANCE_PCT = 8;
+// Liquidity guardrails for large accounts: assume you can trade this share of a
+// stock's average daily value without moving price, and warn when unwinding the
+// position would take longer than this many sessions.
+const LIQUIDITY_PARTICIPATION_PCT = 20;
+const LIQUIDITY_MAX_EXIT_DAYS = 3;
 const DEFAULT_KELLY_INPUTS = {
   ticker: "",
   strategy: "",

@@ -11,6 +11,7 @@ from app.services.enrichment import (
     _fireant_dividend_events,
     _normalize_fireant_history,
     _vnstock_dividend_events,
+    average_daily_value,
     coerce_float,
     fetch_dividend_events,
     fetch_industry_map,
@@ -329,6 +330,26 @@ class CoerceFloatTest(unittest.TestCase):
         self.assertEqual(coerce_float("1,234.5"), 1234.5)
         self.assertEqual(coerce_float(19.5), 19.5)
         self.assertIsNone(coerce_float(""))
+
+
+class AverageDailyValueTest(unittest.TestCase):
+    def test_computes_value_in_vnd_from_thousands_close(self):
+        # close in thousands of VND, so value = close * 1000 * volume.
+        history = [
+            {"close": 20.0, "volume": 1_000_000},  # 20,000 * 1e6 = 20e9
+            {"close": 30.0, "volume": 1_000_000},  # 30,000 * 1e6 = 30e9
+        ]
+        self.assertAlmostEqual(average_daily_value(history, sessions=20), 25e9)
+
+    def test_uses_last_sessions_and_skips_bad_rows(self):
+        history = [
+            {"close": 10.0, "volume": 1_000_000},
+            {"close": 0, "volume": 5_000_000},      # skipped (no price)
+            {"close": 40.0, "volume": None},        # skipped (no volume)
+            {"close": 40.0, "volume": 1_000_000},
+        ]
+        self.assertAlmostEqual(average_daily_value(history, sessions=2), 40e9)
+        self.assertIsNone(average_daily_value([]))
 
     def test_fetch_industry_map_is_safe_without_vnstock(self):
         # vnstock is optional; the fetch must degrade to an empty map, never raise.

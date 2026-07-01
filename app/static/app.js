@@ -153,6 +153,7 @@ const els = {
   dcaCashLeft: document.querySelector("#dcaCashLeft"),
   dcaRiskAlert: document.querySelector("#dcaRiskAlert"),
   dcaSizingNote: document.querySelector("#dcaSizingNote"),
+  dcaLiquidityNote: document.querySelector("#dcaLiquidityNote"),
   dcaSuggestionNote: document.querySelector("#dcaSuggestionNote"),
   dcaLevelsTable: document.querySelector("#dcaLevelsTable"),
   applyDcaHalfSuggestion: document.querySelector("#applyDcaHalfSuggestion"),
@@ -255,6 +256,12 @@ Object.assign(translations.en, {
   heatContribution: "Risk contribution",
   heatAlert: "Heat above limit",
   noStopData: "No stop data",
+  billionUnit: "B",
+  liquidityLoading: "Checking liquidity…",
+  liquidityAdtv: "ADTV (20d)",
+  liquidityPctOfAdtv: "Position / ADTV",
+  liquidityExitDays: "Days to exit",
+  liquidityWarn: "Large vs liquidity — hard to exit",
   pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
   pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
   pruneDividendEventsFailed: "Could not clean dividend calendar",
@@ -308,6 +315,12 @@ Object.assign(translations.vi, {
   heatContribution: "Đóng góp rủi ro",
   heatAlert: "Nhiệt vượt ngưỡng",
   noStopData: "Chưa có dữ liệu stop",
+  billionUnit: "tỷ",
+  liquidityLoading: "Đang kiểm tra thanh khoản…",
+  liquidityAdtv: "GTGD TB (20 phiên)",
+  liquidityPctOfAdtv: "Vị thế / GTGD",
+  liquidityExitDays: "Số ngày để thoát",
+  liquidityWarn: "Quá lớn so với thanh khoản — khó thoát",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -1022,6 +1035,7 @@ const state = {
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
   performanceClosedTrades: [],
   benchmarkSeries: [],
+  liquidity: {},
   sectorMap: {},
   sectorNames: [],
   signalMonitor: null,
@@ -1796,6 +1810,66 @@ function distributeRemainingCapitalToLastDcaRows(rows, allocatedCapital, lotSize
   }
 }
 
+function formatBillions(vnd) {
+  const value = Number(vnd);
+  if (!Number.isFinite(value)) return "-";
+  return `${(value / 1e9).toFixed(1)} ${t("billionUnit")}`;
+}
+
+async function ensureLiquidity(ticker) {
+  const key = String(ticker || "").trim().toUpperCase();
+  if (!key || state.liquidity[key] !== undefined || state.liquidityLoading === key) return;
+  state.liquidityLoading = key;
+  try {
+    const data = await fetchJson(`/api/liquidity/${encodeURIComponent(key)}`);
+    state.liquidity[key] = data.adtv ?? null;
+  } catch (error) {
+    state.liquidity[key] = null;
+  } finally {
+    state.liquidityLoading = null;
+  }
+  if (els.dcaSizingTicker && els.dcaSizingTicker.value.trim().toUpperCase() === key) {
+    renderDcaLiquidity();
+  }
+}
+
+function renderDcaLiquidity() {
+  const el = els.dcaLiquidityNote;
+  if (!el) return;
+  const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
+  const result = calculateDcaSizing(readDcaSizingInputs());
+  const usedCapital = result.valid ? Number(result.usedCapital) : null;
+  if (ticker.length < 3 || !usedCapital || usedCapital <= 0) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const adtv = state.liquidity[ticker];
+  if (adtv === undefined) {
+    ensureLiquidity(ticker);
+    el.hidden = false;
+    el.className = "dcaLiquidityNote";
+    el.textContent = t("liquidityLoading");
+    return;
+  }
+  if (!adtv || adtv <= 0) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const pctOfAdtv = (usedCapital / adtv) * 100;
+  const exitDays = usedCapital / (adtv * (LIQUIDITY_PARTICIPATION_PCT / 100));
+  const heavy = exitDays > LIQUIDITY_MAX_EXIT_DAYS;
+  el.hidden = false;
+  el.className = `dcaLiquidityNote${heavy ? " danger" : ""}`;
+  el.innerHTML = `
+    <span>${escapeHtml(t("liquidityAdtv"))}: <strong>${formatBillions(adtv)}</strong></span>
+    <span>${escapeHtml(t("liquidityPctOfAdtv"))}: <strong>${formatPercent(pctOfAdtv)}</strong></span>
+    <span>${escapeHtml(t("liquidityExitDays"))}: <strong>${exitDays.toFixed(1)}</strong></span>
+    ${heavy ? `<span class="liquidityWarn">${escapeHtml(t("liquidityWarn"))}</span>` : ""}
+  `;
+}
+
 function renderDcaSizing() {
   renderDcaPriceStepControls();
   const inputs = readDcaSizingInputs();
@@ -1818,6 +1892,7 @@ function renderDcaSizing() {
     els.dcaRiskAlert.hidden = true;
     els.dcaRiskAlert.textContent = "";
     els.dcaSizingNote.textContent = result.note;
+    renderDcaLiquidity();
     return;
   }
 
@@ -1841,6 +1916,7 @@ function renderDcaSizing() {
         .replace("{limit}", rawNumber(result.riskLimitPct))
     : "";
   els.dcaSizingNote.textContent = result.note;
+  renderDcaLiquidity();
 }
 
 function renderDcaLevelsTable(calculatedRows = [], inputs = readDcaSizingInputs()) {

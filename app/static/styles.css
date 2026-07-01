@@ -1446,6 +1446,38 @@ main {
   display: none;
 }
 
+.dcaLiquidityNote {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px 16px;
+  padding: 9px 12px;
+}
+
+.dcaLiquidityNote[hidden] {
+  display: none;
+}
+
+.dcaLiquidityNote strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.dcaLiquidityNote.danger {
+  background: color-mix(in srgb, var(--sell) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--sell) 40%, var(--line));
+}
+
+.dcaLiquidityNote .liquidityWarn {
+  color: var(--sell);
+  font-weight: 760;
+}
+
 .dcaLevelsSection {
   border-top: 1px solid var(--line);
 }

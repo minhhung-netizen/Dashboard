@@ -24,6 +24,7 @@ from app.services.enrichment import (
     FireAntEnricher,
     MarketDataEnricher,
     VnstockEnricher,
+    average_daily_value,
     coerce_float,
     fetch_dividend_events,
     fetch_industry_map,
@@ -938,6 +939,24 @@ def performance(request: Request, ticker: str | None = None, strategy: str | Non
         user=request.state.user,
     )
     return build_performance(signals, store.list_dividend_events())
+
+
+@app.get("/api/liquidity/{ticker}")
+async def liquidity(ticker: str, sessions: int = 20) -> dict[str, Any]:
+    """Average daily traded value (VND) for a ticker, for position-size sanity checks."""
+    normalized = normalize_ticker(ticker)[0]
+    try:
+        enrichment = await asyncio.to_thread(enricher.enrich, normalized)
+    except BaseException:
+        logger.exception("Liquidity fetch failed for %s", normalized)
+        return {"ticker": normalized, "adtv": None}
+    window = max(1, min(sessions, 60))
+    return {
+        "ticker": normalized,
+        "adtv": average_daily_value(enrichment.get("history"), sessions=window),
+        "sessions": window,
+        "latest_close": latest_history_close(enrichment),
+    }
 
 
 @app.get("/api/benchmark/vnindex")
