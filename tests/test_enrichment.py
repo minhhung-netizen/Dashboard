@@ -309,6 +309,27 @@ class IndustryMapTest(unittest.TestCase):
         self.assertEqual(_industry_map_from_records([{"foo": "bar"}]), {})
         self.assertEqual(_industry_map_from_records([]), {})
 
+    def test_icb_level_as_string_still_selects_level_two(self):
+        records = [
+            {"symbol": "FPT", "icb_name": "Broad", "icb_level": "1"},
+            {"symbol": "FPT", "icb_name": "Công nghệ Thông tin", "icb_level": "2"},
+            {"symbol": "FPT", "icb_name": "Deep", "icb_level": "3"},
+        ]
+        self.assertEqual(_industry_map_from_records(records), {"FPT": "Công nghệ Thông tin"})
+
+
+class CoerceFloatTest(unittest.TestCase):
+    def test_rejects_nan_and_infinity(self):
+        self.assertIsNone(coerce_float("NaN"))
+        self.assertIsNone(coerce_float("inf"))
+        self.assertIsNone(coerce_float("-Infinity"))
+        self.assertIsNone(coerce_float(float("nan")))
+
+    def test_parses_normal_numbers(self):
+        self.assertEqual(coerce_float("1,234.5"), 1234.5)
+        self.assertEqual(coerce_float(19.5), 19.5)
+        self.assertIsNone(coerce_float(""))
+
     def test_fetch_industry_map_is_safe_without_vnstock(self):
         # vnstock is optional; the fetch must degrade to an empty map, never raise.
         self.assertIsInstance(fetch_industry_map(), dict)

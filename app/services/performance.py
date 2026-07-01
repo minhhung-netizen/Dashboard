@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from math import prod
+from math import isfinite, prod
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -351,9 +351,10 @@ def _safe_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    return result if isfinite(result) else None
 
 
 def _holding_seconds(entry_time: str, exit_time: str | None) -> int | None:

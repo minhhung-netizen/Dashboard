@@ -341,6 +341,28 @@ class PerformanceTest(unittest.TestCase):
         self.assertFalse(trade["dividend_adjusted"])
         self.assertEqual(trade["dividend_notes"], [])
 
+    def test_same_day_cash_and_stock_events_combine_order_independently(self):
+        def run(events):
+            result = build_performance(
+                [
+                    signal(1, "DBC", "buy", 100, "ST", source_time="2026-01-01T09:00:00+07:00"),
+                    signal(2, "DBC", "note", 110, "ST", source_time="2026-01-12T09:00:00+07:00"),
+                ],
+                dividend_events=events,
+                as_of_date=date(2026, 1, 12),
+            )
+            return result["open_trades"][0]
+
+        cash = {"ticker": "DBC", "ex_date": "2026-01-10", "cash_amount": 5}
+        stock = {"ticker": "DBC", "ex_date": "2026-01-10", "stock_ratio_pct": 10}
+        # Combined once: (100 - 5) / (1 + 0.10) = 86.363636, regardless of order.
+        expected = (100 - 5) / 1.10
+        trade_cash_first = run([cash, stock])
+        trade_stock_first = run([stock, cash])
+        self.assertAlmostEqual(trade_cash_first["entry_price"], expected, places=5)
+        self.assertAlmostEqual(trade_stock_first["entry_price"], expected, places=5)
+        self.assertEqual(len(trade_cash_first["dividend_notes"]), 1)
+
     def test_upcoming_dividend_is_noted_for_open_trade(self):
         result = build_performance(
             [

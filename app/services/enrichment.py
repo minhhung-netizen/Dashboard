@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import threading
@@ -71,9 +72,13 @@ def coerce_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
     try:
-        return float(str(value).replace(",", ""))
+        result = float(str(value).replace(",", ""))
     except ValueError:
         return None
+    # Reject NaN / Infinity so a malformed price never poisons signals or metrics.
+    if not math.isfinite(result):
+        return None
+    return result
 
 
 def is_index_ticker(ticker: Any = None, exchange: str | None = None) -> bool:
@@ -993,7 +998,10 @@ def _industry_map_from_records(records: list[dict[str, Any]]) -> dict[str, str]:
     level_col = "icb_level" if "icb_level" in columns else None
     target_level = None
     if level_col:
-        levels = {row.get(level_col) for row in records if isinstance(row, dict)}
+        # Normalize levels to int so string values like "2" still match.
+        levels = {
+            _coerce_level(row.get(level_col)) for row in records if isinstance(row, dict)
+        }
         target_level = next(
             (level for level in _ICB_LEVEL_PREFERENCE if level in levels), None
         )
@@ -1002,13 +1010,20 @@ def _industry_map_from_records(records: list[dict[str, Any]]) -> dict[str, str]:
     for row in records:
         if not isinstance(row, dict):
             continue
-        if target_level is not None and row.get(level_col) != target_level:
+        if target_level is not None and _coerce_level(row.get(level_col)) != target_level:
             continue
         symbol = str(row.get(symbol_col) or "").strip().upper()
         industry = str(row.get(industry_col) or "").strip()
         if symbol and industry and 1 <= len(symbol) <= 12:
             mapping[symbol] = industry
     return mapping
+
+
+def _coerce_level(value: Any) -> int | None:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
 
 
 def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -110,6 +111,11 @@ def dividend_adjustment(
         key=lambda event: str(event.get("ex_date") or ""),
     )
 
+    # Group events by ex-date and combine their terms into one corporate-action
+    # formula, so same-day cash + stock + issue events give an order-independent
+    # adjusted price instead of one that depends on row order.
+    grouped: dict[date, dict[str, Any]] = {}
+    order: list[date] = []
     for event in matching_events:
         ex_date = _parse_date(event.get("ex_date"))
         if ex_date is None:
@@ -118,24 +124,45 @@ def dividend_adjustment(
         # and already pays the ex-price, so only adjust events strictly after entry.
         if entry_date is not None and ex_date <= entry_date:
             continue
-
-        cash_amount = _safe_float(event.get("cash_amount")) or 0.0
-        stock_ratio_pct = _safe_float(event.get("stock_ratio_pct")) or 0.0
-        issue_ratio_pct = _safe_float(event.get("issue_ratio_pct")) or 0.0
+        if ex_date not in grouped:
+            grouped[ex_date] = {
+                "cash": 0.0,
+                "stock": 0.0,
+                "issue": 0.0,
+                "issue_value": 0.0,
+                "issue_price": None,
+                "notes": [],
+            }
+            order.append(ex_date)
+        bucket = grouped[ex_date]
+        cash = _safe_float(event.get("cash_amount")) or 0.0
+        stock = _safe_float(event.get("stock_ratio_pct")) or 0.0
+        issue = _safe_float(event.get("issue_ratio_pct")) or 0.0
         issue_price = _safe_float(event.get("issue_price")) or 0.0
+        bucket["cash"] += cash
+        bucket["stock"] += stock
+        bucket["issue"] += issue
+        bucket["issue_value"] += issue_price * issue / 100
+        if issue > 0 and bucket["issue_price"] is None:
+            bucket["issue_price"] = issue_price
+        note = event.get("note")
+        if note:
+            bucket["notes"].append(str(note))
+
+    for ex_date in order:
+        bucket = grouped[ex_date]
+        cash_amount = bucket["cash"]
+        stock_ratio_pct = bucket["stock"]
+        issue_ratio_pct = bucket["issue"]
         has_adjustment = cash_amount > 0 or stock_ratio_pct > 0 or issue_ratio_pct > 0
+        note_text = "; ".join(bucket["notes"]) or None
 
         if has_adjustment and ex_date <= valuation_date:
             before = adjusted_entry
             denominator = 1 + stock_ratio_pct / 100 + issue_ratio_pct / 100
             adjusted_entry = max(
                 0.000001,
-                (
-                    adjusted_entry
-                    - cash_amount
-                    + issue_price * issue_ratio_pct / 100
-                )
-                / denominator,
+                (adjusted_entry - cash_amount + bucket["issue_value"]) / denominator,
             )
             notes.append(
                 {
@@ -145,10 +172,10 @@ def dividend_adjustment(
                     "cash_amount": cash_amount or None,
                     "stock_ratio_pct": stock_ratio_pct or None,
                     "issue_ratio_pct": issue_ratio_pct or None,
-                    "issue_price": issue_price or None,
+                    "issue_price": bucket["issue_price"],
                     "entry_price_before": before,
                     "entry_price_after": adjusted_entry,
-                    "note": event.get("note"),
+                    "note": note_text,
                 }
             )
             continue
@@ -164,8 +191,8 @@ def dividend_adjustment(
                     "cash_amount": cash_amount or None,
                     "stock_ratio_pct": stock_ratio_pct or None,
                     "issue_ratio_pct": issue_ratio_pct or None,
-                    "issue_price": issue_price or None,
-                    "note": event.get("note"),
+                    "issue_price": bucket["issue_price"],
+                    "note": note_text,
                 }
             )
 
@@ -205,9 +232,10 @@ def _safe_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    return result if isfinite(result) else None
 
 
 def _normalize_ticker(value: Any) -> str:
