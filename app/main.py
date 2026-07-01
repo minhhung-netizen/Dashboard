@@ -940,6 +940,27 @@ def performance(request: Request, ticker: str | None = None, strategy: str | Non
     return build_performance(signals, store.list_dividend_events())
 
 
+@app.get("/api/benchmark/vnindex")
+async def benchmark_vnindex() -> dict[str, Any]:
+    """Daily VN-Index closes, used to overlay a benchmark on the equity curve."""
+    try:
+        enrichment = await asyncio.to_thread(enricher.enrich, "VNINDEX")
+    except BaseException:
+        logger.exception("VNINDEX benchmark fetch failed")
+        return {"series": []}
+    series: list[dict[str, Any]] = []
+    for row in enrichment.get("history") or []:
+        raw_time = row.get("time") or row.get("date") or row.get("Date")
+        close = coerce_float(
+            row.get("close") or row.get("Close") or row.get("closePrice") or row.get("c")
+        )
+        date_str = str(raw_time or "")[:10]
+        if len(date_str) == 10 and close and close > 0:
+            series.append({"date": date_str, "close": close})
+    series.sort(key=lambda item: item["date"])
+    return {"series": series}
+
+
 @app.get("/api/backtest-stats")
 def backtest_stats(
     request: Request,

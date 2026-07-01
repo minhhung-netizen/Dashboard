@@ -707,6 +707,8 @@ Object.assign(translations.en, {
   dividendRefreshing: "Fetching dividends…",
   dividendRefreshDone: "Saved",
   dividendRefreshError: "Could not fetch dividends",
+  legendPortfolio: "Portfolio",
+  legendVnindex: "VN-Index",
   pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
   pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
   pruneDividendEventsFailed: "Could not clean dividend calendar",
@@ -754,6 +756,8 @@ Object.assign(translations.vi, {
   dividendRefreshing: "Đang lấy cổ tức…",
   dividendRefreshDone: "Đã lưu",
   dividendRefreshError: "Không lấy được dữ liệu cổ tức",
+  legendPortfolio: "Danh mục",
+  legendVnindex: "VN-Index",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -1467,6 +1471,7 @@ const state = {
   lastRefreshAt: null,
   derivatives: { summary: {}, open_positions: [], closed_trades: [], events: [] },
   performanceClosedTrades: [],
+  benchmarkSeries: [],
   sectorMap: {},
   sectorNames: [],
   signalMonitor: null,
@@ -2915,6 +2920,7 @@ function setActiveTab(tabName) {
   }
   if (tabName === "performance") {
     drawEquityCurve(state.closedTrades);
+    ensureBenchmarkLoaded();
   }
   if (tabName === "manualPortfolio") {
     drawManualEquityCurve(state.manualPortfolio.equity_curve || []);
@@ -3332,6 +3338,7 @@ async function refresh() {
   renderAverageGainBanner();
   if (state.activeTab === "performance") {
     drawEquityCurve(performancePayload.closed_trades || []);
+    ensureBenchmarkLoaded();
   }
   state.invalidSignals = [
     ...(positionPayload.ignored_signals || []).map((item) => ({
@@ -5555,11 +5562,17 @@ function drawEquityCurve(closedTrades) {
     });
   });
 
-  const pad = { top: 24, right: 48, bottom: 30, left: 18 };
+  const benchmarkValues = buildBenchmarkValues(sorted);
+  const scaleValues = points.map((point) => point.value);
+  benchmarkValues.forEach((value) => {
+    if (Number.isFinite(value)) scaleValues.push(value);
+  });
+
+  const pad = { top: 26, right: 48, bottom: 30, left: 18 };
   const width = rect.width - pad.left - pad.right;
   const height = rect.height - pad.top - pad.bottom;
-  const min = Math.min(...points.map((point) => point.value));
-  const max = Math.max(...points.map((point) => point.value));
+  const min = Math.min(...scaleValues);
+  const max = Math.max(...scaleValues);
   const range = max - min || 1;
 
   ctx.strokeStyle = cssVar("--line") || "#dbe2df";
@@ -5576,12 +5589,37 @@ function drawEquityCurve(closedTrades) {
     ctx.fillText(label.toFixed(1), rect.width - pad.right + 10, y + 4);
   }
 
+  const xAt = (index) => pad.left + (width / Math.max(1, points.length - 1)) * index;
+  const yAt = (value) => pad.top + height - ((value - min) / range) * height;
+
+  // VN-Index benchmark — muted, dashed, drawn behind the portfolio line.
+  if (benchmarkValues.some((value) => Number.isFinite(value))) {
+    ctx.strokeStyle = cssVar("--muted") || "#94a3b8";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    let started = false;
+    benchmarkValues.forEach((value, index) => {
+      if (!Number.isFinite(value)) return;
+      const x = xAt(index);
+      const y = yAt(value);
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   ctx.strokeStyle = cssVar("--accent") || "#245c7a";
   ctx.lineWidth = 2;
   ctx.beginPath();
   points.forEach((point, index) => {
-    const x = pad.left + (width / Math.max(1, points.length - 1)) * index;
-    const y = pad.top + height - ((point.value - min) / range) * height;
+    const x = xAt(index);
+    const y = yAt(point.value);
     if (index === 0) {
       ctx.moveTo(x, y);
     } else {
@@ -5590,10 +5628,80 @@ function drawEquityCurve(closedTrades) {
   });
   ctx.stroke();
 
+  drawEquityLegend(ctx, pad, benchmarkValues);
+
   const last = points[points.length - 1];
   ctx.fillStyle = cssVar("--ink") || "#152025";
   ctx.font = "700 12px system-ui";
   ctx.fillText(`${last.value.toFixed(2)}`, pad.left, rect.height - 9);
+}
+
+function benchmarkCloseAt(dateStr) {
+  const series = state.benchmarkSeries;
+  if (!series.length || !dateStr) return null;
+  let result = null;
+  for (const point of series) {
+    if (point.date <= dateStr) result = point.close;
+    else break;
+  }
+  return result;
+}
+
+function buildBenchmarkValues(sortedTrades) {
+  const empty = new Array(sortedTrades.length + 1).fill(null);
+  if (!state.benchmarkSeries.length || !sortedTrades.length) return empty;
+  const baseDate = String(sortedTrades[0].exit_time || "").slice(0, 10);
+  const baseClose = benchmarkCloseAt(baseDate);
+  if (!baseClose) return empty;
+  const values = [100];
+  sortedTrades.forEach((trade) => {
+    const close = benchmarkCloseAt(String(trade.exit_time || "").slice(0, 10));
+    values.push(Number.isFinite(close) && close > 0 ? (close / baseClose) * 100 : null);
+  });
+  return values;
+}
+
+function drawEquityLegend(ctx, pad, benchmarkValues) {
+  const items = [{ label: t("legendPortfolio"), color: cssVar("--accent") || "#7c3aed", dash: false }];
+  if (benchmarkValues.some((value) => Number.isFinite(value))) {
+    items.push({ label: t("legendVnindex"), color: cssVar("--muted") || "#94a3b8", dash: true });
+  }
+  let x = pad.left;
+  const y = pad.top - 12;
+  ctx.font = "600 11px system-ui";
+  items.forEach((item) => {
+    ctx.strokeStyle = item.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(item.dash ? [4, 3] : []);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 18, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = cssVar("--muted") || "#66727a";
+    ctx.fillText(item.label, x + 23, y + 4);
+    x += 23 + ctx.measureText(item.label).width + 16;
+  });
+}
+
+let benchmarkLoading = false;
+
+async function ensureBenchmarkLoaded() {
+  if (state.benchmarkSeries.length || benchmarkLoading) return;
+  benchmarkLoading = true;
+  try {
+    const data = await fetchJson("/api/benchmark/vnindex");
+    state.benchmarkSeries = data.series || [];
+  } catch (error) {
+    state.benchmarkSeries = [];
+  } finally {
+    benchmarkLoading = false;
+  }
+  if (state.activeTab === "performance") {
+    drawEquityCurve(
+      state.performanceClosedTrades.length ? state.performanceClosedTrades : state.closedTrades
+    );
+  }
 }
 
 function drawManualEquityCurve(curve) {
