@@ -4196,8 +4196,21 @@ function backtestStatForTrade(trade) {
   });
 }
 
-function averageLossThreshold(stat) {
+function avgLossMultiplier(strategy) {
+  const raw = String(strategy || "").trim().toLowerCase();
+  if (STRATEGY_AVG_LOSS_MULTIPLIER[raw]) return STRATEGY_AVG_LOSS_MULTIPLIER[raw];
+  const alias = String(STRATEGY_DISPLAY_ALIASES[raw] || "").toLowerCase();
+  return STRATEGY_AVG_LOSS_MULTIPLIER[alias] || 1;
+}
+
+function effectiveAvgLossPct(stat) {
   const value = Number(stat?.avg_loss_pct);
+  if (!Number.isFinite(value)) return stat?.avg_loss_pct;
+  return value * avgLossMultiplier(stat?.strategy);
+}
+
+function averageLossThreshold(stat) {
+  const value = Number(effectiveAvgLossPct(stat));
   if (!Number.isFinite(value) || value === 0) return null;
   return value > 0 ? -value : value;
 }
@@ -4678,7 +4691,7 @@ function renderBacktestStats(stats) {
         <td>${stat.negative_trades ?? "-"}</td>
         <td>${formatSignedPercent(stat.max_loss_pct)}</td>
         <td>${formatSignedPercent(stat.min_loss_pct)}</td>
-        <td>${formatSignedPercent(stat.avg_loss_pct)}</td>
+        <td>${formatSignedPercent(effectiveAvgLossPct(stat))}</td>
         <td>${formatSignedPercent(stat.max_gain_pct)}</td>
         <td>${formatSignedPercent(stat.avg_gain_pct)}</td>
         <td>${formatHitRate(stat.tp1_hits, stat.tp1_total ?? stat.closed_trades)}</td>

@@ -55,6 +55,14 @@ const STRATEGY_DISPLAY_ALIASES = {
   "mordern stock ema": "MSE",
   "modern stock ema": "MSE",
 };
+// Widen a strategy's average loss beyond the raw backtest figure. Keyed by the
+// lowercased raw strategy name (and its display alias). Applied to the backtest
+// stats table and the "average loss touch" alert; the edit form keeps the raw
+// value so re-saving does not compound the multiplier.
+const STRATEGY_AVG_LOSS_MULTIPLIER = {
+  st: 1.5,
+  stxanhdo: 1.5,
+};
 const FEATURE_LABELS = {
   overview: "Tổng quan",
   positions: "Vị thế",
