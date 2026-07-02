@@ -262,6 +262,8 @@ Object.assign(translations.en, {
   liquidityPctOfAdtv: "Position / ADTV",
   liquidityExitDays: "Days to exit",
   liquidityWarn: "Large vs liquidity — hard to exit",
+  foreignNet: "Foreign net",
+  foreignSellAlert: "Foreign net selling",
   pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
   pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
   pruneDividendEventsFailed: "Could not clean dividend calendar",
@@ -321,6 +323,8 @@ Object.assign(translations.vi, {
   liquidityPctOfAdtv: "Vị thế / GTGD",
   liquidityExitDays: "Số ngày để thoát",
   liquidityWarn: "Quá lớn so với thanh khoản — khó thoát",
+  foreignNet: "NN ròng",
+  foreignSellAlert: "Khối ngoại bán ròng",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -1036,6 +1040,7 @@ const state = {
   performanceClosedTrades: [],
   benchmarkSeries: [],
   liquidity: {},
+  foreignFlow: {},
   sectorMap: {},
   sectorNames: [],
   signalMonitor: null,
@@ -2991,6 +2996,7 @@ async function refresh() {
   renderUserAttention();
   renderRiskOverview();
   renderRiskAlerts();
+  loadForeignFlow();
   renderKellyEntries();
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
@@ -4413,6 +4419,22 @@ function renderRiskAlerts() {
     });
   }
 
+  const openTickerSet = new Set(rows.map((row) => String(row.trade.ticker || "").toUpperCase()));
+  Object.entries(state.foreignFlow || {})
+    .filter(([ticker, flow]) =>
+      openTickerSet.has(ticker) && Number(flow?.net_value) <= -FOREIGN_NET_ALERT_VND
+    )
+    .sort((left, right) => Number(left[1].net_value) - Number(right[1].net_value))
+    .slice(0, 5)
+    .forEach(([ticker, flow]) => {
+      alerts.push({
+        level: "warning",
+        title: t("foreignSellAlert"),
+        detail: `${ticker} ${(Number(flow.net_value) / 1e9).toFixed(1)} ${t("billionUnit")}`,
+        ticker,
+      });
+    });
+
   if (state.signalMonitor?.stale) {
     alerts.push({
       level: "danger",
@@ -4738,7 +4760,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="14">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="15">${t("noOpenPositions")}</td></tr>`;
     els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
@@ -4756,6 +4778,7 @@ function renderOpenPositions() {
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
         <td>${escapeHtml(sectorFor(trade.ticker) || "-")}</td>
+        <td>${foreignNetCell(trade.ticker)}</td>
         <td>${escapeHtml(trade.timeframe || "-")}</td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
@@ -5395,6 +5418,18 @@ async function ensureBenchmarkLoaded() {
       state.performanceClosedTrades.length ? state.performanceClosedTrades : state.closedTrades
     );
   }
+}
+
+async function loadForeignFlow() {
+  try {
+    const data = await fetchJson("/api/foreign-flow");
+    state.foreignFlow = data.foreign_flow || {};
+  } catch (error) {
+    state.foreignFlow = {};
+    return;
+  }
+  renderOpenPositions();
+  renderRiskAlerts();
 }
 
 function drawManualEquityCurve(curve) {
@@ -6206,6 +6241,21 @@ function formatSignedVnd(value) {
 function formatVnd(value) {
   if (value === null || value === undefined) return "-";
   return `${Number(value).toLocaleString(NUMBER_FORMAT_LOCALE, { maximumFractionDigits: 0 })} đ`;
+}
+
+function formatSignedBillions(value) {
+  if (value === null || value === undefined) return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  const className = number >= 0 ? "positive" : "negative";
+  const sign = number > 0 ? "+" : "";
+  return `<span class="${className}">${sign}${(number / 1e9).toFixed(1)} ${t("billionUnit")}</span>`;
+}
+
+function foreignNetCell(ticker) {
+  const flow = state.foreignFlow[String(ticker || "").trim().toUpperCase()];
+  if (!flow || !Number.isFinite(Number(flow.net_value))) return "-";
+  return formatSignedBillions(Number(flow.net_value));
 }
 
 function compactVnd(value) {

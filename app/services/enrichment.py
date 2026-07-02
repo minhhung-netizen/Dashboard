@@ -1046,6 +1046,66 @@ def average_daily_value(history: list[dict[str, Any]] | None, sessions: int = 20
     return sum(values) / len(values)
 
 
+def foreign_flow(tickers: list[str] | tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    """Current-session foreign buy/sell/net (VND) per ticker from vnstock's
+    price board. One call covers many symbols. Returns {} when unavailable."""
+    symbols = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    if not symbols:
+        return {}
+    board = _vnstock_price_board(symbols)
+    if board is None:
+        return {}
+    try:
+        # price_board has MultiIndex columns like ("match", "foreign_buy_value");
+        # map by the leaf name so we tolerate group/layout changes.
+        leaf = {}
+        for col in board.columns:
+            name = col[-1] if isinstance(col, tuple) else col
+            leaf[name] = col
+        sym_col = leaf.get("symbol")
+        buy_col = leaf.get("foreign_buy_value")
+        sell_col = leaf.get("foreign_sell_value")
+        if sym_col is None or buy_col is None or sell_col is None:
+            return {}
+        buy_vol_col = leaf.get("foreign_buy_volume")
+        sell_vol_col = leaf.get("foreign_sell_volume")
+        result: dict[str, dict[str, Any]] = {}
+        for _, row in board.iterrows():
+            symbol = str(row.get(sym_col) or "").strip().upper()
+            if not symbol:
+                continue
+            buy = coerce_float(row.get(buy_col)) or 0.0
+            sell = coerce_float(row.get(sell_col)) or 0.0
+            result[symbol] = {
+                "buy_value": buy,
+                "sell_value": sell,
+                "net_value": buy - sell,
+                "buy_volume": coerce_float(row.get(buy_vol_col)) if buy_vol_col else None,
+                "sell_volume": coerce_float(row.get(sell_vol_col)) if sell_vol_col else None,
+            }
+        return result
+    except BaseException:
+        return {}
+
+
+def _vnstock_price_board(symbols: list[str]) -> Any:
+    try:
+        module = import_module("vnstock")
+    except BaseException:
+        return None
+    trading_class = getattr(module, "Trading", None)
+    if trading_class is None:
+        return None
+    for source in ("VCI", "KBS"):
+        try:
+            board = trading_class(symbol=symbols[0], source=source).price_board(symbols)
+            if board is not None and len(board):
+                return board
+        except BaseException:
+            continue
+    return None
+
+
 def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None:
     for candidate in candidates:
         if candidate in columns:

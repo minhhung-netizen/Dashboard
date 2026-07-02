@@ -27,6 +27,7 @@ from app.services.enrichment import (
     average_daily_value,
     coerce_float,
     fetch_dividend_events,
+    foreign_flow,
     fetch_industry_map,
     normalize_stock_price,
     normalize_action,
@@ -939,6 +940,29 @@ def performance(request: Request, ticker: str | None = None, strategy: str | Non
         user=request.state.user,
     )
     return build_performance(signals, store.list_dividend_events())
+
+
+_foreign_flow_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_FOREIGN_FLOW_TTL_SECONDS = 180
+
+
+@app.get("/api/foreign-flow")
+async def foreign_flow_endpoint(tickers: str | None = None) -> dict[str, Any]:
+    """Current-session foreign net buy/sell per ticker (defaults to held tickers)."""
+    if tickers:
+        symbols = sorted({normalize_ticker(part)[0] for part in tickers.split(",") if part.strip()})
+    else:
+        symbols = sorted(open_position_tickers())
+    if not symbols:
+        return {"foreign_flow": {}}
+    key = tuple(symbols)
+    now = _time.monotonic()
+    cached = _foreign_flow_cache.get(key)
+    if cached and now - cached[0] < _FOREIGN_FLOW_TTL_SECONDS:
+        return {"foreign_flow": cached[1]}
+    data = await asyncio.to_thread(foreign_flow, symbols)
+    _foreign_flow_cache[key] = (now, data)
+    return {"foreign_flow": data}
 
 
 @app.get("/api/liquidity/{ticker}")

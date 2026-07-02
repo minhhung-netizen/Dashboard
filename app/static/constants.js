@@ -17,6 +17,9 @@ const DEFAULT_STOP_DISTANCE_PCT = 8;
 // position would take longer than this many sessions.
 const LIQUIDITY_PARTICIPATION_PCT = 20;
 const LIQUIDITY_MAX_EXIT_DAYS = 3;
+// Warn when foreigners are net selling a held position by more than this many
+// VND in the current session (default 20 billion).
+const FOREIGN_NET_ALERT_VND = 20e9;
 const DEFAULT_KELLY_INPUTS = {
   ticker: "",
   strategy: "",
