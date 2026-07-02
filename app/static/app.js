@@ -394,7 +394,7 @@ Object.assign(translations.vi, {
   currentPl: "Lãi/lỗ hiện tại",
   openUnrealizedPl: "Lãi/lỗ tạm tính",
   allocationWeight: "Tỷ trọng",
-  portfolioPl: "Lãi/lỗ",
+  portfolioPl: "Lãi/lỗ thực",
   confirm: "Tín hiệu",
   confirmAll: "Tất cả trạng thái tín hiệu",
   confirmedOnly: "Có tín hiệu khác",
