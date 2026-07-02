@@ -1468,7 +1468,7 @@ function readDcaSizingInputs() {
   const strategy = els.dcaSizingStrategy.value.trim();
   const stat = ticker ? findBacktestStat(ticker, strategy) : null;
   const avgGainPct = Math.abs(Number(stat?.avg_gain_pct));
-  const avgLossPct = Math.abs(Number(stat?.avg_loss_pct));
+  const avgLossPct = Math.abs(Number(effectiveAvgLossPct(stat)));
   const riskLimitPct = optionalNumber(els.dcaRiskLimitPct.value);
   const distanceMode = els.dcaDistanceMode.value === "priceStep" ? "priceStep" : "percent";
   const priceStepMode = distanceMode === "priceStep" && els.dcaPriceStepMode.value === "fixed"
@@ -1566,7 +1566,7 @@ function dcaBacktestLossRange() {
   const ticker = els.dcaSizingTicker.value.trim().toUpperCase();
   const strategy = els.dcaSizingStrategy.value.trim();
   const stat = ticker ? findBacktestStat(ticker, strategy) : null;
-  const avgLoss = Math.abs(Number(stat?.avg_loss_pct));
+  const avgLoss = Math.abs(Number(effectiveAvgLossPct(stat)));
   const maxLoss = Math.abs(Number(stat?.max_loss_pct));
   if (!Number.isFinite(avgLoss) || !Number.isFinite(maxLoss) || avgLoss <= 0 || maxLoss <= avgLoss) {
     return null;
