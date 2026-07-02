@@ -67,7 +67,7 @@ const FEATURE_LABELS = {
   overview: "Tổng quan",
   positions: "Vị thế",
   derivatives: "Phái sinh VN30",
-  manualPortfolio: "Danh mục tay",
+  manualPortfolio: "Danh mục thủ công",
   performance: "Hiệu suất",
   kelly: "Kelly",
   dcaSizing: "Phân bổ DCA",
