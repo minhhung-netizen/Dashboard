@@ -533,6 +533,8 @@ button:active {
 }
 
 main {
+  margin: 0 auto;
+  max-width: 1760px;
   padding: 16px clamp(18px, 3.5vw, 40px) 38px;
 }
 
@@ -542,9 +544,10 @@ main {
   border-radius: 8px;
   box-shadow: var(--shadow);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
   margin-bottom: 16px;
+  overflow-x: auto;
   padding: 5px;
   scrollbar-width: none;
 }
@@ -554,6 +557,7 @@ main {
 }
 
 .tabButton {
+  flex: 0 0 auto;
   height: 32px;
   padding: 0 12px;
   font-weight: 720;
@@ -2218,6 +2222,21 @@ td strong {
     grid-template-columns: 1fr 1fr;
   }
 
+  .riskMetrics article {
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .riskMetrics article:nth-child(even) {
+    border-right: 0;
+  }
+
+  /* Portfolio heat is the go/no-go number — give it its own full row. */
+  .riskMetrics article:nth-child(5) {
+    border-bottom: 0;
+    border-right: 0;
+    grid-column: 1 / -1;
+  }
+
   .recentTradeBanner {
     align-items: start;
     grid-template-columns: 1fr;
@@ -2330,6 +2349,10 @@ td strong {
   .riskMetrics,
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .riskMetrics article {
+    border-right: 0;
   }
 
   .tabPanel[data-tab-panel="overview"].active {
