@@ -1727,7 +1727,7 @@ function calculateDcaSizing(inputs) {
       cumulativeAverage: null,
     };
   });
-  distributeRemainingCapitalToLastDcaRows(rows, allocatedCapital, inputs.lotSize);
+  distributeRemainingCapitalToDcaRows(rows, allocatedCapital, inputs.lotSize);
 
   let cumulativeShares = 0;
   let cumulativeCost = 0;
@@ -1786,34 +1786,50 @@ function calculateDcaSizing(inputs) {
   };
 }
 
-function distributeRemainingCapitalToLastDcaRows(rows, allocatedCapital, lotSize) {
+function distributeRemainingCapitalToDcaRows(rows, allocatedCapital, lotSize) {
   const normalizedLotSize = Math.max(1, Math.floor(Number(lotSize) || 1));
-  const targetRows = rows.slice(-2).filter((row) => row && Number(row.buyPrice) > 0);
-  if (!targetRows.length) return;
+  if (!rows.some((row) => row && Number(row.buyPrice) > 0)) return;
 
-  let usedCapital = rows.reduce((sum, row) => sum + Number(row.cost || 0), 0);
-  let remaining = Number(allocatedCapital) - usedCapital;
+  // Rebuild each level's ideal (pre-rounding) share target from the multiplier
+  // ladder, so leftover cash is topped up toward those proportions across every
+  // level instead of being dumped onto the last two. This keeps the multiplier
+  // shape but spreads any large rounding residue in a balanced way.
+  let volumeFactor = 1;
+  const factors = rows.map((row, index) => {
+    if (index > 0) volumeFactor *= Math.max(0, Number(row.multiplier) || 0);
+    return volumeFactor;
+  });
+  const factorCost = rows.reduce(
+    (sum, row, index) => sum + Number(row.buyPrice || 0) * factors[index],
+    0
+  );
+  const baseRawShares = factorCost > 0 ? Number(allocatedCapital) / factorCost : 0;
+  const idealShares = factors.map((factor) => baseRawShares * factor);
+
+  let remaining =
+    Number(allocatedCapital) - rows.reduce((sum, row) => sum + Number(row.cost || 0), 0);
   if (!Number.isFinite(remaining) || remaining <= 0) return;
 
-  [...targetRows].reverse().forEach((row, index) => {
-    const slotsLeft = targetRows.length - index;
-    const budget = remaining / slotsLeft;
-    const extraShares = Math.floor(budget / row.buyPrice / normalizedLotSize) * normalizedLotSize;
-    if (extraShares <= 0) return;
-    const extraCost = extraShares * row.buyPrice;
-    row.shares += extraShares;
-    row.cost += extraCost;
-    remaining -= extraCost;
-  });
-
+  // Add one lot at a time to the level that is furthest below its ideal share
+  // (smallest fill ratio) among the levels we can still afford, until the
+  // remaining cash cannot buy a single lot anywhere.
   while (true) {
-    const affordableRow = [...targetRows]
-      .sort((left, right) => Number(left.buyPrice) - Number(right.buyPrice))
-      .find((row) => row.buyPrice * normalizedLotSize <= remaining);
-    if (!affordableRow) break;
-    const extraCost = affordableRow.buyPrice * normalizedLotSize;
-    affordableRow.shares += normalizedLotSize;
-    affordableRow.cost += extraCost;
+    let pick = null;
+    let pickRatio = Infinity;
+    rows.forEach((row, index) => {
+      const price = Number(row.buyPrice);
+      if (!(price > 0) || price * normalizedLotSize > remaining) return;
+      const ideal = idealShares[index];
+      const ratio = ideal > 0 ? row.shares / ideal : Infinity;
+      if (ratio < pickRatio) {
+        pickRatio = ratio;
+        pick = row;
+      }
+    });
+    if (!pick) break;
+    const extraCost = pick.buyPrice * normalizedLotSize;
+    pick.shares += normalizedLotSize;
+    pick.cost += extraCost;
     remaining -= extraCost;
   }
 }
