@@ -5028,7 +5028,7 @@ function renderBacktestInsight(stat) {
     insightMetric(t("negativeTrades"), stat.negative_trades ?? "-"),
     insightMetric(t("maxLoss"), formatSignedPercent(stat.max_loss_pct)),
     insightMetric(t("minLoss"), formatSignedPercent(stat.min_loss_pct)),
-    insightMetric(t("avgLoss"), formatSignedPercent(stat.avg_loss_pct)),
+    insightMetric(t("avgLoss"), formatSignedPercent(effectiveAvgLossPct(stat))),
     insightMetric(t("maxGain"), formatSignedPercent(stat.max_gain_pct)),
     insightMetric(t("avgGain"), formatSignedPercent(stat.avg_gain_pct)),
     insightMetric(t("tp1HitRate"), formatHitRate(stat.tp1_hits, stat.tp1_total ?? stat.closed_trades)),
