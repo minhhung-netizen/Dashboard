@@ -4780,7 +4780,6 @@ function renderOpenPositions() {
         <td><strong class="${tickerClass}" title="${escapeHtml(confirmTitle)}">${escapeHtml(trade.ticker)}</strong></td>
         <td><strong>${escapeHtml(displayStrategyName(trade.strategy))}</strong></td>
         <td>${escapeHtml(sectorFor(trade.ticker) || "-")}</td>
-        <td>${foreignNetCell(trade.ticker)}</td>
         <td>${escapeHtml(trade.timeframe || "-")}</td>
         <td>${formatPrice(trade.entry_price)}</td>
         <td>${formatPrice(trade.exit_price)}</td>
@@ -4788,6 +4787,7 @@ function renderOpenPositions() {
         <td>${formatKellyPercent(weightPct)}</td>
         <td>${formatSignedPercent(allocatedPl)}</td>
         <td>${renderConfirmations(signals)}</td>
+        <td>${foreignNetCell(trade.ticker)}</td>
         <td>${renderDividendNotes(trade.dividend_notes || [])}</td>
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
