@@ -11,7 +11,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260702-pl-label" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260702-closed-filter" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -307,9 +307,14 @@
               <p class="eyebrow" data-i18n="closedTrades">Closed Trades</p>
               <h2 data-i18n="tradeHistory">Trade History</h2>
             </div>
-            <div id="closedTradesFilter" class="filterStatus" hidden>
-              <span id="closedTradesFilterLabel"></span>
-              <button id="clearClosedTradesFilter" class="smallButton" type="button" data-i18n="clearFilter">Clear</button>
+            <div class="performanceControls">
+              <select id="closedTradesStrategyFilter" aria-label="Closed trades strategy filter">
+                <option value="" data-i18n="allStrategies">All strategies</option>
+              </select>
+              <div id="closedTradesFilter" class="filterStatus" hidden>
+                <span id="closedTradesFilterLabel"></span>
+                <button id="clearClosedTradesFilter" class="smallButton" type="button" data-i18n="clearFilter">Clear</button>
+              </div>
             </div>
           </div>
           <div class="tableWrap">
@@ -1262,8 +1267,8 @@
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/constants.js?v=20260702-pl-label"></script>
-    <script src="/static/i18n.js?v=20260702-pl-label"></script>
-    <script src="/static/app.js?v=20260702-pl-label"></script>
+    <script src="/static/constants.js?v=20260702-closed-filter"></script>
+    <script src="/static/i18n.js?v=20260702-closed-filter"></script>
+    <script src="/static/app.js?v=20260702-closed-filter"></script>
   </body>
 </html>

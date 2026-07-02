@@ -50,6 +50,7 @@ const els = {
   manualRefreshPrices: document.querySelector("#manualRefreshPrices"),
   closedTradesFilter: document.querySelector("#closedTradesFilter"),
   closedTradesFilterLabel: document.querySelector("#closedTradesFilterLabel"),
+  closedTradesStrategyFilter: document.querySelector("#closedTradesStrategyFilter"),
   clearClosedTradesFilter: document.querySelector("#clearClosedTradesFilter"),
   watchlistInput: document.querySelector("#watchlistInput"),
   watchlistOnly: document.querySelector("#watchlistOnly"),
@@ -2965,6 +2966,7 @@ async function refresh() {
   updateDcaSizingStrategyOptions([...state.performanceStrategies, ...state.backtestStats, ...state.kellyEntries]);
   renderOpenPositions();
   state.closedTrades = positionPayload.closed_trades || [];
+  updateClosedTradesStrategyFilterOptions(state.closedTrades);
   renderClosedTrades(state.closedTrades);
   renderRecentTradeBanner();
   renderAverageLossBanner();
@@ -5146,15 +5148,36 @@ function renderClosedTrades(closedTrades) {
 }
 
 function filterClosedTrades(closedTrades) {
-  const visibleClosedTrades = filterTradesForWatchlist(
+  let result = filterTradesForWatchlist(
     hideClosedTradesForReopenedPositions(closedTrades)
   );
-  if (!state.closedTradeFilter) return visibleClosedTrades;
-  const ticker = state.closedTradeFilter.ticker;
-  const strategy = state.closedTradeFilter.strategy;
-  return visibleClosedTrades.filter(
-    (trade) => trade.ticker === ticker && trade.strategy === strategy
-  );
+  if (state.closedTradeFilter) {
+    const { ticker, strategy } = state.closedTradeFilter;
+    result = result.filter((trade) => trade.ticker === ticker && trade.strategy === strategy);
+  }
+  const strategyFilter = els.closedTradesStrategyFilter
+    ? els.closedTradesStrategyFilter.value.trim()
+    : "";
+  if (strategyFilter) {
+    result = result.filter((trade) => String(trade.strategy || "") === strategyFilter);
+  }
+  return result;
+}
+
+function updateClosedTradesStrategyFilterOptions(closedTrades) {
+  if (!els.closedTradesStrategyFilter) return;
+  const currentValue = els.closedTradesStrategyFilter.value;
+  const strategies = [
+    ...new Set(
+      (closedTrades || []).map((trade) => String(trade.strategy || "").trim()).filter(Boolean)
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+  els.closedTradesStrategyFilter.replaceChildren();
+  els.closedTradesStrategyFilter.append(new Option(t("allStrategies"), ""));
+  strategies.forEach((strategy) => {
+    els.closedTradesStrategyFilter.append(new Option(displayStrategyName(strategy), strategy));
+  });
+  els.closedTradesStrategyFilter.value = strategies.includes(currentValue) ? currentValue : "";
 }
 
 function hideClosedTradesForReopenedPositions(closedTrades) {
@@ -6343,6 +6366,11 @@ if (els.openPositionSectorFilter) {
   els.openPositionSectorFilter.addEventListener("change", renderOpenPositions);
 }
 els.openPositionSort.addEventListener("change", renderOpenPositions);
+if (els.closedTradesStrategyFilter) {
+  els.closedTradesStrategyFilter.addEventListener("change", () =>
+    renderClosedTrades(state.closedTrades)
+  );
+}
 els.openPositionRefreshPrices.addEventListener("click", refreshOpenPositionMarketPrices);
 els.positionInsightClose.addEventListener("click", closePositionInsight);
 els.positionInsightCloseBottom.addEventListener("click", closePositionInsight);
