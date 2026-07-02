@@ -264,6 +264,7 @@ Object.assign(translations.en, {
   liquidityWarn: "Large vs liquidity — hard to exit",
   foreignNet: "Foreign net",
   foreignSellAlert: "Foreign net selling",
+  foreign5dShort: "5d",
   pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
   pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
   pruneDividendEventsFailed: "Could not clean dividend calendar",
@@ -325,6 +326,7 @@ Object.assign(translations.vi, {
   liquidityWarn: "Quá lớn so với thanh khoản — khó thoát",
   foreignNet: "NN ròng",
   foreignSellAlert: "Khối ngoại bán ròng",
+  foreign5dShort: "5p",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -6255,7 +6257,14 @@ function formatSignedBillions(value) {
 function foreignNetCell(ticker) {
   const flow = state.foreignFlow[String(ticker || "").trim().toUpperCase()];
   if (!flow || !Number.isFinite(Number(flow.net_value))) return "-";
-  return formatSignedBillions(Number(flow.net_value));
+  const today = formatSignedBillions(Number(flow.net_value));
+  const fiveDay = Number(flow.net_5d);
+  if (Number.isFinite(fiveDay)) {
+    const sign = fiveDay > 0 ? "+" : "";
+    const cls = fiveDay >= 0 ? "positive" : "negative";
+    return `${today}<br><small class="${cls}">${escapeHtml(t("foreign5dShort"))} ${sign}${(fiveDay / 1e9).toFixed(1)}</small>`;
+  }
+  return today;
 }
 
 function compactVnd(value) {

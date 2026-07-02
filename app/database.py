@@ -227,6 +227,20 @@ CREATE TABLE IF NOT EXISTS sector_mappings (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS foreign_flow_daily (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    buy_value REAL,
+    sell_value REAL,
+    net_value REAL,
+    recorded_at TEXT NOT NULL,
+    UNIQUE(ticker, trade_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_foreign_flow_daily_lookup
+ON foreign_flow_daily (ticker, trade_date DESC);
+
 CREATE INDEX IF NOT EXISTS idx_sector_mappings_sector
 ON sector_mappings (sector);
 
@@ -1426,6 +1440,68 @@ class SignalStore:
         with self.connect() as conn:
             row = conn.execute("SELECT MAX(received_at) AS latest FROM signals").fetchone()
         return row["latest"] if row else None
+
+    def record_foreign_flow_daily(
+        self, data: dict[str, dict[str, Any]], trade_date: str
+    ) -> int:
+        rows = []
+        for ticker, info in (data or {}).items():
+            normalized = str(ticker or "").strip().upper()
+            if not normalized or not isinstance(info, dict):
+                continue
+            rows.append(
+                (
+                    normalized,
+                    trade_date,
+                    info.get("buy_value"),
+                    info.get("sell_value"),
+                    info.get("net_value"),
+                    utc_now_iso(),
+                )
+            )
+        if not rows:
+            return 0
+        with self.connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO foreign_flow_daily (
+                    ticker, trade_date, buy_value, sell_value, net_value, recorded_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ticker, trade_date) DO UPDATE SET
+                    buy_value = excluded.buy_value,
+                    sell_value = excluded.sell_value,
+                    net_value = excluded.net_value,
+                    recorded_at = excluded.recorded_at
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def foreign_flow_history(
+        self, tickers: list[str] | tuple[str, ...], days: int = 5
+    ) -> dict[str, list[float]]:
+        symbols = [str(t or "").strip().upper() for t in (tickers or []) if str(t or "").strip()]
+        if not symbols:
+            return {}
+        limit = max(1, days)
+        result: dict[str, list[float]] = {symbol: [] for symbol in symbols}
+        placeholders = ", ".join("?" for _ in symbols)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ticker, net_value
+                FROM foreign_flow_daily
+                WHERE ticker IN ({placeholders})
+                ORDER BY ticker ASC, trade_date DESC
+                """,
+                symbols,
+            ).fetchall()
+        for row in rows:
+            bucket = result.get(row["ticker"])
+            if bucket is not None and len(bucket) < limit and row["net_value"] is not None:
+                bucket.append(row["net_value"])
+        return result
 
     def insert_dca_plan(
         self,

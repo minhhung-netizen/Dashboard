@@ -127,6 +127,7 @@ enricher = MarketDataEnricher(
     vnstock=vnstock_enricher,
 )
 last_auto_manual_price_refresh_date: str | None = None
+last_foreign_flow_snapshot_date: str | None = None
 enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 
 
@@ -959,10 +960,23 @@ async def foreign_flow_endpoint(tickers: str | None = None) -> dict[str, Any]:
     now = _time.monotonic()
     cached = _foreign_flow_cache.get(key)
     if cached and now - cached[0] < _FOREIGN_FLOW_TTL_SECONDS:
-        return {"foreign_flow": cached[1]}
-    data = await asyncio.to_thread(foreign_flow, symbols)
-    _foreign_flow_cache[key] = (now, data)
-    return {"foreign_flow": data}
+        live = cached[1]
+    else:
+        live = await asyncio.to_thread(foreign_flow, symbols)
+        _foreign_flow_cache[key] = (now, live)
+    # Merge the stored multi-session trend (cheap, always fresh) onto the
+    # cached live snapshot.
+    history = store.foreign_flow_history(symbols, days=5)
+    merged: dict[str, Any] = {}
+    for symbol in symbols:
+        info = dict(live.get(symbol) or {})
+        nets = history.get(symbol) or []
+        if nets:
+            info["net_5d"] = sum(nets)
+            info["days_5d"] = len(nets)
+        if info:
+            merged[symbol] = info
+    return {"foreign_flow": merged}
 
 
 @app.get("/api/liquidity/{ticker}")
@@ -1626,11 +1640,33 @@ async def manual_portfolio_automation_loop() -> None:
         try:
             await refresh_manual_portfolio_prices_if_due(force=True)
             record_manual_daily_performance_if_due()
+            await record_foreign_flow_if_due()
         except asyncio.CancelledError:
             raise
         except BaseException:
             logger.exception("Manual portfolio automation failed")
         await asyncio.sleep(60)
+
+
+async def record_foreign_flow_if_due(recorded_at: str | None = None) -> None:
+    """After market close, snapshot the session's foreign net per held ticker
+    once per trading day so a multi-session trend can be built over time."""
+    global last_foreign_flow_snapshot_date
+    if not is_after_manual_price_refresh_time(recorded_at):
+        return
+    trade_date = market_date_iso(recorded_at)
+    if last_foreign_flow_snapshot_date == trade_date:
+        return
+    tickers = sorted(open_position_tickers())
+    if not tickers:
+        last_foreign_flow_snapshot_date = trade_date
+        return
+    data = await asyncio.to_thread(foreign_flow, tickers)
+    if not data:
+        return  # provider hiccup — retry on the next tick
+    await asyncio.to_thread(store.record_foreign_flow_daily, data, trade_date)
+    last_foreign_flow_snapshot_date = trade_date
+    logger.info("Foreign flow snapshot recorded for %s (%s tickers)", trade_date, len(data))
 
 
 def signal_monitor_status() -> dict[str, Any]:
