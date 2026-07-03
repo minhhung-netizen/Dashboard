@@ -269,8 +269,9 @@ h1 {
 }
 
 h2 {
-  font-size: 15px;
-  font-weight: 730;
+  font-size: 17px;
+  font-weight: 780;
+  letter-spacing: -0.1px;
   line-height: 1.25;
 }
 
@@ -759,10 +760,6 @@ main {
 
 .riskPanel,
 .alertCenterPanel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -923,10 +920,6 @@ main {
 }
 
 .attentionPanel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
   margin-bottom: 16px;
   overflow: hidden;
 }
@@ -1001,11 +994,41 @@ main {
 .manualEquityPanel,
 .manualDailyPanel,
 .dividendPanel,
-.manualPositionsPanel {
+.manualPositionsPanel,
+.riskPanel,
+.alertCenterPanel,
+.attentionPanel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.chartPanel:hover,
+.signalsPanel:hover,
+.openPositionsPanel:hover,
+.equityPanel:hover,
+.closedTradesPanel:hover,
+.invalidSignalsPanel:hover,
+.performancePanel:hover,
+.performanceHistoryPanel:hover,
+.backtestStatsPanel:hover,
+.kellyPanel:hover,
+.dcaSizingPanel:hover,
+.dcaSavedSection:hover,
+.timelinePanel:hover,
+.exportPanel:hover,
+.manualFormPanel:hover,
+.manualEquityPanel:hover,
+.manualDailyPanel:hover,
+.dividendPanel:hover,
+.manualPositionsPanel:hover,
+.riskPanel:hover,
+.alertCenterPanel:hover,
+.attentionPanel:hover {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+  box-shadow: var(--shadow-strong);
 }
 
 .metrics article {
@@ -1147,7 +1170,7 @@ main {
   gap: 14px;
   justify-content: space-between;
   min-height: 60px;
-  padding: 12px 16px;
+  padding: 13px 16px;
 }
 
 .panelHead > div:first-child {
