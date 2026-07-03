@@ -589,14 +589,6 @@ main {
   display: none;
 }
 
-.recentTradeBanner.isCollapsed {
-  grid-template-columns: auto 1fr auto;
-}
-
-.recentTradeBanner.isCollapsed .recentTradeMarquee {
-  display: none;
-}
-
 .recentTradeBannerLabel {
   color: var(--muted);
   font-size: 11px;
@@ -703,18 +695,6 @@ main {
 .recentTradeChip span {
   color: var(--muted);
   font-size: 11px;
-}
-
-.bannerToggleButton {
-  background: transparent;
-  border-color: var(--line);
-  color: var(--muted);
-  height: 28px;
-  padding: 0 10px;
-}
-
-.bannerToggleButton:hover {
-  color: var(--ink);
 }
 
 .avgLossBanner {

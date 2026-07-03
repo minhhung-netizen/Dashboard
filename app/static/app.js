@@ -10,7 +10,6 @@ const els = {
   syncStatus: document.querySelector("#syncStatus"),
   recentTradeBanner: document.querySelector("#recentTradeBanner"),
   recentTradeBannerTrack: document.querySelector("#recentTradeBannerTrack"),
-  recentTradeBannerToggle: document.querySelector("#recentTradeBannerToggle"),
   avgLossBanner: document.querySelector("#avgLossBanner"),
   avgLossBannerTrack: document.querySelector("#avgLossBannerTrack"),
   avgGainBanner: document.querySelector("#avgGainBanner"),
@@ -604,8 +603,6 @@ Object.assign(translations.en, {
   avgGainBanner: "Average gain alerts",
   recentOpened: "New buys",
   recentClosed: "New closes",
-  hideBanner: "Hide",
-  showBanner: "Show",
   riskOverview: "Risk Overview",
   portfolioRisk: "Portfolio Risk",
   totalExposure: "Total exposure",
@@ -640,8 +637,6 @@ Object.assign(translations.vi, {
   avgLossBanner: "Cảnh báo âm TB",
   recentOpened: "Mới mở mua",
   recentClosed: "Mới đóng",
-  hideBanner: "Ẩn",
-  showBanner: "Hiện",
   riskOverview: "Rủi ro",
   portfolioRisk: "Rủi ro danh mục",
   totalExposure: "Tổng tỷ trọng",
@@ -1016,7 +1011,6 @@ const state = {
   selectedTicker: "",
   watchlist: loadWatchlist(),
   watchlistOnly: localStorage.getItem("dashboardWatchlistOnly") === "true",
-  recentTradeBannerHidden: localStorage.getItem("dashboardRecentTradeBannerHidden") === "true",
   signals: [],
   openTrades: [],
   closedTrades: [],
@@ -4030,12 +4024,6 @@ function renderRecentTradeBanner() {
   }
 
   els.recentTradeBanner.hidden = false;
-  els.recentTradeBanner.classList.toggle("isCollapsed", state.recentTradeBannerHidden);
-  els.recentTradeBannerToggle.textContent = state.recentTradeBannerHidden ? t("showBanner") : t("hideBanner");
-  if (state.recentTradeBannerHidden) {
-    els.recentTradeBannerTrack.innerHTML = "";
-    return;
-  }
 
   const groupHtml = [
     renderRecentTradeGroup(t("recentOpened"), opened, "entry_time", "buy"),
@@ -6382,11 +6370,6 @@ els.watchlistInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") updateWatchlistFromInput();
 });
 els.watchlistOnly.addEventListener("change", toggleWatchlistOnly);
-els.recentTradeBannerToggle.addEventListener("click", () => {
-  state.recentTradeBannerHidden = !state.recentTradeBannerHidden;
-  localStorage.setItem("dashboardRecentTradeBannerHidden", String(state.recentTradeBannerHidden));
-  renderRecentTradeBanner();
-});
 els.addTickerToWatchlist.addEventListener("click", addSelectedTickerToWatchlist);
 els.openPositionTickerFilter.addEventListener("input", renderOpenPositions);
 els.openPositionStrategyFilter.addEventListener("change", renderOpenPositions);
