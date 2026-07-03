@@ -4020,7 +4020,7 @@ function recentTrades(trades, field, limit = 5) {
 }
 
 function renderRecentTradeBanner() {
-  const opened = recentTrades(state.openTrades, "entry_time", 5);
+  const opened = recentTrades(state.openTrades, "entry_time", 10);
   const closed = recentTrades(state.closedTrades, "exit_time", 5);
 
   if (!opened.length && !closed.length) {
