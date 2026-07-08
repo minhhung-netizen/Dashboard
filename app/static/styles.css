@@ -2619,3 +2619,93 @@ td strong {
     display: none;
   }
 }
+
+.toastStack {
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(380px, calc(100vw - 36px));
+  position: fixed;
+  right: 18px;
+  z-index: 200;
+}
+
+.toast {
+  animation: toast-in 200ms ease-out;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: var(--shadow-strong);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 11px 14px;
+}
+
+.toast-error {
+  border-left-color: var(--sell);
+}
+
+.toast-success {
+  border-left-color: var(--buy);
+}
+
+.toast-warning {
+  border-left-color: var(--warning);
+}
+
+.toastLeaving {
+  opacity: 0;
+  transition: opacity 200ms ease-in;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.skeletonRow td {
+  padding: 12px;
+}
+
+.skeletonRow i {
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    var(--line-soft) 25%,
+    color-mix(in srgb, var(--line-soft) 50%, var(--panel)) 50%,
+    var(--line-soft) 75%
+  );
+  background-size: 200% 100%;
+  border-radius: 4px;
+  display: block;
+  height: 12px;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+
+  .skeletonRow i {
+    animation: none;
+  }
+}

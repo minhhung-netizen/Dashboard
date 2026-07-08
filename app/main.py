@@ -12,7 +12,6 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -134,6 +133,11 @@ enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global enrichment_queue
+    if not settings.webhook_secret:
+        logger.warning(
+            "WEBHOOK_SECRET is not set: /webhook accepts unauthenticated posts. "
+            "Set it before exposing this dashboard publicly."
+        )
     enrichment_queue = asyncio.Queue(maxsize=1000)
     tasks = [
         asyncio.create_task(signal_enrichment_worker()),
@@ -153,14 +157,34 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VN Signals Dashboard", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["*"],
-)
+# No CORS middleware: the frontend is served same-origin and TradingView posts
+# to /webhook server-to-server, which browsers' CORS rules never apply to.
 app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), name="static")
+
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Content-Security-Policy", _CSP)
+    # Browsers ignore HSTS on plain http, so this is safe locally and
+    # effective behind Railway's TLS termination.
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
 
 FEATURE_PATHS = {
     "overview": ("/api/summary", "/api/signals", "/api/chart/"),
@@ -208,12 +232,12 @@ async def authorize_dashboard_request(request: Request, call_next):
 
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if path == "/api/auth/logout":
-            return await call_next(request)
+            return await _call_with_audit(request, call_next, user)
         if (
             (path.startswith("/api/dca-plans") or path.startswith("/api/dca-settings"))
             and "dcaSizing" in set(user.get("features") or [])
         ):
-            return await call_next(request)
+            return await _call_with_audit(request, call_next, user)
         if user["role"] != "admin":
             return JSONResponse({"detail": "Read-only account"}, status_code=403)
 
@@ -229,7 +253,25 @@ async def authorize_dashboard_request(request: Request, call_next):
         if required and not required.intersection(allowed):
             return JSONResponse({"detail": "Feature is not enabled"}, status_code=403)
 
-    return await call_next(request)
+    return await _call_with_audit(request, call_next, user)
+
+
+async def _call_with_audit(request: Request, call_next, user: dict[str, Any]):
+    """Run the request; record every authenticated mutation in the audit log."""
+    response = await call_next(request)
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        try:
+            await asyncio.to_thread(
+                store.record_audit_event,
+                username=user.get("username"),
+                role=user.get("role"),
+                method=request.method,
+                path=request.url.path,
+                status=response.status_code,
+            )
+        except BaseException:
+            logger.exception("Audit log write failed")
+    return response
 
 
 class WebhookPayload(BaseModel):
@@ -472,6 +514,11 @@ def auth_me(request: Request) -> dict[str, Any]:
         "available_features": ALL_FEATURES,
         "available_strategies": available_signal_strategies(),
     }
+
+
+@app.get("/api/admin/audit-log")
+def admin_audit_log(limit: int = 100) -> dict[str, Any]:
+    return {"audit_log": store.list_audit_events(limit=limit)}
 
 
 @app.get("/api/admin/users")

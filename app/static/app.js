@@ -222,6 +222,7 @@ const els = {
   newUserFeatures: document.querySelector("#newUserFeatures"),
   newUserStrategies: document.querySelector("#newUserStrategies"),
   usersTable: document.querySelector("#usersTable"),
+  auditLogTable: document.querySelector("#auditLogTable"),
 };
 
 let dcaInitialCapitalSaveTimer = null;
@@ -245,6 +246,14 @@ Object.assign(translations.en, {
   sectorRefreshing: "Fetching sectors…",
   sectorRefreshDone: "Updated",
   sectorRefreshError: "Could not fetch sectors",
+  auditLogEyebrow: "Audit",
+  auditLogTitle: "Admin activity log",
+  noAuditEvents: "No recorded activity yet",
+  auditTime: "Time",
+  auditUser: "User",
+  auditMethod: "Method",
+  auditPath: "Action",
+  auditStatus: "Status",
   refreshDividends: "Auto-fetch dividends",
   pruneDividendEvents: "Clean calendar",
   dividendRefreshing: "Fetching dividends…",
@@ -308,6 +317,14 @@ Object.assign(translations.vi, {
   sectorRefreshing: "Đang lấy ngành…",
   sectorRefreshDone: "Đã cập nhật",
   sectorRefreshError: "Không lấy được dữ liệu ngành",
+  auditLogEyebrow: "Kiểm toán",
+  auditLogTitle: "Nhật ký thao tác quản trị",
+  noAuditEvents: "Chưa có thao tác nào được ghi lại",
+  auditTime: "Thời gian",
+  auditUser: "Tài khoản",
+  auditMethod: "Phương thức",
+  auditPath: "Hành động",
+  auditStatus: "Trạng thái",
   refreshDividends: "Tự động lấy cổ tức",
   dividendRefreshing: "Đang lấy cổ tức…",
   dividendRefreshDone: "Đã lưu",
@@ -1006,7 +1023,7 @@ const state = {
   availableStrategies: [],
   users: [],
   language: localStorage.getItem("dashboardLanguage") || "vi",
-  theme: localStorage.getItem("dashboardTheme") || "light",
+  theme: localStorage.getItem("dashboardTheme") || "dark",
   activeTab: localStorage.getItem("dashboardActiveTab") || "overview",
   selectedTicker: "",
   watchlist: loadWatchlist(),
@@ -1059,6 +1076,33 @@ function cssVar(name) {
 
 function t(key) {
   return translations[state.language]?.[key] || translations.en[key] || key;
+}
+
+// Non-blocking replacement for window.alert: errors and notices stack in the
+// corner and dismiss themselves instead of freezing the page.
+function showToast(message, type = "error") {
+  const stack = document.querySelector("#toastStack");
+  if (!stack) {
+    window.alert(message);
+    return;
+  }
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
+  toast.textContent = String(message ?? "");
+  stack.append(toast);
+  while (stack.children.length > 4) {
+    stack.firstElementChild.remove();
+  }
+  const remove = () => {
+    toast.classList.add("toastLeaving");
+    setTimeout(() => toast.remove(), 200);
+  };
+  const timer = setTimeout(remove, 5000);
+  toast.addEventListener("click", () => {
+    clearTimeout(timer);
+    remove();
+  });
 }
 
 function numberValue(value) {
@@ -1270,7 +1314,7 @@ async function migrateLocalKellyEntriesToDatabase(serverEntries) {
 async function saveCurrentKellyEntry() {
   const inputs = readKellyInputs();
   if (!inputs.ticker) {
-    window.alert(t("kellyMissingTickerNote"));
+    showToast(t("kellyMissingTickerNote"));
     els.kellyTicker.focus();
     return;
   }
@@ -1282,7 +1326,7 @@ async function saveCurrentKellyEntry() {
   const entryKey = kellyEntryKey(inputs.ticker, inputs.strategy);
   const duplicate = entries.find((item) => kellyEntryKey(item.ticker, item.strategy) === entryKey);
   if (duplicate && state.activeKellyEntryKey !== entryKey) {
-    window.alert(t("duplicateTickerStrategy"));
+    showToast(t("duplicateTickerStrategy"));
     els.kellyTicker.focus();
     return;
   }
@@ -1296,7 +1340,7 @@ async function saveCurrentKellyEntry() {
     body: JSON.stringify(entry),
   });
   if (!response.ok) {
-    window.alert(t("backtestSaveFailed"));
+    showToast(t("backtestSaveFailed"));
     return;
   }
   const payload = await response.json();
@@ -2118,7 +2162,7 @@ async function saveCurrentDcaPlan() {
   const inputs = readDcaSizingInputs();
   const result = calculateDcaSizing(inputs);
   if (!inputs.ticker || !result.valid) {
-    window.alert(t("dcaSizingInvalidNote"));
+    showToast(t("dcaSizingInvalidNote"));
     return;
   }
   const payload = {
@@ -2168,7 +2212,7 @@ async function saveCurrentDcaPlan() {
     }
   );
   if (!response.ok) {
-    window.alert(t("dcaPlanSaveFailed"));
+    showToast(t("dcaPlanSaveFailed"));
     return;
   }
   const saved = await response.json();
@@ -2250,7 +2294,7 @@ async function deleteDcaPlan(planId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("deleteDcaPlanFailed"));
+    showToast(t("deleteDcaPlanFailed"));
     return;
   }
   state.dcaPlans = state.dcaPlans.filter((plan) => Number(plan.id) !== Number(planId));
@@ -2740,6 +2784,36 @@ async function loadAdminUsers() {
   state.availableStrategies = payload.available_strategies || state.availableStrategies;
   renderStrategySelector(els.newUserStrategies);
   renderAdminUsers();
+  loadAuditLog();
+}
+
+async function loadAuditLog() {
+  if (state.user?.role !== "admin" || !els.auditLogTable) return;
+  try {
+    const payload = await fetchJson("/api/admin/audit-log");
+    renderAuditLog(payload.audit_log || []);
+  } catch (error) {
+    console.error("Failed to load audit log", error);
+  }
+}
+
+function renderAuditLog(events) {
+  if (!els.auditLogTable) return;
+  if (!events.length) {
+    els.auditLogTable.innerHTML = `<tr><td class="empty" colspan="5">${escapeHtml(t("noAuditEvents"))}</td></tr>`;
+    return;
+  }
+  els.auditLogTable.innerHTML = events
+    .map((event) => `
+      <tr>
+        <td>${formatDate(event.created_at)}</td>
+        <td><strong>${escapeHtml(event.username || "-")}</strong></td>
+        <td>${escapeHtml(event.method || "-")}</td>
+        <td>${escapeHtml(event.path || "-")}</td>
+        <td>${escapeHtml(String(event.status ?? "-"))}</td>
+      </tr>
+    `)
+    .join("");
 }
 
 function renderAdminUsers() {
@@ -2793,7 +2867,7 @@ async function createAdminUser(event) {
     }),
   });
   if (!response.ok) {
-    window.alert((await response.json()).detail || "Không thể tạo tài khoản");
+    showToast((await response.json()).detail || "Không thể tạo tài khoản");
     return;
   }
   els.userCreateForm.reset();
@@ -2818,7 +2892,7 @@ async function saveAdminUser(userId) {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    window.alert((await response.json()).detail || "Không thể cập nhật tài khoản");
+    showToast((await response.json()).detail || "Không thể cập nhật tài khoản");
     return;
   }
   await loadAdminUsers();
@@ -2828,7 +2902,7 @@ async function deleteAdminUser(userId) {
   if (!window.confirm("Xóa tài khoản này?")) return;
   const response = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
   if (!response.ok) {
-    window.alert((await response.json()).detail || "Không thể xóa tài khoản");
+    showToast((await response.json()).detail || "Không thể xóa tài khoản");
     return;
   }
   await loadAdminUsers();
@@ -3167,7 +3241,7 @@ async function addManualPosition(event) {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    window.alert(t("manualSaveFailed"));
+    showToast(t("manualSaveFailed"));
     return;
   }
   els.manualPositionForm.reset();
@@ -3181,7 +3255,7 @@ async function closeManualPosition(positionId) {
   const rawPrice = input?.value || "";
   const price = parsePriceInput(rawPrice);
   if (!Number.isFinite(price) || price <= 0) {
-    window.alert(t("closeManualInvalidPrice"));
+    showToast(t("closeManualInvalidPrice"));
     input?.focus();
     return;
   }
@@ -3191,7 +3265,7 @@ async function closeManualPosition(positionId) {
     body: JSON.stringify({ exit_price: price }),
   });
   if (!response.ok) {
-    window.alert(t("manualCloseFailed"));
+    showToast(t("manualCloseFailed"));
     return;
   }
   await refresh();
@@ -3205,7 +3279,7 @@ async function deleteManualPosition(positionId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("manualDeleteFailed"));
+    showToast(t("manualDeleteFailed"));
     return;
   }
   await refresh();
@@ -3216,7 +3290,7 @@ async function refreshManualMarketPrices() {
     method: "POST",
   });
   if (!response.ok) {
-    window.alert(t("refreshPricesFailed"));
+    showToast(t("refreshPricesFailed"));
     return;
   }
   await refresh();
@@ -3227,7 +3301,7 @@ async function recordManualDailyPerformance() {
     method: "POST",
   });
   if (!response.ok) {
-    window.alert(t("manualSaveFailed"));
+    showToast(t("manualSaveFailed"));
     return;
   }
   await refresh();
@@ -3242,7 +3316,7 @@ async function deleteManualDailyPerformance(tradeDate) {
     { method: "DELETE" }
   );
   if (!response.ok) {
-    window.alert(t("deleteDailyPerformanceFailed"));
+    showToast(t("deleteDailyPerformanceFailed"));
     return;
   }
   await refresh();
@@ -3356,7 +3430,7 @@ async function deleteDerivativeEvent(signalId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("deleteDerivativeFailed"));
+    showToast(t("deleteDerivativeFailed"));
     return;
   }
   await refresh();
@@ -3366,7 +3440,7 @@ async function saveDerivativeCapital(event) {
   event.preventDefault();
   const initialCapital = parsePriceInput(els.derivativeCapitalInput.value);
   if (!Number.isFinite(initialCapital) || initialCapital <= 0) {
-    window.alert(t("derivativeCapitalSaveFailed"));
+    showToast(t("derivativeCapitalSaveFailed"));
     return;
   }
   const response = await fetch("/api/settings/derivative-capital", {
@@ -3375,7 +3449,7 @@ async function saveDerivativeCapital(event) {
     body: JSON.stringify({ initial_capital: initialCapital }),
   });
   if (!response.ok) {
-    window.alert(t("derivativeCapitalSaveFailed"));
+    showToast(t("derivativeCapitalSaveFailed"));
     return;
   }
   await refresh();
@@ -3455,7 +3529,7 @@ function renderExDateAlerts() {
   const alertKey = `dividendExDateAlert:${localMarketDate()}:${tickers.join(",")}`;
   if (localStorage.getItem(alertKey) !== "shown") {
     localStorage.setItem(alertKey, "shown");
-    window.alert(message);
+    showToast(message);
   }
 }
 
@@ -3485,7 +3559,7 @@ async function addDividendEvent(event) {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    window.alert(t("dividendSaveFailed"));
+    showToast(t("dividendSaveFailed"));
     return;
   }
   els.dividendEventForm.reset();
@@ -3500,7 +3574,7 @@ async function deleteDividendEvent(eventId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("dividendDeleteFailed"));
+    showToast(t("dividendDeleteFailed"));
     return;
   }
   await refresh();
@@ -3515,10 +3589,10 @@ async function pruneDividendEvents() {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    window.alert(data.detail || t("pruneDividendEventsFailed"));
+    showToast(data.detail || t("pruneDividendEventsFailed"));
     return;
   }
-  window.alert(
+  showToast(
     t("pruneDividendEventsDone")
       .replace("{removed}", String(data.removed ?? 0))
       .replace("{kept}", String(data.kept ?? 0))
@@ -3531,7 +3605,7 @@ async function refreshOpenPositionMarketPrices() {
     method: "POST",
   });
   if (!response.ok) {
-    window.alert(t("refreshPricesFailed"));
+    showToast(t("refreshPricesFailed"));
     return;
   }
   await refresh();
@@ -3613,7 +3687,7 @@ async function saveBacktestStats(event) {
       String(stat.id) !== String(state.activeBacktestStatId || "")
   );
   if (duplicate) {
-    window.alert(t("duplicateTickerStrategy"));
+    showToast(t("duplicateTickerStrategy"));
     els.backtestTicker.focus();
     return;
   }
@@ -3624,7 +3698,7 @@ async function saveBacktestStats(event) {
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    window.alert(t("backtestSaveFailed"));
+    showToast(t("backtestSaveFailed"));
     return;
   }
   const result = await response.json();
@@ -3666,7 +3740,7 @@ async function deleteBacktestStats(statId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("backtestDeleteFailed"));
+    showToast(t("backtestDeleteFailed"));
     return;
   }
   if (
@@ -3891,7 +3965,7 @@ async function submitSectorMapping(event) {
     body: JSON.stringify({ ticker, sector }),
   });
   if (!response.ok) {
-    window.alert((await response.json().catch(() => ({}))).detail || t("sectorSaveError"));
+    showToast((await response.json().catch(() => ({}))).detail || t("sectorSaveError"));
     return;
   }
   els.sectorForm.reset();
@@ -3906,7 +3980,7 @@ async function refreshSectorsFromListing() {
     const response = await fetch("/api/sectors/refresh", { method: "POST" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.detail || t("sectorRefreshError"));
+      showToast(data.detail || t("sectorRefreshError"));
       return;
     }
     if (els.sectorRefreshStatus) {
@@ -3917,7 +3991,7 @@ async function refreshSectorsFromListing() {
     await refresh();
   } catch (error) {
     console.error("Sector refresh failed", error);
-    window.alert(t("sectorRefreshError"));
+    showToast(t("sectorRefreshError"));
   } finally {
     els.refreshSectorsButton.disabled = false;
   }
@@ -3931,7 +4005,7 @@ async function refreshDividendsFromVnstock() {
     const response = await fetch("/api/dividend-events/refresh", { method: "POST" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.detail || t("dividendRefreshError"));
+      showToast(data.detail || t("dividendRefreshError"));
       return;
     }
     if (els.dividendRefreshStatus) {
@@ -3940,7 +4014,7 @@ async function refreshDividendsFromVnstock() {
     await refresh();
   } catch (error) {
     console.error("Dividend refresh failed", error);
-    window.alert(t("dividendRefreshError"));
+    showToast(t("dividendRefreshError"));
   } finally {
     els.refreshDividendsButton.disabled = false;
   }
@@ -3949,7 +4023,7 @@ async function refreshDividendsFromVnstock() {
 async function deleteSectorMapping(ticker) {
   const response = await fetch(`/api/sectors/${encodeURIComponent(ticker)}`, { method: "DELETE" });
   if (!response.ok) {
-    window.alert((await response.json().catch(() => ({}))).detail || t("sectorDeleteError"));
+    showToast((await response.json().catch(() => ({}))).detail || t("sectorDeleteError"));
     return;
   }
   await refresh();
@@ -4926,7 +5000,7 @@ async function deleteOpenPosition(signalId, ticker, strategy) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("deleteOpenPositionFailed"));
+    showToast(t("deleteOpenPositionFailed"));
     return;
   }
   await refresh();
@@ -5786,7 +5860,7 @@ async function deleteSignal(signalId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("deleteFailed"));
+    showToast(t("deleteFailed"));
     return;
   }
   await refresh();
@@ -5800,7 +5874,7 @@ async function reopenClosedTrade(exitSignalId) {
     method: "DELETE",
   });
   if (!response.ok) {
-    window.alert(t("reopenPositionFailed"));
+    showToast(t("reopenPositionFailed"));
     return;
   }
   await refresh();

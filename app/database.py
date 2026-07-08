@@ -227,6 +227,19 @@ CREATE TABLE IF NOT EXISTS sector_mappings (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    role TEXT,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    status INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at
+ON admin_audit_log (created_at DESC);
+
 CREATE TABLE IF NOT EXISTS foreign_flow_daily (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT NOT NULL,
@@ -1440,6 +1453,46 @@ class SignalStore:
         with self.connect() as conn:
             row = conn.execute("SELECT MAX(received_at) AS latest FROM signals").fetchone()
         return row["latest"] if row else None
+
+    def record_audit_event(
+        self,
+        *,
+        username: str | None,
+        role: str | None,
+        method: str,
+        path: str,
+        status: int | None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO admin_audit_log (username, role, method, path, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (username, role, method, path, status, utc_now_iso()),
+            )
+            # Keep the log bounded so it cannot grow without limit.
+            conn.execute(
+                """
+                DELETE FROM admin_audit_log
+                WHERE id NOT IN (
+                    SELECT id FROM admin_audit_log ORDER BY id DESC LIMIT 2000
+                )
+                """
+            )
+
+    def list_audit_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT username, role, method, path, status, created_at
+                FROM admin_audit_log
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def record_foreign_flow_daily(
         self, data: dict[str, dict[str, Any]], trade_date: str
