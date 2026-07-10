@@ -4,11 +4,13 @@ import asyncio
 import csv
 import io
 import logging
+import os
 import sqlite3
 import threading
 import time as _time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
@@ -133,11 +135,16 @@ enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global enrichment_queue
+    if settings.require_webhook_secret and not settings.webhook_secret:
+        raise RuntimeError(
+            "WEBHOOK_SECRET is required in production. Set it before starting the service."
+        )
     if not settings.webhook_secret:
         logger.warning(
             "WEBHOOK_SECRET is not set: /webhook accepts unauthenticated posts. "
             "Set it before exposing this dashboard publicly."
         )
+    warn_if_database_is_not_persistent()
     enrichment_queue = asyncio.Queue(maxsize=1000)
     tasks = [
         asyncio.create_task(signal_enrichment_worker()),
@@ -146,6 +153,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(signal_monitor_loop()),
         asyncio.create_task(sector_autofill_loop()),
         asyncio.create_task(dividend_autofetch_loop()),
+        asyncio.create_task(database_backup_loop()),
     ]
     try:
         yield
@@ -160,6 +168,23 @@ app = FastAPI(title="VN Signals Dashboard", version="0.1.0", lifespan=lifespan)
 # No CORS middleware: the frontend is served same-origin and TradingView posts
 # to /webhook server-to-server, which browsers' CORS rules never apply to.
 app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), name="static")
+
+
+def database_is_persistent() -> bool:
+    if not os.getenv("RAILWAY_ENVIRONMENT"):
+        return True
+    try:
+        return settings.database_path.resolve().is_relative_to(Path("/data").resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def warn_if_database_is_not_persistent() -> None:
+    if os.getenv("RAILWAY_ENVIRONMENT") and not database_is_persistent():
+        logger.warning(
+            "SQLite database is not under /data. Attach a Railway Volume at /data "
+            "and set DATABASE_PATH=/data/signals.db to keep data across deploys."
+        )
 
 _CSP = (
     "default-src 'self'; "
@@ -188,10 +213,20 @@ async def security_headers(request: Request, call_next):
 
 FEATURE_PATHS = {
     "overview": ("/api/summary", "/api/signals", "/api/chart/"),
-    "positions": ("/api/performance", "/api/kelly-entries"),
+    "positions": (
+        "/api/performance",
+        "/api/kelly-entries",
+        "/api/foreign-flow",
+        "/api/sectors",
+    ),
     "derivatives": ("/api/derivatives",),
     "manualPortfolio": ("/api/manual-portfolio",),
-    "performance": ("/api/performance", "/api/backtest-stats", "/api/kelly-entries"),
+    "performance": (
+        "/api/performance",
+        "/api/backtest-stats",
+        "/api/kelly-entries",
+        "/api/benchmark/",
+    ),
     "kelly": ("/api/kelly-entries",),
     "dcaSizing": (
         "/api/dca-plans",
@@ -199,6 +234,7 @@ FEATURE_PATHS = {
         "/api/backtest-stats",
         "/api/kelly-entries",
         "/api/chart/",
+        "/api/liquidity/",
     ),
     "dividends": ("/api/dividend-events",),
     "logs": ("/api/invalid-signals", "/api/export/"),
@@ -230,8 +266,13 @@ async def authorize_dashboard_request(request: Request, call_next):
     if path.startswith("/api/admin/") and user["role"] != "admin":
         return JSONResponse({"detail": "Admin access required"}, status_code=403)
 
+    if path.startswith("/api/export/") and user["role"] != "admin":
+        return JSONResponse({"detail": "Admin access required"}, status_code=403)
+
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if path == "/api/auth/logout":
+            return await _call_with_audit(request, call_next, user)
+        if path == "/api/preferences":
             return await _call_with_audit(request, call_next, user)
         if (
             (path.startswith("/api/dca-plans") or path.startswith("/api/dca-settings"))
@@ -398,6 +439,12 @@ class DcaSettingsPayload(BaseModel):
     initialCapital: float | None = Field(default=None, ge=0)
 
 
+class UserPreferencesPayload(BaseModel):
+    watchlist: list[str] = Field(default_factory=list, max_length=200)
+    theme: str = Field(default="dark", max_length=10)
+    language: str = Field(default="vi", max_length=5)
+
+
 class LoginPayload(BaseModel):
     username: str = Field(..., min_length=1, max_length=80)
     password: str = Field(..., min_length=1, max_length=256)
@@ -428,8 +475,14 @@ def dashboard() -> FileResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    database = store.database_status()
+    return {
+        "status": "ok",
+        "database": "ok",
+        "journal_mode": database["journal_mode"],
+        "persistent_storage": database_is_persistent(),
+    }
 
 
 _login_lock = threading.Lock()
@@ -511,14 +564,61 @@ def auth_me(request: Request) -> dict[str, Any]:
     user = store.get_session_user(hash_session_token(token)) if token else None
     return {
         "user": public_user(user) if user else None,
+        "preferences": store.get_user_preferences(user["id"]) if user else None,
         "available_features": ALL_FEATURES,
         "available_strategies": available_signal_strategies(),
     }
 
 
+@app.get("/api/preferences")
+def user_preferences(request: Request) -> dict[str, Any]:
+    return {"preferences": store.get_user_preferences(request.state.user["id"])}
+
+
+@app.patch("/api/preferences")
+def update_user_preferences(
+    payload: UserPreferencesPayload,
+    request: Request,
+) -> dict[str, Any]:
+    theme = payload.theme.strip().lower()
+    language = payload.language.strip().lower()
+    if theme not in {"dark", "light"}:
+        raise HTTPException(status_code=422, detail="Theme must be dark or light")
+    if language not in {"vi", "en"}:
+        raise HTTPException(status_code=422, detail="Language must be vi or en")
+    watchlist: list[str] = []
+    for raw_ticker in payload.watchlist:
+        try:
+            ticker = normalize_ticker(raw_ticker)[0]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if ticker not in watchlist:
+            watchlist.append(ticker)
+    preferences = store.upsert_user_preferences(
+        user_id=request.state.user["id"],
+        watchlist=watchlist,
+        theme=theme,
+        language=language,
+    )
+    return {"status": "saved", "preferences": preferences}
+
+
 @app.get("/api/admin/audit-log")
 def admin_audit_log(limit: int = 100) -> dict[str, Any]:
     return {"audit_log": store.list_audit_events(limit=limit)}
+
+
+@app.post("/api/admin/database-backup")
+async def create_database_backup_endpoint() -> dict[str, Any]:
+    backup = await asyncio.to_thread(create_database_backup)
+    return {
+        "status": "created",
+        "backup": {
+            "filename": Path(backup["path"]).name,
+            "created_at": backup["created_at"],
+            "removed_old_backups": backup["removed_old_backups"],
+        },
+    }
 
 
 @app.get("/api/admin/users")
@@ -640,6 +740,11 @@ def dashboard_settings() -> dict[str, Any]:
             else "vnstock"
         ),
         "signal_monitor": signal_monitor_status(),
+        "storage": {
+            "persistent": database_is_persistent(),
+            "last_backup_at": store.get_app_setting("database_backup_last_at"),
+            "backup_retention_days": settings.backup_retention_days,
+        },
     }
 
 
@@ -995,12 +1100,25 @@ _FOREIGN_FLOW_TTL_SECONDS = 180
 
 
 @app.get("/api/foreign-flow")
-async def foreign_flow_endpoint(tickers: str | None = None) -> dict[str, Any]:
+async def foreign_flow_endpoint(
+    request: Request,
+    tickers: str | None = None,
+) -> dict[str, Any]:
     """Current-session foreign net buy/sell per ticker (defaults to held tickers)."""
+    visible_tickers = visible_open_position_tickers(request.state.user)
     if tickers:
-        symbols = sorted({normalize_ticker(part)[0] for part in tickers.split(",") if part.strip()})
+        requested = {
+            normalize_ticker(part)[0]
+            for part in tickers.split(",")
+            if part.strip()
+        }
+        symbols = sorted(
+            requested.intersection(visible_tickers)
+            if strategy_restricted(request.state.user)
+            else requested
+        )
     else:
-        symbols = sorted(open_position_tickers())
+        symbols = sorted(visible_tickers)
     if not symbols:
         return {"foreign_flow": {}}
     key = tuple(symbols)
@@ -1287,9 +1405,13 @@ def delete_dca_plan(plan_id: int, request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/derivatives")
-def derivatives() -> dict[str, Any]:
-    return build_derivative_performance(
+def derivatives(request: Request) -> dict[str, Any]:
+    signals = visible_derivative_signals_for_user(
         store.list_all_derivative_signals(),
+        request.state.user,
+    )
+    return build_derivative_performance(
+        signals,
         initial_capital=derivative_initial_capital(),
     )
 
@@ -1376,6 +1498,24 @@ def visible_signals_for_user(
         signal
         for signal in signals
         if any(signal_matches_strategy_filter(signal, strategy) for strategy in allowed)
+    ]
+
+
+def visible_derivative_signals_for_user(
+    signals: list[dict[str, Any]],
+    user: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not strategy_restricted(user):
+        return signals
+    allowed = {
+        str(strategy or "").strip().lower()
+        for strategy in user.get("strategies", [])
+        if str(strategy or "").strip()
+    }
+    return [
+        signal
+        for signal in signals
+        if (signal.get("strategy") or DEFAULT_STRATEGY).strip().lower() in allowed
     ]
 
 
@@ -1667,6 +1807,48 @@ async def signal_enrichment_worker() -> None:
             await enrich_signal_async(signal_id, ticker)
         finally:
             enrichment_queue.task_done()
+
+
+def create_database_backup(recorded_at: datetime | None = None) -> dict[str, Any]:
+    now = recorded_at or datetime.now(timezone.utc)
+    settings.backup_directory.mkdir(parents=True, exist_ok=True)
+    destination = settings.backup_directory / f"signals-{now:%Y%m%d-%H%M%S}.db"
+    store.backup_database(destination)
+
+    cutoff = now - timedelta(days=settings.backup_retention_days)
+    removed = 0
+    for candidate in settings.backup_directory.glob("signals-*.db"):
+        if candidate == destination:
+            continue
+        try:
+            modified = datetime.fromtimestamp(candidate.stat().st_mtime, timezone.utc)
+            if modified < cutoff:
+                candidate.unlink()
+                removed += 1
+        except OSError:
+            logger.exception("Could not inspect or remove old database backup: %s", candidate)
+
+    store.set_app_setting("database_backup_last_at", now.isoformat())
+    store.set_app_setting("database_backup_last_file", destination.name)
+    logger.info("Database backup created: %s", destination)
+    return {
+        "path": str(destination),
+        "created_at": now.isoformat(),
+        "removed_old_backups": removed,
+    }
+
+
+async def database_backup_loop() -> None:
+    await asyncio.sleep(30)
+    interval_seconds = settings.backup_interval_hours * 3600
+    while True:
+        try:
+            await asyncio.to_thread(create_database_backup)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Scheduled database backup failed")
+        await asyncio.sleep(interval_seconds)
 
 
 async def price_refresh_loop() -> None:
@@ -1983,6 +2165,18 @@ def open_position_tickers() -> set[str]:
         if trade.get("ticker")
     }
     return signal_tickers | set(store.list_open_manual_tickers())
+
+
+def visible_open_position_tickers(user: dict[str, Any] | None) -> set[str]:
+    if not strategy_restricted(user):
+        return open_position_tickers()
+    signals = visible_signals_for_user(store.list_all_signals(), user)
+    performance_data = build_performance(signals, store.list_dividend_events())
+    return {
+        str(trade.get("ticker") or "").upper()
+        for trade in performance_data["open_trades"]
+        if trade.get("ticker")
+    }
 
 
 def cleanup_dividend_events_after_close(

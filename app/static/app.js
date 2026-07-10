@@ -68,6 +68,11 @@ const els = {
   sectorTicker: document.querySelector("#sectorTicker"),
   sectorName: document.querySelector("#sectorName"),
   sectorTable: document.querySelector("#sectorTable"),
+  sectorSearch: document.querySelector("#sectorSearch"),
+  sectorFilter: document.querySelector("#sectorFilter"),
+  sectorPageStatus: document.querySelector("#sectorPageStatus"),
+  sectorPreviousPage: document.querySelector("#sectorPreviousPage"),
+  sectorNextPage: document.querySelector("#sectorNextPage"),
   refreshSectorsButton: document.querySelector("#refreshSectorsButton"),
   sectorRefreshStatus: document.querySelector("#sectorRefreshStatus"),
   refreshDividendsButton: document.querySelector("#refreshDividendsButton"),
@@ -169,6 +174,7 @@ const els = {
   dcaPlanCloseBottom: document.querySelector("#dcaPlanCloseBottom"),
   languageSelect: document.querySelector("#languageSelect"),
   themeToggle: document.querySelector("#themeToggle"),
+  mobileTabSelect: document.querySelector("#mobileTabSelect"),
   tabButtons: document.querySelectorAll("[data-tab-target]"),
   tabPanels: document.querySelectorAll("[data-tab-panel]"),
   refresh: document.querySelector("#refreshButton"),
@@ -223,9 +229,12 @@ const els = {
   newUserStrategies: document.querySelector("#newUserStrategies"),
   usersTable: document.querySelector("#usersTable"),
   auditLogTable: document.querySelector("#auditLogTable"),
+  databaseBackupButton: document.querySelector("#databaseBackupButton"),
+  databaseBackupStatus: document.querySelector("#databaseBackupStatus"),
 };
 
 let dcaInitialCapitalSaveTimer = null;
+let userPreferencesSaveTimer = null;
 
 // `translations` is defined in i18n.js (loaded before this file).
 // The Object.assign(translations.*) blocks below extend that global.
@@ -299,6 +308,20 @@ Object.assign(translations.en, {
   minutesAgo: "min ago",
   hoursAgo: "h ago",
   daysAgo: "days ago",
+  mobileSection: "Current section",
+  sectorSearchPlaceholder: "Search ticker or sector",
+  storageEyebrow: "Data",
+  storageTitle: "Storage and backups",
+  createBackup: "Create backup",
+  storageStatusUnknown: "Storage status is not available.",
+  storagePersistent: "Persistent storage is active",
+  storageEphemeral: "Warning: database is on ephemeral storage",
+  backupNever: "Never",
+  lastBackup: "Last backup",
+  backupRetention: "Retention",
+  days: "days",
+  backupCreated: "Database backup created",
+  backupFailed: "Could not create database backup",
 });
 
 Object.assign(translations.vi, {
@@ -366,6 +389,20 @@ Object.assign(translations.vi, {
   minutesAgo: "phút trước",
   hoursAgo: "giờ trước",
   daysAgo: "ngày trước",
+  mobileSection: "Mục đang xem",
+  sectorSearchPlaceholder: "Tìm mã hoặc ngành",
+  storageEyebrow: "Dữ liệu",
+  storageTitle: "Lưu trữ và sao lưu",
+  createBackup: "Tạo bản sao lưu",
+  storageStatusUnknown: "Chưa có trạng thái lưu trữ.",
+  storagePersistent: "Đang dùng vùng lưu trữ bền vững",
+  storageEphemeral: "Cảnh báo: cơ sở dữ liệu đang nằm trên bộ nhớ tạm",
+  backupNever: "Chưa từng sao lưu",
+  lastBackup: "Sao lưu gần nhất",
+  backupRetention: "Thời gian giữ",
+  days: "ngày",
+  backupCreated: "Đã tạo bản sao lưu cơ sở dữ liệu",
+  backupFailed: "Không thể tạo bản sao lưu cơ sở dữ liệu",
 });
 
 Object.assign(translations.vi, {
@@ -579,6 +616,7 @@ Object.assign(translations.vi, {
 Object.assign(translations.en, {
   language: "Language",
   syncing: "Syncing...",
+  syncFailed: "Could not refresh dashboard data",
   syncedJustNow: "Updated just now",
   userOpenPositions: "Open positions",
   userOpenPl: "Estimated P/L",
@@ -598,6 +636,7 @@ Object.assign(translations.en, {
 Object.assign(translations.vi, {
   language: "Ngôn ngữ",
   syncing: "Đang đồng bộ...",
+  syncFailed: "Không thể làm mới dữ liệu dashboard",
   syncedJustNow: "Vừa cập nhật",
   userOpenPositions: "Vị thế đang mở",
   userOpenPl: "Lãi/lỗ tạm tính",
@@ -1057,7 +1096,13 @@ const state = {
   foreignFlow: {},
   sectorMap: {},
   sectorNames: [],
+  sectorPage: 1,
+  sectorPageSize: 100,
   signalMonitor: null,
+  refreshInFlight: false,
+  lastDividendLoadAt: 0,
+  lastForeignFlowLoadAt: 0,
+  storageStatus: null,
 };
 
 const priceChartState = {
@@ -1176,6 +1221,49 @@ function parseWatchlist(value) {
 
 function saveWatchlist() {
   localStorage.setItem("dashboardWatchlist", state.watchlist.join(","));
+  scheduleUserPreferencesSave();
+}
+
+function applyUserPreferences(preferences) {
+  if (preferences?.updated_at) {
+    state.watchlist = parseWatchlist((preferences.watchlist || []).join(","));
+    state.theme = ["dark", "light"].includes(preferences.theme) ? preferences.theme : "dark";
+    state.language = ["vi", "en"].includes(preferences.language) ? preferences.language : "vi";
+  } else {
+    scheduleUserPreferencesSave();
+  }
+  localStorage.setItem("dashboardWatchlist", state.watchlist.join(","));
+  localStorage.setItem("dashboardTheme", state.theme);
+  localStorage.setItem("dashboardLanguage", state.language);
+  els.languageSelect.value = state.language;
+  updateWatchlistControls();
+  applyTheme();
+  applyTranslations();
+}
+
+function scheduleUserPreferencesSave() {
+  if (!state.user) return;
+  clearTimeout(userPreferencesSaveTimer);
+  userPreferencesSaveTimer = setTimeout(saveUserPreferences, 350);
+}
+
+async function saveUserPreferences() {
+  if (!state.user) return;
+  clearTimeout(userPreferencesSaveTimer);
+  try {
+    const response = await fetch("/api/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        watchlist: state.watchlist,
+        theme: state.theme,
+        language: state.language,
+      }),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  } catch (error) {
+    console.error("Failed to save user preferences", error);
+  }
 }
 
 function loadKellyInputs() {
@@ -2556,6 +2644,8 @@ function applyTranslations() {
   renderDcaPlans();
   renderAverageLossBanner();
   renderAverageGainBanner();
+  renderDatabaseBackupStatus();
+  syncMobileTabs();
 }
 
 function applyTheme() {
@@ -2583,7 +2673,18 @@ function updateThemeButton() {
   els.themeToggle.title = isDark ? t("lightMode") : t("darkMode");
 }
 
-function setActiveTab(tabName) {
+function syncMobileTabs() {
+  if (!els.mobileTabSelect) return;
+  const visibleButtons = [...els.tabButtons].filter(
+    (button) => button.dataset.accessHidden !== "true"
+  );
+  els.mobileTabSelect.innerHTML = visibleButtons
+    .map((button) => `<option value="${escapeHtml(button.dataset.tabTarget)}">${escapeHtml(button.textContent.trim())}</option>`)
+    .join("");
+  els.mobileTabSelect.value = state.activeTab;
+}
+
+function setActiveTab(tabName, loadData = false) {
   const exists = [...els.tabButtons].some(
     (button) =>
       button.dataset.tabTarget === tabName && button.dataset.accessHidden !== "true"
@@ -2599,6 +2700,9 @@ function setActiveTab(tabName) {
     const active = button.dataset.tabTarget === tabName;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
+    if (active && window.matchMedia("(max-width: 720px)").matches) {
+      button.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
   });
   els.tabPanels.forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.tabPanel === tabName);
@@ -2616,6 +2720,8 @@ function setActiveTab(tabName) {
   if (tabName === "derivatives") {
     drawDerivativeEquityCurve(state.derivatives.equity_curve || []);
   }
+  syncMobileTabs();
+  if (loadData && state.user) refresh();
 }
 
 async function fetchJson(url) {
@@ -2647,14 +2753,19 @@ async function bootstrapAuth() {
       showLogin();
       return;
     }
-    setAuthenticatedUser(payload.user, payload.available_features || [], payload.available_strategies || []);
+    setAuthenticatedUser(
+      payload.user,
+      payload.available_features || [],
+      payload.available_strategies || [],
+      payload.preferences
+    );
     await refresh();
   } catch (error) {
     showLogin();
   }
 }
 
-function setAuthenticatedUser(user, availableFeatures, availableStrategies = []) {
+function setAuthenticatedUser(user, availableFeatures, availableStrategies = [], preferences = null) {
   state.user = user;
   state.availableFeatures = availableFeatures.length ? availableFeatures : Object.keys(FEATURE_LABELS);
   state.availableStrategies = availableStrategies || [];
@@ -2662,6 +2773,7 @@ function setAuthenticatedUser(user, availableFeatures, availableStrategies = [])
   els.currentUser.textContent = user.username;
   els.currentUser.dataset.initial = user.username.slice(0, 1).toUpperCase();
   document.body.classList.toggle("readOnly", user.role !== "admin");
+  applyUserPreferences(preferences);
   applyAccessControl();
   if (user.role === "admin") {
     renderFeatureSelector(els.newUserFeatures, state.availableFeatures);
@@ -2698,7 +2810,12 @@ async function submitLogin(event) {
   }
   const payload = await response.json();
   const me = await fetchJson("/api/auth/me");
-  setAuthenticatedUser(payload.user, me.available_features || [], me.available_strategies || []);
+  setAuthenticatedUser(
+    payload.user,
+    me.available_features || [],
+    me.available_strategies || [],
+    me.preferences
+  );
   await refresh();
 }
 
@@ -2916,13 +3033,30 @@ function settledPayload(result, fallback, label) {
   return fallback;
 }
 
-async function refresh() {
-  if (!state.user) return;
+async function refresh(options = {}) {
+  if (!state.user || state.refreshInFlight) return;
+  const background = Boolean(options.background);
+  const fullRefresh = !background;
+  const activeTab = state.activeTab;
+  const now = Date.now();
+  const loadSettings = fullRefresh || now - (state.lastSettingsLoadAt || 0) >= 60000;
+  const loadDividends = fullRefresh || now - state.lastDividendLoadAt >= 300000;
+  const loadPerformance = fullRefresh || activeTab === "performance";
+  const loadBacktest = fullRefresh;
+  const loadKelly = fullRefresh;
+  state.refreshInFlight = true;
   els.syncStatus.textContent = t("syncing");
   const query = "";
   const performanceQuery = buildPerformanceQuery();
+  try {
   const results = await Promise.allSettled([
-    fetchJson("/api/settings"),
+    loadSettings
+      ? fetchJson("/api/settings")
+      : Promise.resolve({
+          default_signal_weight_pct: state.defaultSignalWeightPct,
+          signal_monitor: state.signalMonitor,
+          storage: state.storageStatus,
+        }),
     featureFetch("overview", "/api/summary", { total: 0, buy_count: 0, sell_count: 0, tickers: 0 }),
     featureFetch("overview", `/api/signals${query}`, { signals: [] }),
     featureFetch(["positions", "performance"], "/api/performance", {
@@ -2931,21 +3065,41 @@ async function refresh() {
       strategies: [],
       ignored_signals: [],
     }),
-    featureFetch("performance", `/api/performance${performanceQuery}`, {
-      open_trades: [],
-      closed_trades: [],
-      strategies: [],
-      ignored_signals: [],
-    }),
-    featureFetch("logs", "/api/invalid-signals", { invalid_signals: [] }),
-    featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio),
-    featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] }),
-    featureFetch("derivatives", "/api/derivatives", state.derivatives),
-    featureFetch(["performance", "dcaSizing"], "/api/backtest-stats", { backtest_stats: [] }),
-    featureFetch(["positions", "performance", "kelly", "dcaSizing"], "/api/kelly-entries", { kelly_entries: state.kellyEntries }),
-    featureFetch("dcaSizing", "/api/dca-plans", { dca_plans: state.dcaPlans }),
-    featureFetch("dcaSizing", "/api/dca-settings", { dca_settings: state.dcaSettings }),
-    fetchJson("/api/sectors"),
+    loadPerformance
+      ? featureFetch("performance", `/api/performance${performanceQuery}`, {
+          open_trades: [], closed_trades: [], strategies: [], ignored_signals: [],
+        })
+      : Promise.resolve({ closed_trades: state.performanceClosedTrades, strategies: [] }),
+    fullRefresh || activeTab === "logs"
+      ? featureFetch("logs", "/api/invalid-signals", { invalid_signals: [] })
+      : Promise.resolve({ invalid_signals: [] }),
+    fullRefresh || activeTab === "manualPortfolio"
+      ? featureFetch("manualPortfolio", "/api/manual-portfolio", state.manualPortfolio)
+      : Promise.resolve(state.manualPortfolio),
+    loadDividends
+      ? featureFetch("dividends", "/api/dividend-events", { dividend_events: [], dividend_alerts: [] })
+      : Promise.resolve({ dividend_events: state.dividendEvents, dividend_alerts: state.dividendAlerts }),
+    fullRefresh || activeTab === "derivatives"
+      ? featureFetch("derivatives", "/api/derivatives", state.derivatives)
+      : Promise.resolve(state.derivatives),
+    loadBacktest
+      ? featureFetch(["performance", "dcaSizing"], "/api/backtest-stats", { backtest_stats: state.backtestStats })
+      : Promise.resolve({ backtest_stats: state.backtestStats }),
+    loadKelly
+      ? featureFetch(["positions", "performance", "kelly", "dcaSizing"], "/api/kelly-entries", { kelly_entries: state.kellyEntries })
+      : Promise.resolve({ kelly_entries: state.kellyEntries }),
+    fullRefresh
+      ? featureFetch("dcaSizing", "/api/dca-plans", { dca_plans: state.dcaPlans })
+      : Promise.resolve({ dca_plans: state.dcaPlans }),
+    fullRefresh
+      ? featureFetch("dcaSizing", "/api/dca-settings", { dca_settings: state.dcaSettings })
+      : Promise.resolve({ dca_settings: state.dcaSettings }),
+    fullRefresh
+      ? featureFetch(["positions", "admin"], "/api/sectors", { sectors: [], sector_names: [] })
+      : Promise.resolve({
+          sectors: Object.entries(state.sectorMap).map(([ticker, sector]) => ({ ticker, sector })),
+          sector_names: state.sectorNames,
+        }),
   ]);
 
   const settingsPayload = settledPayload(
@@ -3023,6 +3177,10 @@ async function refresh() {
   state.sectorNames = sectorPayload.sector_names || [];
   renderSectorMappings();
   state.signalMonitor = settingsPayload.signal_monitor || null;
+  state.storageStatus = settingsPayload.storage || state.storageStatus;
+  if (loadSettings && results[0].status === "fulfilled") state.lastSettingsLoadAt = now;
+  if (loadDividends && results[7].status === "fulfilled") state.lastDividendLoadAt = now;
+  renderDatabaseBackupStatus();
   state.performanceClosedTrades = performancePayload.closed_trades || [];
   state.defaultSignalWeightPct = Number(settingsPayload.default_signal_weight_pct) || FALLBACK_SIGNAL_WEIGHT_PCT;
   state.summary = summary;
@@ -3084,7 +3242,10 @@ async function refresh() {
   renderUserAttention();
   renderRiskOverview();
   renderRiskAlerts();
-  loadForeignFlow();
+  if (fullRefresh || now - state.lastForeignFlowLoadAt >= 180000) {
+    loadForeignFlow();
+    state.lastForeignFlowLoadAt = now;
+  }
   renderKellyEntries();
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
@@ -3092,13 +3253,20 @@ async function refresh() {
   renderSignalMonitor();
 
   const firstTicker = state.selectedTicker || state.signals[0]?.ticker || "";
-  if (firstTicker) {
+  if (firstTicker && fullRefresh) {
     await renderChart(firstTicker);
-  } else {
+  } else if (!firstTicker) {
     state.selectedTicker = "";
     els.chartTitle.textContent = t("noTickerSelected");
     renderTickerTimeline("");
     clearChart(t("noTickerSelected"));
+  }
+  } catch (error) {
+    console.error("Dashboard refresh failed", error);
+    els.syncStatus.textContent = t("syncFailed");
+    if (!background) showToast(t("syncFailed"));
+  } finally {
+    state.refreshInFlight = false;
   }
 }
 
@@ -3933,14 +4101,33 @@ function renderSignalMonitor() {
 
 function renderSectorMappings() {
   if (!els.sectorTable) return;
-  const entries = Object.entries(state.sectorMap).sort(
+  const query = String(els.sectorSearch?.value || "").trim().toLocaleLowerCase("vi");
+  const selectedSector = els.sectorFilter?.value || "";
+  const allEntries = Object.entries(state.sectorMap).sort(
     (left, right) => left[1].localeCompare(right[1]) || left[0].localeCompare(right[0])
   );
+  updateSectorFilterOptions(allEntries);
+  const entries = allEntries.filter(([ticker, sector]) => {
+    if (selectedSector && sector !== selectedSector) return false;
+    return !query || `${ticker} ${sector}`.toLocaleLowerCase("vi").includes(query);
+  });
   if (!entries.length) {
     els.sectorTable.innerHTML = `<tr><td class="empty" colspan="3">${escapeHtml(t("noSectorMappings"))}</td></tr>`;
+    if (els.sectorPageStatus) els.sectorPageStatus.textContent = "0 / 0";
+    if (els.sectorPreviousPage) els.sectorPreviousPage.disabled = true;
+    if (els.sectorNextPage) els.sectorNextPage.disabled = true;
     return;
   }
-  els.sectorTable.innerHTML = entries
+  const totalPages = Math.max(1, Math.ceil(entries.length / state.sectorPageSize));
+  state.sectorPage = Math.min(Math.max(1, state.sectorPage), totalPages);
+  const offset = (state.sectorPage - 1) * state.sectorPageSize;
+  const pageEntries = entries.slice(offset, offset + state.sectorPageSize);
+  if (els.sectorPageStatus) {
+    els.sectorPageStatus.textContent = `${offset + 1}-${offset + pageEntries.length} / ${entries.length}`;
+  }
+  if (els.sectorPreviousPage) els.sectorPreviousPage.disabled = state.sectorPage <= 1;
+  if (els.sectorNextPage) els.sectorNextPage.disabled = state.sectorPage >= totalPages;
+  els.sectorTable.innerHTML = pageEntries
     .map(([ticker, sector]) => `
       <tr>
         <td><strong>${escapeHtml(ticker)}</strong></td>
@@ -3952,6 +4139,51 @@ function renderSectorMappings() {
   els.sectorTable.querySelectorAll("[data-sector-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteSectorMapping(button.dataset.sectorDelete));
   });
+}
+
+function updateSectorFilterOptions(entries) {
+  if (!els.sectorFilter) return;
+  const current = els.sectorFilter.value;
+  const sectors = [...new Set(entries.map(([, sector]) => sector).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "vi"));
+  els.sectorFilter.innerHTML = [
+    `<option value="">${escapeHtml(t("allSectors"))}</option>`,
+    ...sectors.map((sector) => `<option value="${escapeHtml(sector)}">${escapeHtml(sector)}</option>`),
+  ].join("");
+  els.sectorFilter.value = sectors.includes(current) ? current : "";
+}
+
+function renderDatabaseBackupStatus() {
+  if (!els.databaseBackupStatus) return;
+  const storage = state.storageStatus;
+  if (!storage) {
+    els.databaseBackupStatus.textContent = t("storageStatusUnknown");
+    return;
+  }
+  const persistence = storage.persistent ? t("storagePersistent") : t("storageEphemeral");
+  const lastBackup = storage.last_backup_at ? formatDate(storage.last_backup_at) : t("backupNever");
+  els.databaseBackupStatus.textContent = `${persistence} · ${t("lastBackup")}: ${lastBackup} · ${t("backupRetention")}: ${storage.backup_retention_days} ${t("days")}`;
+  els.databaseBackupStatus.classList.toggle("storageWarning", !storage.persistent);
+}
+
+async function createDatabaseBackup() {
+  if (!els.databaseBackupButton) return;
+  els.databaseBackupButton.disabled = true;
+  try {
+    const response = await fetch("/api/admin/database-backup", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || t("backupFailed"));
+    state.storageStatus = {
+      ...(state.storageStatus || {}),
+      last_backup_at: payload.backup?.created_at,
+    };
+    renderDatabaseBackupStatus();
+    showToast(t("backupCreated"), "success");
+  } catch (error) {
+    showToast(error.message || t("backupFailed"));
+  } finally {
+    els.databaseBackupButton.disabled = false;
+  }
 }
 
 async function submitSectorMapping(event) {
@@ -6428,17 +6660,22 @@ els.languageSelect.value = state.language;
 els.languageSelect.addEventListener("change", async () => {
   state.language = els.languageSelect.value;
   localStorage.setItem("dashboardLanguage", state.language);
+  scheduleUserPreferencesSave();
   applyTranslations();
   await refresh();
 });
 els.themeToggle.addEventListener("click", () => {
   state.theme = state.theme === "dark" ? "light" : "dark";
   localStorage.setItem("dashboardTheme", state.theme);
+  scheduleUserPreferencesSave();
   applyTheme();
 });
 els.tabButtons.forEach((button) => {
-  button.addEventListener("click", () => setActiveTab(button.dataset.tabTarget));
+  button.addEventListener("click", () => setActiveTab(button.dataset.tabTarget, true));
 });
+if (els.mobileTabSelect) {
+  els.mobileTabSelect.addEventListener("change", () => setActiveTab(els.mobileTabSelect.value, true));
+}
 els.watchlistInput.addEventListener("change", updateWatchlistFromInput);
 els.watchlistInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") updateWatchlistFromInput();
@@ -6562,6 +6799,33 @@ if (els.sectorForm) {
 if (els.refreshSectorsButton) {
   els.refreshSectorsButton.addEventListener("click", refreshSectorsFromListing);
 }
+if (els.sectorSearch) {
+  els.sectorSearch.addEventListener("input", () => {
+    state.sectorPage = 1;
+    renderSectorMappings();
+  });
+}
+if (els.sectorFilter) {
+  els.sectorFilter.addEventListener("change", () => {
+    state.sectorPage = 1;
+    renderSectorMappings();
+  });
+}
+if (els.sectorPreviousPage) {
+  els.sectorPreviousPage.addEventListener("click", () => {
+    state.sectorPage = Math.max(1, state.sectorPage - 1);
+    renderSectorMappings();
+  });
+}
+if (els.sectorNextPage) {
+  els.sectorNextPage.addEventListener("click", () => {
+    state.sectorPage += 1;
+    renderSectorMappings();
+  });
+}
+if (els.databaseBackupButton) {
+  els.databaseBackupButton.addEventListener("click", createDatabaseBackup);
+}
 if (els.refreshDividendsButton) {
   els.refreshDividendsButton.addEventListener("click", refreshDividendsFromVnstock);
 }
@@ -6592,4 +6856,4 @@ initializeDcaSizingCalculator();
 applyTranslations();
 updateWatchlistControls();
 bootstrapAuth();
-setInterval(refresh, 15000);
+setInterval(() => refresh({ background: true }), 15000);

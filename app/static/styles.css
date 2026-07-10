@@ -539,6 +539,10 @@ main {
   padding: 16px clamp(18px, 3.5vw, 40px) 38px;
 }
 
+.mobileTabPicker {
+  display: none;
+}
+
 .tabs {
   background: color-mix(in srgb, var(--panel) 88%, var(--bg));
   border: 1px solid var(--line);
@@ -551,6 +555,45 @@ main {
   overflow-x: auto;
   padding: 5px;
   scrollbar-width: none;
+}
+
+.sectorTableControls {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(180px, 280px) minmax(160px, 240px) 1fr auto;
+  margin: 12px 0 10px;
+}
+
+.sectorTableControls input,
+.sectorTableControls select {
+  max-width: none;
+  width: 100%;
+}
+
+.paginationActions {
+  display: flex;
+  gap: 6px;
+}
+
+.paginationActions .smallButton {
+  font-size: 20px;
+  padding: 0;
+  width: 36px;
+}
+
+.storageStatus {
+  background: color-mix(in srgb, var(--buy) 8%, var(--field));
+  border: 1px solid color-mix(in srgb, var(--buy) 26%, var(--line));
+  border-radius: 6px;
+  display: block;
+  padding: 12px;
+}
+
+.storageStatus.storageWarning {
+  background: color-mix(in srgb, var(--warning) 10%, var(--field));
+  border-color: color-mix(in srgb, var(--warning) 36%, var(--line));
+  color: var(--warning);
 }
 
 .tabs::-webkit-scrollbar {
@@ -2438,6 +2481,30 @@ td strong {
     z-index: 30;
   }
 
+  .mobileTabPicker {
+    align-items: center;
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: grid;
+    gap: 5px;
+    margin-bottom: 12px;
+    padding: 9px 10px;
+  }
+
+  .mobileTabPicker span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+
+  .mobileTabPicker select {
+    height: 40px;
+    max-width: none;
+    width: 100%;
+  }
+
   .tabButton {
     flex: 1 0 auto;
     height: 42px;
@@ -2457,6 +2524,14 @@ td strong {
 
   .sectorForm {
     grid-template-columns: 1fr;
+  }
+
+  .sectorTableControls {
+    grid-template-columns: 1fr;
+  }
+
+  .sectorTableControls .paginationActions {
+    justify-content: flex-end;
   }
 
   .metrics article {
