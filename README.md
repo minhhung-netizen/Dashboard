@@ -1,6 +1,8 @@
-# TradingView VN Signals Dashboard
+# VN Signals Dashboard
 
-MVP dashboard for receiving TradingView webhook alerts, storing signals in SQLite, enriching Vietnamese stock tickers with `vnstock` in the background, and showing a local web dashboard.
+Dashboard for receiving webhook alerts, tracking stock and VN30 derivative strategies,
+storing portfolio history in SQLite, and enriching Vietnamese market data in the
+background.
 
 ## Stack
 
@@ -26,6 +28,32 @@ http://127.0.0.1:8000
 ```
 
 Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. When configured, FireAnt supplies daily OHLCV history and dividend-event notes, DNSE supplies the latest matched price, and VNStock remains the automatic fallback.
+
+## Railway production setup
+
+SQLite is reliable for this single-service dashboard only when the database is
+stored on a persistent Railway Volume. Attach a Volume to the service at `/data`
+and set these variables:
+
+```text
+DATABASE_PATH=/data/signals.db
+DATABASE_BACKUP_DIRECTORY=/data/backups
+DATABASE_BACKUP_INTERVAL_HOURS=24
+DATABASE_BACKUP_RETENTION_DAYS=14
+WEBHOOK_SECRET=replace-with-a-long-random-secret
+REQUIRE_WEBHOOK_SECRET=true
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-strong-password
+```
+
+Do not deploy production with `change-me`. The application stops during startup
+when webhook-secret enforcement is enabled but `WEBHOOK_SECRET` is missing. The
+health endpoint reports whether persistent storage is active, and administrators
+can create an on-demand SQLite snapshot from the **Quản trị** tab.
+
+User watchlists, theme, and language are stored per account in the database, so
+they follow the user across devices. Background refresh keeps realtime signals
+and positions current while loading heavier datasets only for the active tab.
 
 ## FireAnt daily OHLCV and dividend events
 

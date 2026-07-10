@@ -279,6 +279,15 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry
 ON user_sessions (expires_at);
+
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY,
+    watchlist_json TEXT NOT NULL DEFAULT '[]',
+    theme TEXT NOT NULL DEFAULT 'dark',
+    language TEXT NOT NULL DEFAULT 'vi',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 """
 
 
@@ -340,9 +349,10 @@ class SignalStore:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.database_path)
+        conn = sqlite3.connect(self.database_path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 10000")
         try:
             yield conn
             conn.commit()
@@ -352,6 +362,8 @@ class SignalStore:
     def init_db(self) -> None:
         with self.connect() as conn:
             conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
             conn.executescript(SCHEMA)
             self._ensure_dividend_event_columns(conn)
             self._ensure_strategy_backtest_stat_columns(conn)
@@ -376,6 +388,32 @@ class SignalStore:
                 """
             )
             self._normalize_signal_actions(conn)
+
+    def backup_database(self, destination: Path) -> Path:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source = sqlite3.connect(self.database_path, timeout=10)
+        target = sqlite3.connect(destination, timeout=10)
+        try:
+            source.execute("PRAGMA busy_timeout = 10000")
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+        return destination
+
+    def database_status(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        return {
+            "path": str(self.database_path),
+            "journal_mode": journal_mode,
+            "busy_timeout_ms": busy_timeout,
+            "size_bytes": self.database_path.stat().st_size
+            if self.database_path.exists()
+            else 0,
+        }
 
     def _ensure_dividend_event_columns(self, conn: sqlite3.Connection) -> None:
         columns = {
@@ -653,6 +691,69 @@ class SignalStore:
     def delete_session(self, token_hash: str) -> None:
         with self.connect() as conn:
             conn.execute("DELETE FROM user_sessions WHERE token_hash = ?", (token_hash,))
+
+    def get_user_preferences(self, user_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT watchlist_json, theme, language, updated_at
+                FROM user_preferences
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return {
+                "watchlist": [],
+                "theme": "dark",
+                "language": "vi",
+                "updated_at": None,
+            }
+        return {
+            "watchlist": json.loads(row["watchlist_json"] or "[]"),
+            "theme": row["theme"],
+            "language": row["language"],
+            "updated_at": row["updated_at"],
+        }
+
+    def upsert_user_preferences(
+        self,
+        *,
+        user_id: int,
+        watchlist: list[str],
+        theme: str,
+        language: str,
+    ) -> dict[str, Any]:
+        now = utc_now_iso()
+        normalized_watchlist = sorted(
+            {
+                str(ticker or "").strip().upper()
+                for ticker in watchlist
+                if str(ticker or "").strip()
+            }
+        )
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_preferences (
+                    user_id, watchlist_json, theme, language, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    watchlist_json = excluded.watchlist_json,
+                    theme = excluded.theme,
+                    language = excluded.language,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    json.dumps(normalized_watchlist),
+                    theme,
+                    language,
+                    now,
+                ),
+            )
+        return self.get_user_preferences(user_id)
 
     @staticmethod
     def _user_row(row: sqlite3.Row) -> dict[str, Any]:

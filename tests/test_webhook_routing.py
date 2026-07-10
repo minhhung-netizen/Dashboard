@@ -6,6 +6,7 @@ from app.main import (
     is_confirmation_signal,
     required_open_strategy_for_signal,
     signal_matches_strategy_filter,
+    visible_derivative_signals_for_user,
     visible_signals_for_user,
 )
 
@@ -83,6 +84,20 @@ class WebhookRoutingTest(unittest.TestCase):
         )
 
         self.assertEqual([signal["ticker"] for signal in visible], ["FPT", "HAG"])
+
+    def test_user_strategy_visibility_filters_derivative_signals(self):
+        signals = [
+            {"symbol": "VN30F1M", "strategy": "VN30 Modern DCA"},
+            {"symbol": "VN30F1M", "strategy": "VN30 Breakout"},
+        ]
+
+        visible = visible_derivative_signals_for_user(
+            signals,
+            {"role": "user", "strategies": ["VN30 Modern DCA"]},
+        )
+
+        self.assertEqual(len(visible), 1)
+        self.assertEqual(visible[0]["strategy"], "VN30 Modern DCA")
 
 
 if __name__ == "__main__":

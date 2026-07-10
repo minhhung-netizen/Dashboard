@@ -11,7 +11,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20260703-sec-ui" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260710-hardening" />
   </head>
   <body>
     <div id="loginScreen" class="loginScreen">
@@ -67,6 +67,10 @@
     </header>
 
     <main>
+      <label class="mobileTabPicker" for="mobileTabSelect">
+        <span data-i18n="mobileSection">Mục đang xem</span>
+        <select id="mobileTabSelect" aria-label="Dashboard section"></select>
+      </label>
       <nav class="tabs" aria-label="Dashboard sections">
         <button class="tabButton active" type="button" data-tab-target="overview" data-i18n="tabOverview">Overview</button>
         <button class="tabButton" type="button" data-tab-target="positions" data-i18n="tabPositions">Positions</button>
@@ -1230,6 +1234,17 @@
             <input id="sectorName" name="sector-name" required autocomplete="off" aria-label="Sector name" data-i18n-placeholder="sectorNamePlaceholder" placeholder="Sector" />
             <button type="submit" data-i18n="addSector">Save sector</button>
           </form>
+          <div class="sectorTableControls">
+            <input id="sectorSearch" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-i18n-placeholder="sectorSearchPlaceholder" placeholder="Tìm mã hoặc ngành" />
+            <select id="sectorFilter" aria-label="Sector filter">
+              <option value="" data-i18n="allSectors">Tất cả ngành</option>
+            </select>
+            <span id="sectorPageStatus" class="mutedText"></span>
+            <div class="paginationActions">
+              <button id="sectorPreviousPage" class="smallButton" type="button" aria-label="Previous page">‹</button>
+              <button id="sectorNextPage" class="smallButton" type="button" aria-label="Next page">›</button>
+            </div>
+          </div>
           <div class="tableWrap compactTable">
             <table>
               <thead>
@@ -1242,6 +1257,17 @@
               <tbody id="sectorTable"></tbody>
             </table>
           </div>
+        </section>
+
+        <section class="adminPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="storageEyebrow">Dữ liệu</p>
+              <h2 data-i18n="storageTitle">Lưu trữ và sao lưu</h2>
+            </div>
+            <button id="databaseBackupButton" class="smallButton" type="button" data-i18n="createBackup">Tạo bản sao lưu</button>
+          </div>
+          <div id="databaseBackupStatus" class="storageStatus mutedText" role="status"></div>
         </section>
 
         <section class="adminPanel">
@@ -1307,8 +1333,8 @@
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
     <div id="toastStack" class="toastStack" aria-live="polite"></div>
 
-    <script src="/static/constants.js?v=20260703-sec-ui"></script>
-    <script src="/static/i18n.js?v=20260703-sec-ui"></script>
-    <script src="/static/app.js?v=20260703-sec-ui"></script>
+    <script src="/static/constants.js?v=20260710-hardening"></script>
+    <script src="/static/i18n.js?v=20260710-hardening"></script>
+    <script src="/static/app.js?v=20260710-hardening"></script>
   </body>
 </html>

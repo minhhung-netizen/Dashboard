@@ -11,7 +11,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True)
 class Settings:
     database_path: Path
+    backup_directory: Path
     webhook_secret: str | None = None
+    require_webhook_secret: bool = False
+    backup_interval_hours: int = 24
+    backup_retention_days: int = 14
     price_refresh_minutes: int = 120
     market_sessions: str = "09:00-11:30,13:00-15:00"
     duplicate_window_minutes: int = 5
@@ -50,7 +54,20 @@ def _resolve_path(value: str) -> Path:
 def get_settings() -> Settings:
     _load_env_file()
     database_path = _resolve_path(os.getenv("DATABASE_PATH", "data/signals.db"))
+    backup_directory = _resolve_path(
+        os.getenv("DATABASE_BACKUP_DIRECTORY", str(database_path.parent / "backups"))
+    )
     secret = os.getenv("WEBHOOK_SECRET") or None
+    production_default = bool(
+        os.getenv("RAILWAY_ENVIRONMENT")
+        or os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+    )
+    require_webhook_secret = _env_bool(
+        "REQUIRE_WEBHOOK_SECRET",
+        default=production_default,
+    )
+    backup_interval_hours = int(os.getenv("DATABASE_BACKUP_INTERVAL_HOURS", "24"))
+    backup_retention_days = int(os.getenv("DATABASE_BACKUP_RETENTION_DAYS", "14"))
     refresh_minutes = int(os.getenv("PRICE_REFRESH_MINUTES", "120"))
     market_sessions = os.getenv("MARKET_SESSIONS", "09:00-11:30,13:00-15:00")
     duplicate_window_minutes = int(os.getenv("DUPLICATE_WINDOW_MINUTES", "5"))
@@ -87,7 +104,11 @@ def get_settings() -> Settings:
     session_days = int(os.getenv("SESSION_DAYS", "30"))
     return Settings(
         database_path=database_path,
+        backup_directory=backup_directory,
         webhook_secret=secret,
+        require_webhook_secret=require_webhook_secret,
+        backup_interval_hours=max(1, backup_interval_hours),
+        backup_retention_days=max(1, backup_retention_days),
         price_refresh_minutes=max(1, refresh_minutes),
         market_sessions=market_sessions,
         duplicate_window_minutes=max(1, duplicate_window_minutes),

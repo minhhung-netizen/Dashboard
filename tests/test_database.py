@@ -261,6 +261,49 @@ class SignalStoreTest(unittest.TestCase):
                 "250000000",
             )
 
+    def test_database_uses_wal_and_busy_timeout(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+
+            status = store.database_status()
+
+            self.assertEqual(status["journal_mode"].lower(), "wal")
+            self.assertEqual(status["busy_timeout_ms"], 10000)
+            self.assertGreater(status["size_bytes"], 0)
+
+    def test_user_preferences_are_persisted_per_account(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            user = store.create_user(
+                username="viewer",
+                password_hash="hash",
+                role="user",
+                features=["overview"],
+            )
+
+            saved = store.upsert_user_preferences(
+                user_id=user["id"],
+                watchlist=["vpb", "FPT", "VPB"],
+                theme="light",
+                language="en",
+            )
+            reloaded = SignalStore(store.database_path).get_user_preferences(user["id"])
+
+            self.assertEqual(saved["watchlist"], ["FPT", "VPB"])
+            self.assertEqual(reloaded["theme"], "light")
+            self.assertEqual(reloaded["language"], "en")
+
+    def test_database_backup_is_a_readable_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            store.set_app_setting("snapshot", "ready")
+            destination = Path(temp_dir) / "backups" / "signals.db"
+
+            store.backup_database(destination)
+            restored = SignalStore(destination)
+
+            self.assertEqual(restored.get_app_setting("snapshot"), "ready")
+
     def test_record_and_list_invalid_signal(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = SignalStore(Path(temp_dir) / "signals.db")
