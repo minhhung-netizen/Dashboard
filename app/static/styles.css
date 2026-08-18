@@ -202,6 +202,24 @@ table,
   text-transform: none;
 }
 
+.strategyDataDangerZone {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, 320px) auto;
+  padding: 14px 16px;
+}
+
+.strategyDataDangerZone h3,
+.strategyDataDangerZone p {
+  margin: 0;
+}
+
+.strategyDataDangerZone .mutedText {
+  margin-top: 4px;
+}
+
 .featureSelector,
 .strategySelector {
   display: flex;
@@ -2243,6 +2261,10 @@ td strong {
     grid-template-columns: 1fr 1fr;
   }
 
+  .strategyDataDangerZone {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .attentionList {
     grid-template-columns: 1fr;
   }
@@ -2462,6 +2484,10 @@ td strong {
   }
 
   .userCreateForm {
+    grid-template-columns: 1fr;
+  }
+
+  .strategyDataDangerZone {
     grid-template-columns: 1fr;
   }
 

@@ -824,6 +824,82 @@ class SignalStore:
             cursor = conn.execute("DELETE FROM signals WHERE id = ?", (signal_id,))
             return cursor.rowcount > 0
 
+    def delete_strategy_data(self, strategy: str) -> dict[str, int]:
+        """Remove stock-strategy records, including confirmation signals attached to it."""
+        normalized = strategy.strip()
+        if not normalized:
+            raise ValueError("strategy is required")
+
+        def belongs_to_strategy(row: sqlite3.Row) -> bool:
+            if str(row["strategy"] or "").strip().lower() == normalized.lower():
+                return True
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                return False
+            if not isinstance(payload, dict):
+                return False
+            return any(
+                str(payload.get(key) or "").strip().lower() == normalized.lower()
+                for key in ("base_strategy", "confirm_for", "requires_open_strategy")
+            )
+
+        def delete_by_ids(conn: sqlite3.Connection, table: str, ids: list[int]) -> int:
+            if not ids:
+                return 0
+            placeholders = ", ".join("?" for _ in ids)
+            conn.execute(f"DELETE FROM {table} WHERE id IN ({placeholders})", ids)
+            return len(ids)
+
+        with self.connect() as conn:
+            signal_ids = [
+                row["id"]
+                for row in conn.execute("SELECT id, strategy, payload_json FROM signals").fetchall()
+                if belongs_to_strategy(row)
+            ]
+            invalid_signal_ids = [
+                row["id"]
+                for row in conn.execute(
+                    "SELECT id, strategy, payload_json FROM invalid_signals"
+                ).fetchall()
+                if belongs_to_strategy(row)
+            ]
+
+            deleted = {
+                "signals": delete_by_ids(conn, "signals", signal_ids),
+                "invalid_signals": delete_by_ids(
+                    conn, "invalid_signals", invalid_signal_ids
+                ),
+                "derivative_signals": conn.execute(
+                    "DELETE FROM derivative_signals WHERE lower(strategy) = lower(?)",
+                    (normalized,),
+                ).rowcount,
+                "backtest_stats": conn.execute(
+                    "DELETE FROM strategy_backtest_stats WHERE lower(strategy) = lower(?)",
+                    (normalized,),
+                ).rowcount,
+                "kelly_entries": conn.execute(
+                    "DELETE FROM kelly_entries WHERE lower(strategy) = lower(?)",
+                    (normalized,),
+                ).rowcount,
+                "dca_plans": conn.execute(
+                    "DELETE FROM dca_plans WHERE lower(strategy) = lower(?)",
+                    (normalized,),
+                ).rowcount,
+                "performance_snapshots": 0,
+            }
+
+            snapshot_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'performance_snapshots'"
+            ).fetchone()
+            if snapshot_table is not None:
+                deleted["performance_snapshots"] = conn.execute(
+                    "DELETE FROM performance_snapshots WHERE lower(coalesce(strategy_filter, '')) = lower(?)",
+                    (normalized,),
+                ).rowcount
+
+        return deleted
+
     def insert_derivative_signal(
         self,
         *,

@@ -71,6 +71,52 @@ class SignalStoreTest(unittest.TestCase):
 
             self.assertFalse(store.delete_signal(999))
 
+    def test_delete_strategy_data_removes_related_confirmation_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = SignalStore(Path(temp_dir) / "signals.db")
+            store.insert_signal(
+                ticker="FPT",
+                exchange="HOSE",
+                action="buy",
+                price=100,
+                timeframe="1D",
+                strategy="Modern Stock EMA",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+            store.insert_signal(
+                ticker="FPT",
+                exchange="HOSE",
+                action="confirm_buy",
+                price=101,
+                timeframe="1D",
+                strategy="HMA",
+                note=None,
+                source_time=None,
+                payload={"base_strategy": "Modern Stock EMA"},
+                enrichment={},
+            )
+            store.insert_signal(
+                ticker="FPT",
+                exchange="HOSE",
+                action="buy",
+                price=102,
+                timeframe="1D",
+                strategy="STxanhdo",
+                note=None,
+                source_time=None,
+                payload={},
+                enrichment={},
+            )
+
+            deleted = store.delete_strategy_data("modern stock ema")
+
+            self.assertEqual(deleted["signals"], 2)
+            self.assertEqual(len(store.list_signals()), 1)
+            self.assertEqual(store.list_signals()[0]["strategy"], "STxanhdo")
+
     def test_init_normalizes_existing_vnd_signal_prices(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "signals.db"

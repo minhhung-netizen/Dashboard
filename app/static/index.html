@@ -1200,6 +1200,15 @@
             <div id="newUserStrategies" class="strategySelector"></div>
             <button type="submit">Tạo tài khoản</button>
           </form>
+          <section class="strategyDataDangerZone" aria-labelledby="strategyDataDangerTitle">
+            <div>
+              <p class="eyebrow">Dữ liệu chiến lược</p>
+              <h3 id="strategyDataDangerTitle">Xóa toàn bộ dữ liệu theo chiến lược</h3>
+              <p class="mutedText">Xóa tín hiệu, xác nhận liên quan, backtest, Kelly và kế hoạch DCA của chiến lược đã chọn.</p>
+            </div>
+            <select id="strategyDataSelect" aria-label="Chọn chiến lược cần xóa"></select>
+            <button id="deleteStrategyData" class="deleteButton" type="button">Xóa dữ liệu chiến lược</button>
+          </section>
           <div class="tableWrap">
             <table>
               <thead>
@@ -1335,6 +1344,6 @@
 
     <script src="/static/constants.js?v=20260710-hardening"></script>
     <script src="/static/i18n.js?v=20260710-hardening"></script>
-    <script src="/static/app.js?v=20260710-hardening"></script>
+    <script src="/static/app.js?v=20260818-delete-strategy-data"></script>
   </body>
 </html>

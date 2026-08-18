@@ -231,6 +231,8 @@ const els = {
   auditLogTable: document.querySelector("#auditLogTable"),
   databaseBackupButton: document.querySelector("#databaseBackupButton"),
   databaseBackupStatus: document.querySelector("#databaseBackupStatus"),
+  strategyDataSelect: document.querySelector("#strategyDataSelect"),
+  deleteStrategyData: document.querySelector("#deleteStrategyData"),
 };
 
 let dcaInitialCapitalSaveTimer = null;
@@ -2900,6 +2902,7 @@ async function loadAdminUsers() {
   state.availableFeatures = payload.available_features || state.availableFeatures;
   state.availableStrategies = payload.available_strategies || state.availableStrategies;
   renderStrategySelector(els.newUserStrategies);
+  renderStrategyDataSelect();
   renderAdminUsers();
   loadAuditLog();
 }
@@ -2931,6 +2934,21 @@ function renderAuditLog(events) {
       </tr>
     `)
     .join("");
+}
+
+function renderStrategyDataSelect() {
+  if (!els.strategyDataSelect) return;
+  const currentValue = els.strategyDataSelect.value;
+  const strategies = [...new Set(state.availableStrategies || [])].sort((left, right) =>
+    String(left).localeCompare(String(right), "vi")
+  );
+  els.strategyDataSelect.innerHTML = strategies.length
+    ? strategies
+        .map((strategy) => `<option value="${escapeHtml(strategy)}">${escapeHtml(strategy)}</option>`)
+        .join("")
+    : '<option value="">Chưa có chiến lược để xóa</option>';
+  if (strategies.includes(currentValue)) els.strategyDataSelect.value = currentValue;
+  els.deleteStrategyData.disabled = strategies.length === 0;
 }
 
 function renderAdminUsers() {
@@ -3022,6 +3040,37 @@ async function deleteAdminUser(userId) {
     showToast((await response.json()).detail || "Không thể xóa tài khoản");
     return;
   }
+  await loadAdminUsers();
+}
+
+async function deleteSelectedStrategyData() {
+  const strategy = els.strategyDataSelect.value.trim();
+  if (!strategy) {
+    window.alert("Chưa có chiến lược để xóa");
+    return;
+  }
+  if (!window.confirm(`Xóa toàn bộ dữ liệu của chiến lược \"${strategy}\"? Thao tác này không thể hoàn tác.`)) {
+    return;
+  }
+  const confirmation = window.prompt(`Nhập đúng tên chiến lược để xác nhận xóa:\n${strategy}`);
+  if (confirmation !== strategy) {
+    window.alert("Xác nhận không khớp. Dữ liệu chưa bị xóa.");
+    return;
+  }
+  const response = await fetch(`/api/admin/strategy-data?strategy=${encodeURIComponent(strategy)}`, {
+    method: "DELETE",
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    window.alert(payload.detail || "Không thể xóa dữ liệu chiến lược");
+    return;
+  }
+  const total = Object.values(payload.deleted || {}).reduce(
+    (sum, value) => sum + Number(value || 0),
+    0
+  );
+  window.alert(`Đã xóa ${total} bản ghi của chiến lược ${strategy}.`);
+  await refresh();
   await loadAdminUsers();
 }
 
@@ -6656,6 +6705,7 @@ els.refresh.addEventListener("click", refresh);
 els.loginForm.addEventListener("submit", submitLogin);
 els.logoutButton.addEventListener("click", logout);
 els.userCreateForm.addEventListener("submit", createAdminUser);
+els.deleteStrategyData.addEventListener("click", deleteSelectedStrategyData);
 els.languageSelect.value = state.language;
 els.languageSelect.addEventListener("change", async () => {
   state.language = els.languageSelect.value;

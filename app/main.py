@@ -685,6 +685,20 @@ def delete_dashboard_user(user_id: int, request: Request) -> dict[str, Any]:
     return {"status": "deleted", "user_id": user_id}
 
 
+@app.delete("/api/admin/strategy-data")
+def delete_strategy_data(
+    strategy: str = Query(..., min_length=1, max_length=120),
+) -> dict[str, Any]:
+    normalized_strategy = strategy.strip()
+    if not normalized_strategy:
+        raise HTTPException(status_code=422, detail="Strategy is required")
+    return {
+        "status": "deleted",
+        "strategy": normalized_strategy,
+        "deleted": store.delete_strategy_data(normalized_strategy),
+    }
+
+
 def validate_role(role: str) -> str:
     normalized = role.strip().lower()
     if normalized not in {"admin", "user"}:
