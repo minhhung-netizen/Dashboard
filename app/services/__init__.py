@@ -1,1 +1,1 @@
-"""Service helpers for webhook processing and data enrichment."""
+"""Backtest engine and session-authentication helpers."""
