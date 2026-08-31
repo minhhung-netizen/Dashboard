@@ -6,12 +6,23 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 
-SESSION_COOKIE = "backtest_session"
+SESSION_COOKIE = "dashboard_session"
+ALL_FEATURES = [
+    "overview",
+    "positions",
+    "derivatives",
+    "manualPortfolio",
+    "performance",
+    "kelly",
+    "dcaSizing",
+    "dividends",
+    "logs",
+]
 
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
     if not password:
-        raise ValueError("Password is required")
+        raise ValueError("password is required")
     salt = salt or secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
     return f"pbkdf2_sha256$310000${salt.hex()}${digest.hex()}"
@@ -23,7 +34,10 @@ def verify_password(password: str, encoded: str) -> bool:
         if algorithm != "pbkdf2_sha256":
             return False
         digest = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), int(iterations)
+            "sha256",
+            password.encode("utf-8"),
+            bytes.fromhex(salt_hex),
+            int(iterations),
         )
         return hmac.compare_digest(digest.hex(), digest_hex)
     except (TypeError, ValueError):
@@ -32,9 +46,23 @@ def verify_password(password: str, encoded: str) -> bool:
 
 def new_session(days: int) -> tuple[str, str, str]:
     token = secrets.token_urlsafe(48)
+    token_hash = hash_session_token(token)
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-    return token, hash_session_token(token), expires_at
+    return token, token_hash, expires_at
 
 
 def hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def public_user(user: dict) -> dict:
+    features = ALL_FEATURES if user.get("role") == "admin" else user.get("features", [])
+    strategies = [] if user.get("role") == "admin" else user.get("strategies", [])
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "features": features,
+        "strategies": strategies,
+        "active": bool(user.get("active", True)),
+    }

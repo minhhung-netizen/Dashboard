@@ -2,53 +2,172 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import hmac
 import io
 import logging
 import os
+import sqlite3
+import threading
+import time as _time
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-import pandas as pd
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import PROJECT_ROOT, get_settings
-from app.database import BacktestStore
+from app.database import SignalStore, utc_now_iso
+from app.services.enrichment import (
+    DnseEnricher,
+    FireAntEnricher,
+    MarketDataEnricher,
+    VnstockEnricher,
+    average_daily_value,
+    coerce_float,
+    fetch_dividend_events,
+    foreign_flow,
+    fetch_industry_map,
+    normalize_stock_price,
+    normalize_action,
+    normalize_ticker,
+)
+from app.services.derivatives import (
+    build_derivative_performance,
+    normalize_derivative_action,
+)
+from app.services.dividends import (
+    relevant_dividend_events_for_positions,
+    upcoming_dividend_events_for_positions,
+)
+from app.services.market_hours import is_market_open
+from app.services.manual_portfolio import (
+    build_daily_performance_record,
+    build_manual_portfolio,
+    is_after_daily_cutoff,
+    is_after_manual_price_refresh_time,
+    market_date_iso,
+)
+from app.services.performance import DEFAULT_STRATEGY, build_performance
+from app.services.webhook_payload import parse_forgiving_json
 from app.services.auth import (
+    ALL_FEATURES,
     SESSION_COOKIE,
     hash_password,
     hash_session_token,
     new_session,
+    public_user,
     verify_password,
 )
-from app.services.backtesting import (
-    BacktestConfig,
-    download_vnstock_ohlcv,
-    normalise_ohlcv,
-    parse_symbols,
-    run_backtest,
-    strategy_catalog,
-)
 
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
-store = BacktestStore(settings.database_path)
+store = SignalStore(settings.database_path)
 configured_admin = store.get_user_credentials(settings.admin_username)
 if configured_admin is None:
     store.ensure_admin_user(
         username=settings.admin_username,
         password_hash=hash_password(settings.admin_password),
     )
-elif settings.admin_password_managed and not verify_password(
-    settings.admin_password, configured_admin["password_hash"]
-):
-    store.update_admin_password(configured_admin["id"], hash_password(settings.admin_password))
+else:
+    password_changed = settings.admin_password_managed and not verify_password(
+        settings.admin_password,
+        configured_admin["password_hash"],
+    )
+    if (
+        configured_admin["role"] != "admin"
+        or not configured_admin["active"]
+        or password_changed
+    ):
+        store.update_user(
+            configured_admin["id"],
+            role="admin",
+            active=True,
+            password_hash=hash_password(settings.admin_password)
+            if password_changed
+            else None,
+        )
+logger = logging.getLogger(__name__)
+vnstock_enricher = VnstockEnricher(
+    lookback_days=settings.vnstock_lookback_days,
+    cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
+    min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
+    include_metrics=settings.vnstock_include_metrics,
+)
+dnse_enricher = None
+if settings.dnse_api_key and settings.dnse_api_secret:
+    try:
+        dnse_enricher = DnseEnricher(
+            api_key=settings.dnse_api_key,
+            api_secret=settings.dnse_api_secret,
+            base_url=settings.dnse_base_url,
+            api_version=settings.dnse_api_version,
+            lookback_days=settings.vnstock_lookback_days,
+            cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
+            min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
+        )
+    except BaseException:
+        logger.exception("Could not initialize DNSE market-data provider; using VNStock")
+fireant_enricher = None
+if settings.fireant_access_token:
+    try:
+        fireant_enricher = FireAntEnricher(
+            access_token=settings.fireant_access_token,
+            base_url=settings.fireant_base_url,
+            lookback_days=settings.vnstock_lookback_days,
+            cache_ttl_seconds=settings.fireant_cache_ttl_minutes * 60,
+            min_request_interval_seconds=settings.fireant_min_request_interval_seconds,
+        )
+    except BaseException:
+        logger.exception("Could not initialize FireAnt market-data provider")
+enricher = MarketDataEnricher(
+    fireant=fireant_enricher,
+    dnse=dnse_enricher,
+    vnstock=vnstock_enricher,
+)
+last_auto_manual_price_refresh_date: str | None = None
+last_foreign_flow_snapshot_date: str | None = None
+enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global enrichment_queue
+    if settings.require_webhook_secret and not settings.webhook_secret:
+        raise RuntimeError(
+            "WEBHOOK_SECRET is required in production. Set it before starting the service."
+        )
+    if not settings.webhook_secret:
+        logger.warning(
+            "WEBHOOK_SECRET is not set: /webhook accepts unauthenticated posts. "
+            "Set it before exposing this dashboard publicly."
+        )
+    warn_if_database_is_not_persistent()
+    enrichment_queue = asyncio.Queue(maxsize=1000)
+    tasks = [
+        asyncio.create_task(signal_enrichment_worker()),
+        asyncio.create_task(price_refresh_loop()),
+        asyncio.create_task(manual_portfolio_automation_loop()),
+        asyncio.create_task(signal_monitor_loop()),
+        asyncio.create_task(sector_autofill_loop()),
+        asyncio.create_task(dividend_autofetch_loop()),
+        asyncio.create_task(database_backup_loop()),
+    ]
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        enrichment_queue = None
+
+
+app = FastAPI(title="VN Signals Dashboard", version="0.1.0", lifespan=lifespan)
+# No CORS middleware: the frontend is served same-origin and TradingView posts
+# to /webhook server-to-server, which browsers' CORS rules never apply to.
+app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), name="static")
 
 
 def database_is_persistent() -> bool:
@@ -60,27 +179,23 @@ def database_is_persistent() -> bool:
         return False
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    store.mark_interrupted_backtests()
-    if settings.require_webhook_secret and not settings.webhook_secret:
-        raise RuntimeError("WEBHOOK_SECRET is required in production")
+def warn_if_database_is_not_persistent() -> None:
     if os.getenv("RAILWAY_ENVIRONMENT") and not database_is_persistent():
         logger.warning(
-            "SQLite is not under /data. Attach a Railway Volume at /data and set DATABASE_PATH=/data/backtests.db."
+            "SQLite database is not under /data. Attach a Railway Volume at /data "
+            "and set DATABASE_PATH=/data/signals.db to keep data across deploys."
         )
-    yield
-
-
-app = FastAPI(title="VN Equity Backtest", version="1.0.0", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=PROJECT_ROOT / "app" / "static"), name="static")
 
 _CSP = (
     "default-src 'self'; "
     "script-src 'self'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
-    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
 )
 
 
@@ -91,283 +206,766 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Content-Security-Policy", _CSP)
+    # Browsers ignore HSTS on plain http, so this is safe locally and
+    # effective behind Railway's TLS termination.
     response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
 
+FEATURE_PATHS = {
+    "overview": ("/api/summary", "/api/signals", "/api/chart/"),
+    "positions": (
+        "/api/performance",
+        "/api/kelly-entries",
+        "/api/foreign-flow",
+        "/api/sectors",
+    ),
+    "derivatives": ("/api/derivatives",),
+    "manualPortfolio": ("/api/manual-portfolio",),
+    "performance": (
+        "/api/performance",
+        "/api/backtest-stats",
+        "/api/kelly-entries",
+        "/api/benchmark/",
+    ),
+    "kelly": ("/api/kelly-entries",),
+    "dcaSizing": (
+        "/api/dca-plans",
+        "/api/dca-settings",
+        "/api/backtest-stats",
+        "/api/kelly-entries",
+        "/api/chart/",
+        "/api/liquidity/",
+    ),
+    "dividends": ("/api/dividend-events",),
+    "logs": ("/api/invalid-signals", "/api/export/"),
+}
+
 
 @app.middleware("http")
-async def require_login(request: Request, call_next):
+async def authorize_dashboard_request(request: Request, call_next):
     path = request.url.path
-    public = {
-        "/",
-        "/health",
-        "/api/auth/login",
-        "/api/auth/me",
-        "/api/auth/logout",
-        "/webhook",
-        "/api/backtests/import",
-    }
-    if path in public or path.startswith("/static/") or not path.startswith("/api/"):
+    if (
+        path == "/"
+        or path == "/health"
+        or path == "/webhook"
+        or path == "/api/auth/login"
+        or path == "/api/auth/me"
+        or path.startswith("/static/")
+    ):
         return await call_next(request)
+
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
     token = request.cookies.get(SESSION_COOKIE)
     user = store.get_session_user(hash_session_token(token)) if token else None
     if user is None:
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
     request.state.user = user
-    return await call_next(request)
+
+    if path.startswith("/api/admin/") and user["role"] != "admin":
+        return JSONResponse({"detail": "Admin access required"}, status_code=403)
+
+    if path.startswith("/api/export/") and user["role"] != "admin":
+        return JSONResponse({"detail": "Admin access required"}, status_code=403)
+
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        if path == "/api/auth/logout":
+            return await _call_with_audit(request, call_next, user)
+        if path == "/api/preferences":
+            return await _call_with_audit(request, call_next, user)
+        if (
+            (path.startswith("/api/dca-plans") or path.startswith("/api/dca-settings"))
+            and "dcaSizing" in set(user.get("features") or [])
+        ):
+            return await _call_with_audit(request, call_next, user)
+        if user["role"] != "admin":
+            return JSONResponse({"detail": "Read-only account"}, status_code=403)
+
+    if user["role"] != "admin" and request.method in {"GET", "HEAD"}:
+        allowed = set(user.get("features") or [])
+        if path == "/api/export/database":
+            return JSONResponse({"detail": "Admin access required"}, status_code=403)
+        required = {
+            feature
+            for feature, prefixes in FEATURE_PATHS.items()
+            if any(path == prefix or path.startswith(prefix) for prefix in prefixes)
+        }
+        if required and not required.intersection(allowed):
+            return JSONResponse({"detail": "Feature is not enabled"}, status_code=403)
+
+    return await _call_with_audit(request, call_next, user)
 
 
-class LoginPayload(BaseModel):
-    username: str = Field(min_length=1, max_length=80)
-    password: str = Field(min_length=1, max_length=256)
-
-
-class BacktestRunPayload(BaseModel):
-    symbols: str | list[str] = Field(..., examples=["FPT, VCB, TCB"])
-    start_date: date = Field(..., examples=["2020-01-01"])
-    end_date: date = Field(..., examples=["2025-12-31"])
-    strategy: str = Field(default="ma_crossover", max_length=60)
-    initial_cash: float = Field(default=1_000_000_000, gt=0)
-    fast_window: int = Field(default=20, ge=1, le=500)
-    slow_window: int = Field(default=100, ge=2, le=1000)
-    rsi_window: int = Field(default=14, ge=2, le=200)
-    rsi_entry: float = Field(default=30, gt=0, lt=100)
-    rsi_exit: float = Field(default=55, gt=0, lt=100)
-    breakout_window: int = Field(default=55, ge=2, le=1000)
-    breakout_exit_window: int = Field(default=20, ge=2, le=1000)
-    commission_rate: float = Field(default=0.0015, ge=0, le=0.1)
-    sell_tax_rate: float = Field(default=0.001, ge=0, le=0.1)
-    slippage_bps: float = Field(default=10, ge=0, le=1000)
-    lot_size: int = Field(default=100, ge=1, le=100_000)
-    max_participation_rate: float = Field(default=0.05, gt=0, le=1)
-    rebalance_interval_days: int = Field(default=20, ge=1, le=252)
-
-
-class SignalFilterPayload(BaseModel):
-    allowed_tickers: str | list[str] = ""
-    allowed_strategies: str | list[str] = ""
-    allow_buy: bool = True
-    allow_sell: bool = True
-
-
-class SignalClassificationPayload(BaseModel):
-    status: Literal["pending", "accepted", "excluded"]
-    category: str = Field(default="watch", min_length=1, max_length=40)
-    classification_note: str | None = Field(default=None, max_length=500)
+async def _call_with_audit(request: Request, call_next, user: dict[str, Any]):
+    """Run the request; record every authenticated mutation in the audit log."""
+    response = await call_next(request)
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        try:
+            await asyncio.to_thread(
+                store.record_audit_event,
+                username=user.get("username"),
+                role=user.get("role"),
+                method=request.method,
+                path=request.url.path,
+                status=response.status_code,
+            )
+        except BaseException:
+            logger.exception("Audit log write failed")
+    return response
 
 
 class WebhookPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    ticker: str | dict[str, Any] | None = None
-    action: str
-    price: float | str | None = None
+    ticker: str | dict[str, Any] = Field(..., examples=["HOSE:VPB"])
+    action: str = Field(..., examples=["buy"])
+    price: str | float | int | None = None
     timeframe: str | None = None
     strategy: str | None = None
     note: str | None = None
     time: str | None = None
     secret: str | None = None
+    base_strategy: str | None = None
+    confirm_for: str | None = None
+    requires_open_strategy: str | None = None
+    signal_type: str | None = None
+    asset_type: str | None = None
+    market: str | None = None
+    quantity: str | float | int | None = None
+    contract_multiplier: str | float | int | None = None
+    reason: str | None = None
+    take_profit: str | float | int | None = None
+    stop_loss: str | float | int | None = None
 
 
-class BacktestImportPayload(BaseModel):
-    symbols: str | list[str]
-    strategy: str = Field(min_length=1, max_length=80)
-    start_date: date
-    end_date: date
-    config: dict[str, Any] = Field(default_factory=dict)
-    metrics: dict[str, Any]
-    equity_points: list[dict[str, Any]] = Field(default_factory=list)
-    trades: list[dict[str, Any]] = Field(default_factory=list)
-    set_standard: bool = False
+class ManualPositionPayload(BaseModel):
+    ticker: str = Field(..., examples=["VPB"])
+    weight_pct: float = Field(..., gt=0, examples=[10])
+    entry_price: float = Field(..., gt=0, examples=[19.5])
+    current_price: float | None = Field(default=None, gt=0, examples=[20.2])
+    quantity: float | None = Field(default=None, gt=0, examples=[1000])
+    entry_date: str | None = None
+    note: str | None = None
 
 
-@app.get("/", include_in_schema=False)
+class ManualPositionUpdatePayload(BaseModel):
+    ticker: str | None = None
+    weight_pct: float | None = Field(default=None, gt=0)
+    entry_price: float | None = Field(default=None, gt=0)
+    current_price: float | None = Field(default=None, gt=0)
+    quantity: float | None = Field(default=None, gt=0)
+    entry_date: str | None = None
+    note: str | None = None
+
+
+class ManualClosePayload(BaseModel):
+    exit_price: float = Field(..., gt=0)
+    closed_at: str | None = None
+
+
+class DividendEventPayload(BaseModel):
+    ticker: str = Field(..., examples=["VPB"])
+    ex_date: str = Field(..., examples=["2026-06-10"])
+    cash_amount: float | None = Field(default=None, ge=0, examples=[1000])
+    stock_ratio_pct: float | None = Field(default=None, ge=0, examples=[10])
+    issue_ratio_pct: float | None = Field(default=None, ge=0, examples=[20])
+    issue_price: float | None = Field(default=None, ge=0, examples=[10000])
+    note: str | None = None
+
+
+class DerivativeCapitalPayload(BaseModel):
+    initial_capital: float = Field(..., gt=0, examples=[100000000])
+
+
+class SectorMappingPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    sector: str = Field(..., min_length=1, max_length=80, examples=["Ngân hàng"])
+
+
+class StrategyBacktestStatsPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    strategy: str = Field(..., min_length=1, max_length=120, examples=["STxanhdo"])
+    metric_name: str = Field(
+        default="Price Drawdown % From BUY",
+        min_length=1,
+        max_length=160,
+    )
+    closed_trades: int | None = Field(default=None, ge=0)
+    negative_trades: int | None = Field(default=None, ge=0)
+    max_loss_pct: float | None = None
+    min_loss_pct: float | None = None
+    avg_loss_pct: float | None = None
+    max_gain_pct: float | None = None
+    avg_gain_pct: float | None = None
+    tp1_hits: int | None = Field(default=None, ge=0)
+    tp1_total: int | None = Field(default=None, ge=0)
+    tp2_hits: int | None = Field(default=None, ge=0)
+    tp2_total: int | None = Field(default=None, ge=0)
+    tp3_hits: int | None = Field(default=None, ge=0)
+    tp3_total: int | None = Field(default=None, ge=0)
+    avg_hold_bars: float | None = Field(default=None, ge=0)
+    avg_hold_days: float | None = Field(default=None, ge=0)
+    note: str | None = None
+
+
+class KellyEntryPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    strategy: str = Field(default="", max_length=120, examples=["STxanhdo"])
+    winRate: float | None = Field(default=None, ge=0, le=100)
+    winningTrades: float | None = Field(default=None, ge=0)
+    totalTrades: float | None = Field(default=None, ge=0)
+    profitFactor: float | None = Field(default=None, ge=0)
+    maxDrawdown: float | None = Field(default=None, ge=0)
+    targetDrawdown: float | None = Field(default=None, ge=0)
+    fraction: float | None = Field(default=None, ge=0, le=100)
+    maxAllocation: float | None = Field(default=None, ge=0, le=100)
+
+
+class DcaPlanPayload(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=20, examples=["VPB"])
+    strategy: str = Field(default="", max_length=120, examples=["STxanhdo"])
+    initialCapital: float | None = Field(default=None, ge=0)
+    allocationPct: float | None = Field(default=None, ge=0, le=100)
+    entryPrice: float | None = Field(default=None, ge=0)
+    distanceMode: str = Field(default="percent", max_length=20)
+    maxLossPct: float | None = Field(default=None, ge=0)
+    lotSize: float | None = Field(default=None, ge=1)
+    levels: list[dict[str, Any]] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict)
+
+
+class DcaSettingsPayload(BaseModel):
+    initialCapital: float | None = Field(default=None, ge=0)
+
+
+class UserPreferencesPayload(BaseModel):
+    watchlist: list[str] = Field(default_factory=list, max_length=200)
+    theme: str = Field(default="dark", max_length=10)
+    language: str = Field(default="vi", max_length=5)
+
+
+class LoginPayload(BaseModel):
+    username: str = Field(..., min_length=1, max_length=80)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class UserCreatePayload(BaseModel):
+    username: str = Field(..., min_length=3, max_length=80)
+    password: str = Field(..., min_length=8, max_length=256)
+    role: str = "user"
+    features: list[str] = Field(default_factory=list)
+    strategies: list[str] = Field(default_factory=list)
+
+
+class UserUpdatePayload(BaseModel):
+    role: str | None = None
+    features: list[str] | None = None
+    strategies: list[str] | None = None
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+
+
+@app.get("/")
 def dashboard() -> FileResponse:
-    return FileResponse(PROJECT_ROOT / "app" / "static" / "index.html")
+    return FileResponse(
+        PROJECT_ROOT / "app" / "static" / "index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    status = store.database_status()
+    database = store.database_status()
     return {
         "status": "ok",
         "database": "ok",
-        "journal_mode": status["journal_mode"],
+        "journal_mode": database["journal_mode"],
         "persistent_storage": database_is_persistent(),
     }
+
+
+_login_lock = threading.Lock()
+_login_attempts: dict[str, list[float]] = {}
+
+
+def _login_client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or "unknown"
+    client = request.client
+    return client.host if client else "unknown"
+
+
+def _login_rate_limited(key: str) -> bool:
+    window = settings.login_lockout_minutes * 60
+    now = _time.monotonic()
+    with _login_lock:
+        attempts = [ts for ts in _login_attempts.get(key, []) if now - ts < window]
+        _login_attempts[key] = attempts
+        return len(attempts) >= settings.login_max_attempts
+
+
+def _record_login_failure(key: str) -> None:
+    with _login_lock:
+        _login_attempts.setdefault(key, []).append(_time.monotonic())
+
+
+def _clear_login_failures(key: str) -> None:
+    with _login_lock:
+        _login_attempts.pop(key, None)
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginPayload, request: Request) -> Response:
+    client_key = _login_client_key(request)
+    if _login_rate_limited(client_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please wait a few minutes and try again.",
+        )
+    user = store.get_user_credentials(payload.username)
+    if (
+        user is None
+        or not user.get("active")
+        or not verify_password(payload.password, user["password_hash"])
+    ):
+        _record_login_failure(client_key)
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    _clear_login_failures(client_key)
+    token, token_hash, expires_at = new_session(settings.session_days)
+    store.create_session(token_hash=token_hash, user_id=user["id"], expires_at=expires_at)
+    response = JSONResponse({"user": public_user(user)})
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=settings.session_days * 24 * 60 * 60,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request) -> Response:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        store.delete_session(hash_session_token(token))
+    response = JSONResponse({"status": "logged_out"})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
 
 
 @app.get("/api/auth/me")
 def auth_me(request: Request) -> dict[str, Any]:
     token = request.cookies.get(SESSION_COOKIE)
     user = store.get_session_user(hash_session_token(token)) if token else None
-    return {"user": {"username": user["username"], "role": "admin"} if user else None}
+    return {
+        "user": public_user(user) if user else None,
+        "preferences": store.get_user_preferences(user["id"]) if user else None,
+        "available_features": ALL_FEATURES,
+        "available_strategies": available_signal_strategies(),
+    }
 
 
-@app.post("/api/auth/login")
-def login(payload: LoginPayload) -> JSONResponse:
-    user = store.get_user_credentials(payload.username)
-    if user is None or not user["active"] or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    token, token_hash, expires_at = new_session(settings.session_days)
-    store.create_session(token_hash=token_hash, user_id=user["id"], expires_at=expires_at)
-    response = JSONResponse({"user": {"username": user["username"], "role": "admin"}})
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        secure=bool(os.getenv("RAILWAY_ENVIRONMENT")),
-        samesite="lax",
-        max_age=settings.session_days * 86_400,
+@app.get("/api/preferences")
+def user_preferences(request: Request) -> dict[str, Any]:
+    return {"preferences": store.get_user_preferences(request.state.user["id"])}
+
+
+@app.patch("/api/preferences")
+def update_user_preferences(
+    payload: UserPreferencesPayload,
+    request: Request,
+) -> dict[str, Any]:
+    theme = payload.theme.strip().lower()
+    language = payload.language.strip().lower()
+    if theme not in {"dark", "light"}:
+        raise HTTPException(status_code=422, detail="Theme must be dark or light")
+    if language not in {"vi", "en"}:
+        raise HTTPException(status_code=422, detail="Language must be vi or en")
+    watchlist: list[str] = []
+    for raw_ticker in payload.watchlist:
+        try:
+            ticker = normalize_ticker(raw_ticker)[0]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if ticker not in watchlist:
+            watchlist.append(ticker)
+    preferences = store.upsert_user_preferences(
+        user_id=request.state.user["id"],
+        watchlist=watchlist,
+        theme=theme,
+        language=language,
     )
-    return response
+    return {"status": "saved", "preferences": preferences}
 
 
-@app.post("/api/auth/logout")
-def logout(request: Request) -> JSONResponse:
-    token = request.cookies.get(SESSION_COOKIE)
-    if token:
-        store.delete_session(hash_session_token(token))
-    response = JSONResponse({"status": "logged_out"})
-    response.delete_cookie(SESSION_COOKIE)
-    return response
+@app.get("/api/admin/audit-log")
+def admin_audit_log(limit: int = 100) -> dict[str, Any]:
+    return {"audit_log": store.list_audit_events(limit=limit)}
 
 
-def _csv_values(value: str | list[str], *, upper: bool = False) -> list[str]:
-    values = value.split(",") if isinstance(value, str) else value
-    cleaned = [str(item).strip() for item in values if str(item).strip()]
-    if upper:
-        cleaned = [item.upper() for item in cleaned]
-    return list(dict.fromkeys(cleaned))
+@app.post("/api/admin/database-backup")
+async def create_database_backup_endpoint() -> dict[str, Any]:
+    backup = await asyncio.to_thread(create_database_backup)
+    return {
+        "status": "created",
+        "backup": {
+            "filename": Path(backup["path"]).name,
+            "created_at": backup["created_at"],
+            "removed_old_backups": backup["removed_old_backups"],
+        },
+    }
 
 
-def _normalise_webhook_ticker(value: str | dict[str, Any] | None) -> tuple[str, str | None]:
-    if isinstance(value, dict):
-        value = value.get("ticker") or value.get("symbol") or value.get("value")
-    raw = str(value or "").strip().upper()
-    if not raw:
-        raise ValueError("ticker is required")
-    exchange, separator, ticker = raw.partition(":")
-    if not separator:
-        ticker, exchange = exchange, None
-    ticker = ticker.strip()
-    if not ticker or len(ticker) > 20 or not ticker.replace("_", "").isalnum():
-        raise ValueError("ticker is invalid")
-    return ticker, exchange
+@app.get("/api/admin/users")
+def admin_users() -> dict[str, Any]:
+    return {
+        "users": [public_user(user) for user in store.list_users()],
+        "available_features": ALL_FEATURES,
+        "available_strategies": available_signal_strategies(),
+    }
 
 
-def _normalise_action(value: str) -> str:
-    action = "".join(char for char in value.lower() if char.isalnum())
-    if action in {"buy", "long", "longstart", "entry", "enter"}:
-        return "buy"
-    if action in {"sell", "exit", "close", "closelong"}:
-        return "sell"
-    return "other"
+@app.post("/api/admin/users")
+def create_dashboard_user(payload: UserCreatePayload) -> dict[str, Any]:
+    role = validate_role(payload.role)
+    features = validate_features(payload.features)
+    strategies = validate_strategies(payload.strategies)
+    username = payload.username.strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=422, detail="Username must have at least 3 characters")
+    try:
+        user = store.create_user(
+            username=username,
+            password_hash=hash_password(payload.password),
+            role=role,
+            features=features,
+            strategies=strategies,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Username already exists") from exc
+    return {"user": public_user(user)}
 
 
-def _automatic_signal_classification(
-    *, ticker: str, action: str, strategy: str | None,
-) -> tuple[str, str, str | None]:
-    filters = store.get_signal_filter_settings()
-    reasons: list[str] = []
-    if action == "other":
-        reasons.append("Only long-only BUY and SELL signals are accepted")
-    if action == "buy" and not filters["allow_buy"]:
-        reasons.append("BUY signals are disabled by the dashboard filter")
-    if action == "sell" and not filters["allow_sell"]:
-        reasons.append("SELL signals are disabled by the dashboard filter")
-    if filters["allowed_tickers"] and ticker not in set(filters["allowed_tickers"]):
-        reasons.append("Ticker is outside the dashboard allow list")
-    normalized_strategy = (strategy or "").strip().lower()
-    allowed_strategies = {item.lower() for item in filters["allowed_strategies"]}
-    if allowed_strategies and normalized_strategy not in allowed_strategies:
-        reasons.append("Strategy is outside the dashboard allow list")
-    return ("excluded", "excluded", "; ".join(reasons)) if reasons else ("pending", "watch", None)
+@app.patch("/api/admin/users/{user_id}")
+def update_dashboard_user(
+    user_id: int, payload: UserUpdatePayload, request: Request
+) -> dict[str, Any]:
+    if user_id == request.state.user["id"] and payload.active is False:
+        raise HTTPException(status_code=422, detail="Cannot disable your own account")
+    role = validate_role(payload.role) if payload.role is not None else None
+    if user_id == request.state.user["id"] and role == "user":
+        raise HTTPException(status_code=422, detail="Cannot remove your own admin role")
+    features = validate_features(payload.features) if payload.features is not None else None
+    strategies = validate_strategies(payload.strategies) if payload.strategies is not None else None
+    try:
+        user = store.update_user(
+            user_id,
+            role=role,
+            features=features,
+            strategies=strategies,
+            active=payload.active,
+            password_hash=hash_password(payload.password) if payload.password else None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="User not found") from exc
+    return {"user": public_user(user)}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_dashboard_user(user_id: int, request: Request) -> dict[str, Any]:
+    if user_id == request.state.user["id"]:
+        raise HTTPException(status_code=422, detail="Cannot delete your own account")
+    if not store.delete_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "deleted", "user_id": user_id}
+
+
+@app.delete("/api/admin/strategy-data")
+def delete_strategy_data(
+    strategy: str = Query(..., min_length=1, max_length=120),
+) -> dict[str, Any]:
+    normalized_strategy = strategy.strip()
+    if not normalized_strategy:
+        raise HTTPException(status_code=422, detail="Strategy is required")
+    return {
+        "status": "deleted",
+        "strategy": normalized_strategy,
+        "deleted": store.delete_strategy_data(normalized_strategy),
+    }
+
+
+def validate_role(role: str) -> str:
+    normalized = role.strip().lower()
+    if normalized not in {"admin", "user"}:
+        raise HTTPException(status_code=422, detail="Role must be admin or user")
+    return normalized
+
+
+def validate_features(features: list[str]) -> list[str]:
+    invalid = set(features) - set(ALL_FEATURES)
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid features: {sorted(invalid)}")
+    return [feature for feature in ALL_FEATURES if feature in set(features)]
+
+
+def validate_strategies(strategies: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for strategy in strategies:
+        value = str(strategy or "").strip()
+        key = value.lower()
+        if not value or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(value)
+    return normalized
+
+
+def available_signal_strategies() -> list[str]:
+    strategies = {
+        (signal.get("strategy") or DEFAULT_STRATEGY).strip()
+        for signal in store.list_all_signals()
+    }
+    for stat in store.list_strategy_backtest_stats():
+        strategies.add((stat.get("strategy") or "").strip())
+    for entry in store.list_kelly_entries():
+        strategies.add((entry.get("strategy") or "").strip())
+    return sorted((strategy for strategy in strategies if strategy), key=str.lower)
+
+
+@app.get("/api/settings")
+def dashboard_settings() -> dict[str, Any]:
+    return {
+        "default_signal_weight_pct": settings.default_signal_weight_pct,
+        "derivative_contract_multiplier": settings.derivative_contract_multiplier,
+        "derivative_initial_capital": derivative_initial_capital(),
+        "market_data_provider": (
+            "fireant+dnse"
+            if fireant_enricher is not None and dnse_enricher is not None
+            else "fireant"
+            if fireant_enricher is not None
+            else "dnse"
+            if dnse_enricher is not None
+            else "vnstock"
+        ),
+        "signal_monitor": signal_monitor_status(),
+        "storage": {
+            "persistent": database_is_persistent(),
+            "last_backup_at": store.get_app_setting("database_backup_last_at"),
+            "backup_retention_days": settings.backup_retention_days,
+        },
+    }
+
+
+@app.patch("/api/settings/derivative-capital")
+def update_derivative_capital(payload: DerivativeCapitalPayload) -> dict[str, float]:
+    store.set_app_setting("derivative_initial_capital", str(payload.initial_capital))
+    return {"derivative_initial_capital": payload.initial_capital}
 
 
 @app.post("/webhook")
-def tradingview_webhook(payload: WebhookPayload, request: Request) -> dict[str, Any]:
-    supplied_secret = (
-        payload.secret
-        or request.query_params.get("secret")
-        or request.headers.get("X-Webhook-Secret")
-    )
-    if settings.webhook_secret:
-        if not supplied_secret or not hmac.compare_digest(supplied_secret, settings.webhook_secret):
-            raise HTTPException(status_code=401, detail="Invalid webhook secret")
-    elif settings.require_webhook_secret:
-        raise HTTPException(status_code=503, detail="Webhook secret is not configured")
+async def receive_webhook(
+    request: Request,
+    secret: str | None = Query(default=None),
+) -> dict[str, Any]:
+    payload = await parse_webhook_payload(request)
+    if settings.webhook_secret and settings.webhook_secret not in {secret, payload.secret}:
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    if is_derivative_payload(payload):
+        return receive_derivative_webhook(payload)
+
     try:
-        ticker, exchange = _normalise_webhook_ticker(payload.ticker)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    action = _normalise_action(payload.action)
-    strategy = payload.strategy.strip() if payload.strategy else None
-    status, category, reason = _automatic_signal_classification(
-        ticker=ticker, action=action, strategy=strategy
+        ticker, exchange = normalize_ticker(payload.ticker)
+        action = normalize_action(payload.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    is_confirmation = is_confirmation_signal(payload, action)
+    required_open_strategy = required_open_strategy_for_signal(payload, action)
+    if is_confirmation and not required_open_strategy:
+        raise HTTPException(
+            status_code=422,
+            detail="Confirmation signals require base_strategy or confirm_for",
+        )
+    if required_open_strategy and not has_open_strategy(ticker, required_open_strategy):
+        invalid_signal = store.record_invalid_signal(
+            ticker=ticker,
+            action=action,
+            timeframe=payload.timeframe,
+            strategy=payload.strategy,
+            reason="base_strategy_not_open",
+            source_time=payload.time,
+            payload=payload.model_dump(),
+        )
+        return {
+            "status": "rejected",
+            "reason": "base_strategy_not_open",
+            "required_open_strategy": required_open_strategy,
+            "invalid_signal": invalid_signal,
+        }
+
+    duplicate = store.find_duplicate_signal(
+        ticker=ticker,
+        action=action,
+        timeframe=payload.timeframe,
+        strategy=payload.strategy,
+        source_time=payload.time,
+        window_minutes=settings.duplicate_window_minutes,
     )
-    raw_payload = payload.model_dump(mode="json")
-    raw_payload.pop("secret", None)
-    signal = store.create_signal(
+    if duplicate:
+        store.record_invalid_signal(
+            ticker=ticker,
+            action=action,
+            timeframe=payload.timeframe,
+            strategy=payload.strategy,
+            reason="duplicate_webhook",
+            source_time=payload.time,
+            payload=payload.model_dump(),
+        )
+        return {"status": "duplicate", "signal": duplicate}
+
+    ticker_was_open = action == "sell" and ticker in open_position_tickers()
+    signal = store.insert_signal(
         ticker=ticker,
         exchange=exchange,
         action=action,
-        timeframe=payload.timeframe.strip() if payload.timeframe else None,
-        strategy=strategy,
-        note=payload.note.strip() if payload.note else None,
+        price=normalize_stock_price(payload.price, ticker=ticker, exchange=exchange),
+        timeframe=payload.timeframe,
+        strategy=payload.strategy,
+        note=payload.note,
         source_time=payload.time,
-        status=status,
-        category=category,
-        classification_note=None,
-        rejection_reason=reason,
-        payload=raw_payload,
+        payload=payload.model_dump(),
+        enrichment={"status": "pending", "ticker": ticker, "history": [], "metrics": {}},
     )
-    return {"status": "stored", "signal": signal}
-
-
-@app.get("/api/signal-filters")
-def get_signal_filters() -> dict[str, Any]:
-    return {"filters": store.get_signal_filter_settings()}
-
-
-@app.put("/api/signal-filters")
-def update_signal_filters(payload: SignalFilterPayload) -> dict[str, Any]:
-    filters = store.update_signal_filter_settings(
-        allowed_tickers=_csv_values(payload.allowed_tickers, upper=True),
-        allowed_strategies=_csv_values(payload.allowed_strategies),
-        allow_buy=payload.allow_buy,
-        allow_sell=payload.allow_sell,
+    removed_dividend_events = cleanup_dividend_events_after_close(
+        ticker,
+        position_was_open=ticker_was_open,
     )
-    return {"filters": filters}
+    enqueue_signal_enrichment(signal["id"], ticker)
+    return {
+        "status": "accepted",
+        "signal": signal,
+        "removed_dividend_events": removed_dividend_events,
+    }
+
+
+def is_derivative_payload(payload: WebhookPayload) -> bool:
+    asset_type = (payload.asset_type or payload.market or "").strip().lower()
+    return asset_type in {"derivative", "derivatives", "future", "futures", "vn30f"}
+
+
+def receive_derivative_webhook(payload: WebhookPayload) -> dict[str, Any]:
+    try:
+        symbol, exchange = normalize_ticker(payload.ticker)
+        action = normalize_derivative_action(payload.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    price = coerce_float(payload.price)
+    quantity = coerce_float(payload.quantity) or 1
+    contract_multiplier = (
+        coerce_float(payload.contract_multiplier)
+        or settings.derivative_contract_multiplier
+    )
+    if price is None or price <= 0:
+        raise HTTPException(status_code=422, detail="Derivative price must be greater than 0")
+    if quantity <= 0:
+        raise HTTPException(status_code=422, detail="Derivative quantity must be greater than 0")
+
+    duplicate = store.find_duplicate_derivative_signal(
+        symbol=symbol,
+        action=action,
+        timeframe=payload.timeframe,
+        strategy=payload.strategy,
+        source_time=payload.time,
+        window_minutes=settings.duplicate_window_minutes,
+    )
+    if duplicate:
+        return {"status": "duplicate", "derivative_signal": duplicate}
+
+    signal = store.insert_derivative_signal(
+        symbol=symbol,
+        exchange=exchange,
+        action=action,
+        price=price,
+        quantity=quantity,
+        contract_multiplier=contract_multiplier,
+        timeframe=payload.timeframe,
+        strategy=payload.strategy,
+        reason=payload.reason or payload.note,
+        source_time=payload.time,
+        payload=payload.model_dump(),
+    )
+    return {"status": "accepted", "derivative_signal": signal}
+
+
+async def parse_webhook_payload(request: Request) -> WebhookPayload:
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=422, detail="Webhook body is required")
+    text = body.decode("utf-8", errors="replace").strip()
+    try:
+        data = parse_forgiving_json(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        return WebhookPayload.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
+def confirmation_base_strategy(payload: WebhookPayload) -> str | None:
+    explicit_strategy = (
+        payload.requires_open_strategy or payload.base_strategy or payload.confirm_for
+    )
+    return explicit_strategy.strip() if explicit_strategy and explicit_strategy.strip() else None
+
+
+def required_open_strategy_for_signal(payload: WebhookPayload, action: str) -> str | None:
+    if not is_confirmation_signal(payload, action):
+        return None
+    return confirmation_base_strategy(payload)
+
+
+def is_confirmation_signal(payload: WebhookPayload, action: str) -> bool:
+    signal_type = (payload.signal_type or "").strip().lower()
+    return signal_type in {"confirm", "confirmation"} or action.startswith("confirm")
+
+
+def has_open_strategy(ticker: str, strategy: str) -> bool:
+    target_strategy = strategy.strip().lower()
+    if not target_strategy:
+        return False
+    is_open = False
+    for signal in store.list_all_signals(ticker=ticker):
+        signal_strategy = (signal.get("strategy") or DEFAULT_STRATEGY).strip().lower()
+        if signal_strategy != target_strategy:
+            continue
+        action = (signal.get("action") or "").strip().lower()
+        if action == "buy":
+            is_open = True
+        elif action == "sell":
+            is_open = False
+    return is_open
 
 
 @app.get("/api/signals")
-def list_signals(status: str | None = None, ticker: str | None = None) -> dict[str, Any]:
-    if status and status not in {"pending", "accepted", "excluded"}:
-        raise HTTPException(status_code=422, detail="Invalid signal status")
-    standards = {item["strategy"]: item for item in store.list_backtest_standards()}
-    signals = store.list_signals(status=status, ticker=ticker)
-    for signal in signals:
-        standard = standards.get(signal.get("strategy") or "")
-        if standard:
-            signal["backtest_standard"] = {
-                "id": standard["id"],
-                "total_return": (standard.get("metrics") or {}).get("total_return"),
-                "max_drawdown": (standard.get("metrics") or {}).get("max_drawdown"),
-            }
-    return {"signals": signals, "summary": store.signal_summary()}
-
-
-@app.patch("/api/signals/{signal_id}")
-def classify_signal(signal_id: int, payload: SignalClassificationPayload) -> dict[str, Any]:
-    try:
-        signal = store.classify_signal(
-            signal_id, status=payload.status, category=payload.category,
-            classification_note=payload.classification_note,
+def list_signals(request: Request, ticker: str | None = None, limit: int = 100) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    if strategy_restricted(request.state.user):
+        signals = visible_signals_for_user(
+            store.list_all_signals(ticker=normalized_ticker),
+            request.state.user,
         )
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail="Signal not found") from error
-    return {"signal": signal}
+        signals = sorted(signals, key=lambda row: str(row.get("received_at") or ""), reverse=True)
+        return {"signals": signals[: max(1, min(limit, 500))]}
+    return {"signals": store.list_signals(ticker=normalized_ticker, limit=limit)}
 
 
 @app.delete("/api/signals/{signal_id}")
@@ -377,170 +975,1269 @@ def delete_signal(signal_id: int) -> dict[str, Any]:
     return {"status": "deleted", "signal_id": signal_id}
 
 
-def _build_backtest_config(payload: BacktestRunPayload) -> BacktestConfig:
-    if payload.strategy not in {item["key"] for item in strategy_catalog()}:
-        raise ValueError("Unknown long-only strategy")
-    values = payload.model_dump(exclude={"symbols", "start_date", "end_date", "strategy"})
-    return BacktestConfig(strategy_name=payload.strategy, **values)
+@app.get("/api/summary")
+def summary(request: Request) -> dict[str, Any]:
+    if strategy_restricted(request.state.user):
+        return summarize_signal_rows(visible_signals_for_user(store.list_all_signals(), request.state.user))
+    return store.summary()
 
 
-def _backtest_cache_covers(bars: list[dict[str, Any]], start_date: str, end_date: str) -> bool:
-    if len(bars) < 10:
-        return False
-    first = pd.Timestamp(str(bars[0]["date"])[:10])
-    last = pd.Timestamp(str(bars[-1]["date"])[:10])
-    return first <= pd.Timestamp(start_date) + pd.Timedelta(days=7) and last >= pd.Timestamp(end_date) - pd.Timedelta(days=7)
+@app.get("/api/export/signals.csv")
+def export_signals_csv(request: Request) -> Response:
+    signals = visible_signals_for_user(store.list_all_signals(), request.state.user)
+    return csv_response(
+        "signals.csv",
+        [
+            "id",
+            "ticker",
+            "exchange",
+            "action",
+            "price",
+            "timeframe",
+            "strategy",
+            "note",
+            "source_time",
+            "received_at",
+        ],
+        signals,
+    )
 
 
-def _load_backtest_history(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-    cached = store.list_backtest_price_bars(ticker=symbol, start_date=start_date, end_date=end_date)
-    if _backtest_cache_covers(cached, start_date, end_date):
-        return normalise_ohlcv(pd.DataFrame(cached), symbol)
-    downloaded = download_vnstock_ohlcv(symbol, start_date, end_date)
-    store.upsert_backtest_price_bars(ticker=symbol, bars=downloaded.to_dict("records"), provider="vnstock")
-    return downloaded
+@app.get("/api/export/manual-portfolio.csv")
+def export_manual_portfolio_csv() -> Response:
+    positions = store.list_manual_positions()
+    return csv_response(
+        "manual-portfolio.csv",
+        [
+            "id",
+            "ticker",
+            "weight_pct",
+            "entry_price",
+            "current_price",
+            "quantity",
+            "entry_date",
+            "status",
+            "exit_price",
+            "closed_at",
+            "note",
+            "created_at",
+            "updated_at",
+        ],
+        positions,
+    )
 
 
-def execute_backtest_run(run_id: int) -> None:
-    try:
-        store.mark_backtest_running(run_id)
-        run = store.get_backtest_run(run_id)
-        config = BacktestConfig(**run["config"])
-        frames = {
-            symbol: _load_backtest_history(symbol, run["start_date"], run["end_date"])
-            for symbol in run["symbols"]
+@app.get("/api/export/manual-daily-performance.csv")
+def export_manual_daily_performance_csv() -> Response:
+    rows = store.list_manual_daily_performance()
+    return csv_response(
+        "manual-daily-performance.csv",
+        [
+            "trade_date",
+            "portfolio_return_pct",
+            "equity_value",
+            "total_weight_pct",
+            "open_count",
+            "closed_count",
+            "cost_value",
+            "market_value",
+            "pnl_value",
+            "recorded_at",
+        ],
+        rows,
+    )
+
+
+@app.get("/api/export/dividend-events.csv")
+def export_dividend_events_csv() -> Response:
+    rows = store.list_dividend_events()
+    return csv_response(
+        "dividend-events.csv",
+        [
+            "id",
+            "ticker",
+            "ex_date",
+            "cash_amount",
+            "stock_ratio_pct",
+            "issue_ratio_pct",
+            "issue_price",
+            "note",
+            "created_at",
+            "updated_at",
+        ],
+        rows,
+    )
+
+
+@app.get("/api/export/derivative-signals.csv")
+def export_derivative_signals_csv() -> Response:
+    rows = store.list_all_derivative_signals()
+    return csv_response(
+        "derivative-signals.csv",
+        [
+            "id",
+            "symbol",
+            "exchange",
+            "action",
+            "price",
+            "quantity",
+            "contract_multiplier",
+            "timeframe",
+            "strategy",
+            "reason",
+            "source_time",
+            "received_at",
+        ],
+        rows,
+    )
+
+
+@app.get("/api/export/database")
+def export_database() -> FileResponse:
+    if not settings.database_path.exists():
+        raise HTTPException(status_code=404, detail="Database file not found")
+    return FileResponse(settings.database_path, filename="signals.db")
+
+
+@app.get("/api/performance")
+def performance(request: Request, ticker: str | None = None, strategy: str | None = None) -> dict[str, Any]:
+    signals = filtered_performance_signals(
+        ticker=ticker,
+        strategy=strategy,
+        user=request.state.user,
+    )
+    return build_performance(signals, store.list_dividend_events())
+
+
+_foreign_flow_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_FOREIGN_FLOW_TTL_SECONDS = 180
+
+
+@app.get("/api/foreign-flow")
+async def foreign_flow_endpoint(
+    request: Request,
+    tickers: str | None = None,
+) -> dict[str, Any]:
+    """Current-session foreign net buy/sell per ticker (defaults to held tickers)."""
+    visible_tickers = visible_open_position_tickers(request.state.user)
+    if tickers:
+        requested = {
+            normalize_ticker(part)[0]
+            for part in tickers.split(",")
+            if part.strip()
         }
-        result = run_backtest(frames, config)
-        store.complete_backtest_run(
-            run_id,
-            metrics=result.metrics,
-            equity_points=result.equity_curve.to_dict("records"),
-            trades=result.trades.to_dict("records"),
+        symbols = sorted(
+            requested.intersection(visible_tickers)
+            if strategy_restricted(request.state.user)
+            else requested
         )
-    except BaseException as error:
-        logger.exception("Backtest %s failed", run_id)
-        store.fail_backtest_run(run_id, str(error) or type(error).__name__)
+    else:
+        symbols = sorted(visible_tickers)
+    if not symbols:
+        return {"foreign_flow": {}}
+    key = tuple(symbols)
+    now = _time.monotonic()
+    cached = _foreign_flow_cache.get(key)
+    if cached and now - cached[0] < _FOREIGN_FLOW_TTL_SECONDS:
+        live = cached[1]
+    else:
+        live = await asyncio.to_thread(foreign_flow, symbols)
+        _foreign_flow_cache[key] = (now, live)
+    # Merge the stored multi-session trend (cheap, always fresh) onto the
+    # cached live snapshot.
+    history = store.foreign_flow_history(symbols, days=5)
+    merged: dict[str, Any] = {}
+    for symbol in symbols:
+        info = dict(live.get(symbol) or {})
+        nets = history.get(symbol) or []
+        if nets:
+            info["net_5d"] = sum(nets)
+            info["days_5d"] = len(nets)
+        if info:
+            merged[symbol] = info
+    return {"foreign_flow": merged}
 
 
-@app.get("/api/backtests/strategies")
-def backtest_strategies() -> dict[str, Any]:
+@app.get("/api/liquidity/{ticker}")
+async def liquidity(ticker: str, sessions: int = 20) -> dict[str, Any]:
+    """Average daily traded value (VND) for a ticker, for position-size sanity checks."""
+    normalized = normalize_ticker(ticker)[0]
+    try:
+        enrichment = await asyncio.to_thread(enricher.enrich, normalized)
+    except BaseException:
+        logger.exception("Liquidity fetch failed for %s", normalized)
+        return {"ticker": normalized, "adtv": None}
+    window = max(1, min(sessions, 60))
     return {
-        "strategies": strategy_catalog(),
-        "execution": "Close T signal, next open fill; BUY and SELL-to-close only.",
+        "ticker": normalized,
+        "adtv": average_daily_value(enrichment.get("history"), sessions=window),
+        "sessions": window,
+        "latest_close": latest_history_close(enrichment),
     }
 
 
-@app.get("/api/backtests")
-def list_backtests() -> dict[str, Any]:
-    return {"backtests": store.list_backtest_runs()}
+@app.get("/api/benchmark/vnindex")
+async def benchmark_vnindex() -> dict[str, Any]:
+    """Daily VN-Index closes, used to overlay a benchmark on the equity curve."""
+    try:
+        enrichment = await asyncio.to_thread(enricher.enrich, "VNINDEX")
+    except BaseException:
+        logger.exception("VNINDEX benchmark fetch failed")
+        return {"series": []}
+    series: list[dict[str, Any]] = []
+    for row in enrichment.get("history") or []:
+        raw_time = row.get("time") or row.get("date") or row.get("Date")
+        close = coerce_float(
+            row.get("close") or row.get("Close") or row.get("closePrice") or row.get("c")
+        )
+        date_str = str(raw_time or "")[:10]
+        if len(date_str) == 10 and close and close > 0:
+            series.append({"date": date_str, "close": close})
+    series.sort(key=lambda item: item["date"])
+    return {"series": series}
 
 
-@app.get("/api/backtests/standards")
-def list_backtest_standards() -> dict[str, Any]:
-    return {"standards": store.list_backtest_standards()}
+@app.get("/api/backtest-stats")
+def backtest_stats(
+    request: Request,
+    ticker: str | None = None,
+    strategy: str | None = None,
+) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    rows = store.list_strategy_backtest_stats(
+        ticker=normalized_ticker,
+        strategy=strategy,
+    )
+    if strategy_restricted(request.state.user):
+        allowed = {
+            str(item or "").strip().lower()
+            for item in request.state.user.get("strategies", [])
+            if str(item or "").strip()
+        }
+        rows = [
+            row
+            for row in rows
+            if (row.get("strategy") or "").strip().lower() in allowed
+        ]
+    return {"backtest_stats": rows}
 
 
-def _valid_upload_token(request: Request) -> bool:
-    if not settings.backtest_upload_token:
+@app.post("/api/backtest-stats")
+def upsert_backtest_stat(payload: StrategyBacktestStatsPayload) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    tp_total = payload.closed_trades
+    stat = store.upsert_strategy_backtest_stat(
+        ticker=ticker,
+        strategy=payload.strategy,
+        metric_name=payload.metric_name,
+        closed_trades=payload.closed_trades,
+        negative_trades=payload.negative_trades,
+        max_loss_pct=payload.max_loss_pct,
+        min_loss_pct=payload.min_loss_pct,
+        avg_loss_pct=payload.avg_loss_pct,
+        max_gain_pct=payload.max_gain_pct,
+        avg_gain_pct=payload.avg_gain_pct,
+        tp1_hits=payload.tp1_hits,
+        tp1_total=payload.tp1_total if payload.tp1_total is not None else tp_total,
+        tp2_hits=payload.tp2_hits,
+        tp2_total=payload.tp2_total if payload.tp2_total is not None else tp_total,
+        tp3_hits=payload.tp3_hits,
+        tp3_total=payload.tp3_total if payload.tp3_total is not None else tp_total,
+        avg_hold_bars=payload.avg_hold_bars,
+        avg_hold_days=payload.avg_hold_days,
+        note=payload.note,
+    )
+    return {"status": "saved", "backtest_stat": stat}
+
+
+@app.delete("/api/backtest-stats/{stat_id}")
+def delete_backtest_stat(stat_id: int) -> dict[str, Any]:
+    if not store.delete_strategy_backtest_stat(stat_id):
+        raise HTTPException(status_code=404, detail="Backtest stats not found")
+    return {"status": "deleted", "stat_id": stat_id}
+
+
+@app.get("/api/kelly-entries")
+def kelly_entries(
+    request: Request,
+    ticker: str | None = None,
+    strategy: str | None = None,
+) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    rows = store.list_kelly_entries(ticker=normalized_ticker, strategy=strategy)
+    if strategy_restricted(request.state.user):
+        allowed = {
+            str(item or "").strip().lower()
+            for item in request.state.user.get("strategies", [])
+            if str(item or "").strip()
+        }
+        rows = [
+            row
+            for row in rows
+            if not (row.get("strategy") or "").strip()
+            or (row.get("strategy") or "").strip().lower() in allowed
+        ]
+    return {"kelly_entries": rows}
+
+
+@app.post("/api/kelly-entries")
+def upsert_kelly_entry(payload: KellyEntryPayload) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    entry = store.upsert_kelly_entry(
+        ticker=ticker,
+        strategy=payload.strategy or "",
+        win_rate=payload.winRate,
+        winning_trades=payload.winningTrades,
+        total_trades=payload.totalTrades,
+        profit_factor=payload.profitFactor,
+        max_drawdown=payload.maxDrawdown,
+        target_drawdown=payload.targetDrawdown,
+        fraction=payload.fraction,
+        max_allocation=payload.maxAllocation,
+    )
+    return {"status": "saved", "kelly_entry": entry}
+
+
+@app.delete("/api/kelly-entries/{entry_id}")
+def delete_kelly_entry(entry_id: int) -> dict[str, Any]:
+    if not store.delete_kelly_entry(entry_id):
+        raise HTTPException(status_code=404, detail="Kelly entry not found")
+    return {"status": "deleted", "entry_id": entry_id}
+
+
+@app.get("/api/sectors")
+def sector_mappings() -> dict[str, Any]:
+    mappings = store.list_sector_mappings()
+    sectors = sorted({row["sector"] for row in mappings})
+    return {"sectors": mappings, "sector_names": sectors}
+
+
+@app.post("/api/sectors")
+def upsert_sector_mapping(payload: SectorMappingPayload) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    try:
+        mapping = store.upsert_sector_mapping(ticker=ticker, sector=payload.sector)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "saved", "sector": mapping}
+
+
+@app.post("/api/sectors/refresh")
+async def refresh_sectors() -> dict[str, Any]:
+    result = await asyncio.to_thread(populate_sectors_from_listing)
+    return {"status": "ok", **result}
+
+
+@app.delete("/api/sectors/{ticker}")
+def delete_sector_mapping(ticker: str) -> dict[str, Any]:
+    normalized = normalize_ticker(ticker)[0]
+    if not store.delete_sector_mapping(normalized):
+        raise HTTPException(status_code=404, detail="Sector mapping not found")
+    return {"status": "deleted", "ticker": normalized}
+
+
+@app.get("/api/dca-settings")
+def dca_settings(request: Request) -> dict[str, Any]:
+    return {
+        "dca_settings": store.get_dca_user_settings(
+            user_id=request.state.user["id"],
+        )
+    }
+
+
+@app.patch("/api/dca-settings")
+def update_dca_settings(payload: DcaSettingsPayload, request: Request) -> dict[str, Any]:
+    settings_payload = store.upsert_dca_user_settings(
+        user_id=request.state.user["id"],
+        initial_capital=payload.initialCapital,
+    )
+    return {"status": "saved", "dca_settings": settings_payload}
+
+
+@app.get("/api/dca-plans")
+def dca_plans(request: Request) -> dict[str, Any]:
+    return {"dca_plans": store.list_dca_plans(user_id=request.state.user["id"])}
+
+
+@app.post("/api/dca-plans")
+def create_dca_plan(payload: DcaPlanPayload, request: Request) -> dict[str, Any]:
+    values = dca_plan_values(payload, request)
+    plan = store.insert_dca_plan(
+        user_id=request.state.user["id"],
+        **values,
+    )
+    return {"status": "saved", "dca_plan": plan}
+
+
+@app.patch("/api/dca-plans/{plan_id}")
+def update_dca_plan(
+    plan_id: int, payload: DcaPlanPayload, request: Request
+) -> dict[str, Any]:
+    values = dca_plan_values(payload, request)
+    try:
+        plan = store.update_dca_plan(
+            plan_id=plan_id,
+            user_id=request.state.user["id"],
+            **values,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="DCA plan not found") from exc
+    return {"status": "saved", "dca_plan": plan}
+
+
+def dca_plan_values(payload: DcaPlanPayload, request: Request) -> dict[str, Any]:
+    ticker = normalize_ticker(payload.ticker)[0]
+    strategy = payload.strategy.strip()
+    if strategy_restricted(request.state.user):
+        allowed = {
+            str(item or "").strip().lower()
+            for item in request.state.user.get("strategies", [])
+            if str(item or "").strip()
+        }
+        if strategy.strip().lower() not in allowed:
+            raise HTTPException(status_code=403, detail="Strategy is not enabled")
+    distance_mode = payload.distanceMode if payload.distanceMode in {"percent", "priceStep"} else "percent"
+    return {
+        "ticker": ticker,
+        "strategy": strategy,
+        "initial_capital": payload.initialCapital,
+        "allocation_pct": payload.allocationPct,
+        "entry_price": payload.entryPrice,
+        "distance_mode": distance_mode,
+        "max_loss_pct": payload.maxLossPct,
+        "lot_size": payload.lotSize,
+        "levels": payload.levels,
+        "result": payload.result,
+    }
+
+
+@app.delete("/api/dca-plans/{plan_id}")
+def delete_dca_plan(plan_id: int, request: Request) -> dict[str, Any]:
+    if not store.delete_dca_plan(plan_id=plan_id, user_id=request.state.user["id"]):
+        raise HTTPException(status_code=404, detail="DCA plan not found")
+    return {"status": "deleted", "plan_id": plan_id}
+
+
+@app.get("/api/derivatives")
+def derivatives(request: Request) -> dict[str, Any]:
+    signals = visible_derivative_signals_for_user(
+        store.list_all_derivative_signals(),
+        request.state.user,
+    )
+    return build_derivative_performance(
+        signals,
+        initial_capital=derivative_initial_capital(),
+    )
+
+
+def derivative_initial_capital() -> float:
+    stored = store.get_app_setting(
+        "derivative_initial_capital",
+        str(settings.derivative_initial_capital),
+    )
+    try:
+        capital = float(stored or settings.derivative_initial_capital)
+    except (TypeError, ValueError):
+        capital = settings.derivative_initial_capital
+    return max(0.01, capital)
+
+
+@app.delete("/api/derivatives/signals/{signal_id}")
+def delete_derivative_signal(signal_id: int) -> dict[str, Any]:
+    if not store.delete_derivative_signal(signal_id):
+        raise HTTPException(status_code=404, detail="Derivative signal not found")
+    return {"status": "deleted", "signal_id": signal_id}
+
+
+def confirmation_payload_strategy(signal: dict[str, Any]) -> str:
+    payload = signal.get("payload") or {}
+    values = [
+        payload.get("base_strategy"),
+        payload.get("confirm_for"),
+        payload.get("requires_open_strategy"),
+    ]
+    return " ".join(str(value).strip().lower() for value in values if value)
+
+
+def filtered_performance_signals(
+    *, ticker: str | None = None, strategy: str | None = None, user: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    signals = store.list_all_signals(ticker=normalized_ticker)
+    signals = visible_signals_for_user(signals, user)
+    if not strategy:
+        return signals
+    strategy_filter = strategy.strip().lower()
+    return [
+        signal
+        for signal in signals
+        if signal_matches_strategy_filter(signal, strategy_filter)
+    ]
+
+
+def signal_matches_strategy_filter(signal: dict[str, Any], strategy_filter: str) -> bool:
+    normalized_filter = strategy_filter.strip().lower()
+    if not normalized_filter:
+        return True
+    signal_strategy = (signal.get("strategy") or DEFAULT_STRATEGY).strip().lower()
+    if signal_strategy == normalized_filter:
+        return True
+    payload = signal.get("payload") or {}
+    return any(
+        str(payload.get(key) or "").strip().lower() == normalized_filter
+        for key in ("base_strategy", "confirm_for", "requires_open_strategy")
+    )
+
+
+def strategy_restricted(user: dict[str, Any] | None) -> bool:
+    if not user or user.get("role") == "admin":
         return False
-    authorization = request.headers.get("Authorization", "")
-    token = authorization.removeprefix("Bearer ").strip()
-    return bool(token) and hmac.compare_digest(token, settings.backtest_upload_token)
+    return bool(user.get("strategies"))
 
 
-@app.post("/api/backtests/import", status_code=201)
-def import_local_backtest(payload: BacktestImportPayload, request: Request) -> dict[str, Any]:
-    if not _valid_upload_token(request):
-        raise HTTPException(status_code=401, detail="Invalid local backtest upload token")
-    if payload.end_date <= payload.start_date:
-        raise HTTPException(status_code=422, detail="End date must be after start date")
-    try:
-        symbols = parse_symbols(payload.symbols)
-        run = store.create_backtest_run(
-            created_by_user_id=None,
-            symbols=symbols,
-            strategy=payload.strategy.strip(),
-            config=payload.config,
-            start_date=payload.start_date.isoformat(),
-            end_date=payload.end_date.isoformat(),
-            data_source="local_import",
-        )
-        store.complete_backtest_run(
-            run["id"], metrics=payload.metrics,
-            equity_points=payload.equity_points, trades=payload.trades,
-        )
-        if payload.set_standard:
-            store.set_backtest_standard(run["id"])
-        saved = store.get_backtest_run(run["id"])
-    except (KeyError, TypeError, ValueError) as error:
-        raise HTTPException(status_code=422, detail=f"Invalid imported backtest: {error}") from error
-    return {"status": "imported", "backtest": saved}
+def visible_signals_for_user(
+    signals: list[dict[str, Any]],
+    user: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not strategy_restricted(user):
+        return signals
+    allowed = [
+        str(strategy or "").strip().lower()
+        for strategy in user.get("strategies", [])
+        if str(strategy or "").strip()
+    ]
+    if not allowed:
+        return signals
+    return [
+        signal
+        for signal in signals
+        if any(signal_matches_strategy_filter(signal, strategy) for strategy in allowed)
+    ]
 
 
-@app.post("/api/backtests", status_code=202)
-def create_backtest(payload: BacktestRunPayload, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
-    if payload.end_date <= payload.start_date:
-        raise HTTPException(status_code=422, detail="End date must be after start date")
-    try:
-        symbols = parse_symbols(payload.symbols)
-        config = _build_backtest_config(payload)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    run = store.create_backtest_run(
-        created_by_user_id=request.state.user["id"],
-        symbols=symbols,
-        strategy=config.strategy_name,
-        config=config.serialisable(),
-        start_date=payload.start_date.isoformat(),
-        end_date=payload.end_date.isoformat(),
-    )
-    background_tasks.add_task(execute_backtest_run, run["id"])
-    return {"status": "queued", "backtest": run}
+def visible_derivative_signals_for_user(
+    signals: list[dict[str, Any]],
+    user: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not strategy_restricted(user):
+        return signals
+    allowed = {
+        str(strategy or "").strip().lower()
+        for strategy in user.get("strategies", [])
+        if str(strategy or "").strip()
+    }
+    return [
+        signal
+        for signal in signals
+        if (signal.get("strategy") or DEFAULT_STRATEGY).strip().lower() in allowed
+    ]
 
 
-@app.post("/api/backtests/{run_id}/standard")
-def set_backtest_standard(run_id: int) -> dict[str, Any]:
-    try:
-        run = store.set_backtest_standard(run_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail="Backtest not found") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    return {"backtest": run}
-
-
-@app.get("/api/backtests/{run_id}")
-def get_backtest(run_id: int) -> dict[str, Any]:
-    try:
-        run = store.get_backtest_run(run_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail="Backtest not found") from error
+def summarize_signal_rows(signals: list[dict[str, Any]]) -> dict[str, Any]:
+    latest = max((str(signal.get("received_at") or "") for signal in signals), default=None)
     return {
-        "backtest": run,
-        "equity_curve": store.list_backtest_equity_points(run_id),
-        "trades": store.list_backtest_trades(run_id),
+        "total": len(signals),
+        "buy_count": sum(1 for signal in signals if str(signal.get("action") or "").lower() == "buy"),
+        "sell_count": sum(1 for signal in signals if str(signal.get("action") or "").lower() == "sell"),
+        "tickers": len({signal.get("ticker") for signal in signals if signal.get("ticker")}),
+        "latest_received_at": latest,
     }
 
 
-@app.get("/api/backtests/{run_id}/trades.csv")
-def export_backtest_trades(run_id: int) -> Response:
-    try:
-        store.get_backtest_run(run_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail="Backtest not found") from error
-    output = io.StringIO()
-    rows = store.list_backtest_trades(run_id)
-    writer = csv.DictWriter(output, fieldnames=["date", "symbol", "side", "quantity", "fill_price", "notional", "costs"])
-    writer.writeheader()
-    writer.writerows(rows)
-    return Response(
-        output.getvalue(), media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=backtest-{run_id}-trades.csv"},
+@app.get("/api/invalid-signals")
+def invalid_signals(request: Request, limit: int = 100) -> dict[str, Any]:
+    signals = store.list_invalid_signals(limit=limit)
+    if strategy_restricted(request.state.user):
+        signals = visible_signals_for_user(signals, request.state.user)
+    return {"invalid_signals": signals}
+
+
+@app.get("/api/manual-portfolio")
+def manual_portfolio() -> dict[str, Any]:
+    return build_manual_portfolio(
+        store.list_manual_positions(),
+        store.list_manual_daily_performance(),
+        store.list_dividend_events(),
     )
 
 
-@app.delete("/api/backtests/{run_id}")
-def delete_backtest(run_id: int) -> dict[str, Any]:
-    if not store.delete_backtest_run(run_id):
-        raise HTTPException(status_code=404, detail="Backtest not found")
-    return {"status": "deleted", "backtest_id": run_id}
+@app.get("/api/dividend-events")
+def dividend_events(ticker: str | None = None) -> dict[str, Any]:
+    normalized_ticker = normalize_ticker(ticker)[0] if ticker else None
+    all_events = store.list_dividend_events(normalized_ticker)
+    positions = open_stock_positions_for_dividends()
+    if normalized_ticker:
+        positions = [
+            position
+            for position in positions
+            if str(position.get("ticker") or "").upper() == normalized_ticker
+        ]
+    events = relevant_dividend_events_for_positions(all_events, positions)
+    open_tickers = {str(event.get("ticker") or "").upper() for event in events}
+    alerts = upcoming_dividend_events_for_positions(events, open_tickers)
+    alerts_by_id = {
+        alert["id"]: alert
+        for alert in alerts
+        if alert.get("id") is not None
+    }
+    return {
+        "dividend_events": [
+            {**event, **alerts_by_id.get(event.get("id"), {})}
+            for event in events
+        ],
+        "dividend_alerts": alerts,
+    }
+
+
+@app.post("/api/dividend-events/prune")
+def prune_dividend_events() -> dict[str, Any]:
+    all_events = store.list_dividend_events()
+    relevant_events = relevant_dividend_events_for_positions(
+        all_events,
+        open_stock_positions_for_dividends(),
+    )
+    keep_ids = {
+        int(event["id"])
+        for event in relevant_events
+        if event.get("id") is not None
+    }
+    removed = store.delete_dividend_events_except_ids(keep_ids)
+    return {
+        "status": "pruned",
+        "removed": removed,
+        "kept": len(keep_ids),
+    }
+
+
+@app.post("/api/dividend-events/refresh")
+async def refresh_dividend_events() -> dict[str, Any]:
+    result = await refresh_dividend_events_for_open_positions()
+    return {"status": "ok", **result}
+
+
+@app.post("/api/dividend-events")
+def create_dividend_event(payload: DividendEventPayload) -> dict[str, Any]:
+    ticker, _ = normalize_ticker(payload.ticker)
+    try:
+        ex_date = date.fromisoformat(payload.ex_date).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid ex_date") from exc
+    cash_amount = normalize_money_unit(payload.cash_amount)
+    stock_ratio_pct = (
+        payload.stock_ratio_pct if payload.stock_ratio_pct is not None else None
+    )
+    issue_ratio_pct = (
+        payload.issue_ratio_pct if payload.issue_ratio_pct is not None else None
+    )
+    issue_price = normalize_money_unit(payload.issue_price)
+    if issue_ratio_pct and issue_ratio_pct > 0 and (issue_price or 0) <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Additional issuance requires issue_price",
+        )
+    if (
+        (cash_amount or 0) <= 0
+        and (stock_ratio_pct or 0) <= 0
+        and (issue_ratio_pct or 0) <= 0
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Event requires cash_amount, stock_ratio_pct or issue_ratio_pct",
+        )
+    try:
+        event = store.insert_dividend_event(
+            ticker=ticker,
+            ex_date=ex_date,
+            cash_amount=cash_amount,
+            stock_ratio_pct=stock_ratio_pct,
+            issue_ratio_pct=issue_ratio_pct,
+            issue_price=issue_price,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "created", "dividend_event": event}
+
+
+@app.delete("/api/dividend-events/{event_id}")
+def delete_dividend_event(event_id: int) -> dict[str, Any]:
+    if not store.delete_dividend_event(event_id):
+        raise HTTPException(status_code=404, detail="Dividend event not found")
+    return {"status": "deleted", "event_id": event_id}
+
+
+def normalize_money_unit(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return value / 1000
+
+
+@app.post("/api/manual-portfolio")
+def create_manual_position(
+    payload: ManualPositionPayload, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
+    ticker, _ = normalize_ticker(payload.ticker)
+    position = store.insert_manual_position(
+        ticker=ticker,
+        weight_pct=payload.weight_pct,
+        entry_price=payload.entry_price,
+        current_price=payload.current_price,
+        quantity=payload.quantity,
+        entry_date=payload.entry_date,
+        note=payload.note,
+    )
+    background_tasks.add_task(refresh_manual_ticker_price, ticker)
+    return {"status": "created", "position": position}
+
+
+@app.patch("/api/manual-portfolio/{position_id}")
+def update_manual_position(
+    position_id: int, payload: ManualPositionUpdatePayload
+) -> dict[str, Any]:
+    updates = payload.model_dump(exclude_unset=True)
+    if "ticker" in updates and updates["ticker"]:
+        updates["ticker"] = normalize_ticker(updates["ticker"])[0]
+    try:
+        position = store.update_manual_position(position_id, updates)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Manual position not found") from exc
+    return {"status": "updated", "position": position}
+
+
+@app.post("/api/manual-portfolio/refresh-prices")
+async def refresh_manual_portfolio_prices_endpoint() -> dict[str, Any]:
+    updated = await refresh_manual_portfolio_prices()
+    daily_performance = record_manual_daily_performance_if_due()
+    return {
+        "status": "refreshed",
+        "updated_positions": updated,
+        "daily_performance": daily_performance,
+    }
+
+
+@app.post("/api/manual-portfolio/record-daily-performance")
+def record_manual_daily_performance_endpoint() -> dict[str, Any]:
+    daily_performance = record_manual_daily_performance()
+    return {"status": "recorded", "daily_performance": daily_performance}
+
+
+@app.delete("/api/manual-portfolio/daily-performance/{trade_date}")
+def delete_manual_daily_performance(trade_date: str) -> dict[str, Any]:
+    if not store.delete_manual_daily_performance(trade_date):
+        raise HTTPException(status_code=404, detail="Manual daily performance not found")
+    return {"status": "deleted", "trade_date": trade_date}
+
+
+@app.post("/api/open-positions/refresh-prices")
+async def refresh_open_position_prices_endpoint() -> dict[str, Any]:
+    updated = await refresh_open_position_prices(include_manual=False)
+    return {"status": "refreshed", "updated_positions": updated}
+
+
+@app.post("/api/manual-portfolio/{position_id}/close")
+def close_manual_position(position_id: int, payload: ManualClosePayload) -> dict[str, Any]:
+    try:
+        existing_position = store.get_manual_position(position_id)
+        position = store.close_manual_position(
+            position_id, exit_price=payload.exit_price, closed_at=payload.closed_at
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Manual position not found") from exc
+    removed_dividend_events = cleanup_dividend_events_after_close(
+        position["ticker"],
+        position_was_open=existing_position["status"] == "open",
+    )
+    return {
+        "status": "closed",
+        "position": position,
+        "removed_dividend_events": removed_dividend_events,
+    }
+
+
+@app.delete("/api/manual-portfolio/{position_id}")
+def delete_manual_position(position_id: int) -> dict[str, Any]:
+    if not store.delete_manual_position(position_id):
+        raise HTTPException(status_code=404, detail="Manual position not found")
+    return {"status": "deleted", "position_id": position_id}
+
+
+@app.get("/api/chart/{ticker}")
+def chart(ticker: str) -> dict[str, Any]:
+    normalized_ticker, _ = normalize_ticker(ticker)
+    ticker_signals = store.list_all_signals(ticker=normalized_ticker)
+    history = []
+    for signal in reversed(ticker_signals):
+        if signal["enrichment"].get("history"):
+            history = signal["enrichment"]["history"]
+            break
+    markers = [
+        {
+            "id": signal["id"],
+            "action": signal["action"],
+            "price": signal["price"],
+            "strategy": signal["strategy"],
+            "source_time": signal["source_time"],
+            "received_at": signal["received_at"],
+        }
+        for signal in ticker_signals
+        if (signal["action"] or "").lower() in {"buy", "sell"}
+    ]
+    return {"ticker": normalized_ticker, "history": history, "markers": markers}
+
+
+def enrich_signal(signal_id: int, ticker: str) -> None:
+    enrichment = enricher.enrich(ticker)
+    sync_enrichment_dividends(enrichment)
+    enrichment["refreshed_at"] = utc_now_iso()
+    store.update_signal_enrichment(signal_id, enrichment)
+
+
+def enqueue_signal_enrichment(signal_id: int, ticker: str) -> None:
+    if enrichment_queue is None:
+        asyncio.create_task(enrich_signal_async(signal_id, ticker))
+        return
+    try:
+        enrichment_queue.put_nowait((signal_id, ticker))
+    except asyncio.QueueFull:
+        logger.warning("Skipping signal enrichment because queue is full: %s", ticker)
+
+
+async def enrich_signal_async(signal_id: int, ticker: str) -> None:
+    try:
+        await asyncio.to_thread(enrich_signal, signal_id, ticker)
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        logger.exception("Signal enrichment failed for %s", ticker)
+
+
+async def signal_enrichment_worker() -> None:
+    while True:
+        if enrichment_queue is None:
+            await asyncio.sleep(1)
+            continue
+        signal_id, ticker = await enrichment_queue.get()
+        try:
+            await enrich_signal_async(signal_id, ticker)
+        finally:
+            enrichment_queue.task_done()
+
+
+def create_database_backup(recorded_at: datetime | None = None) -> dict[str, Any]:
+    now = recorded_at or datetime.now(timezone.utc)
+    settings.backup_directory.mkdir(parents=True, exist_ok=True)
+    destination = settings.backup_directory / f"signals-{now:%Y%m%d-%H%M%S}.db"
+    store.backup_database(destination)
+
+    cutoff = now - timedelta(days=settings.backup_retention_days)
+    removed = 0
+    for candidate in settings.backup_directory.glob("signals-*.db"):
+        if candidate == destination:
+            continue
+        try:
+            modified = datetime.fromtimestamp(candidate.stat().st_mtime, timezone.utc)
+            if modified < cutoff:
+                candidate.unlink()
+                removed += 1
+        except OSError:
+            logger.exception("Could not inspect or remove old database backup: %s", candidate)
+
+    store.set_app_setting("database_backup_last_at", now.isoformat())
+    store.set_app_setting("database_backup_last_file", destination.name)
+    logger.info("Database backup created: %s", destination)
+    return {
+        "path": str(destination),
+        "created_at": now.isoformat(),
+        "removed_old_backups": removed,
+    }
+
+
+async def database_backup_loop() -> None:
+    await asyncio.sleep(30)
+    interval_seconds = settings.backup_interval_hours * 3600
+    while True:
+        try:
+            await asyncio.to_thread(create_database_backup)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Scheduled database backup failed")
+        await asyncio.sleep(interval_seconds)
+
+
+async def price_refresh_loop() -> None:
+    interval_seconds = settings.price_refresh_minutes * 60
+    while True:
+        try:
+            if is_market_open(sessions=settings.market_sessions):
+                await refresh_open_position_prices()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Scheduled price refresh failed")
+        await asyncio.sleep(interval_seconds)
+
+
+async def manual_portfolio_automation_loop() -> None:
+    while True:
+        try:
+            await refresh_manual_portfolio_prices_if_due(force=True)
+            record_manual_daily_performance_if_due()
+            await record_foreign_flow_if_due()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Manual portfolio automation failed")
+        await asyncio.sleep(60)
+
+
+async def record_foreign_flow_if_due(recorded_at: str | None = None) -> None:
+    """After market close, snapshot the session's foreign net per held ticker
+    once per trading day so a multi-session trend can be built over time."""
+    global last_foreign_flow_snapshot_date
+    if not is_after_manual_price_refresh_time(recorded_at):
+        return
+    trade_date = market_date_iso(recorded_at)
+    if last_foreign_flow_snapshot_date == trade_date:
+        return
+    tickers = sorted(open_position_tickers())
+    if not tickers:
+        last_foreign_flow_snapshot_date = trade_date
+        return
+    data = await asyncio.to_thread(foreign_flow, tickers)
+    if not data:
+        return  # provider hiccup — retry on the next tick
+    await asyncio.to_thread(store.record_foreign_flow_daily, data, trade_date)
+    last_foreign_flow_snapshot_date = trade_date
+    logger.info("Foreign flow snapshot recorded for %s (%s tickers)", trade_date, len(data))
+
+
+def signal_monitor_status() -> dict[str, Any]:
+    """Webhook heartbeat: how long since the last signal, and whether that
+    gap is stale while the market is open (a likely broken TradingView alert)."""
+    latest = store.latest_signal_received_at()
+    market_open = is_market_open(sessions=settings.market_sessions)
+    minutes_since: float | None = None
+    if latest:
+        parsed = _parse_utc(latest)
+        if parsed is not None:
+            delta = datetime.now(timezone.utc) - parsed
+            minutes_since = max(0.0, delta.total_seconds() / 60)
+    stale = bool(
+        market_open
+        and (minutes_since is None or minutes_since >= settings.signal_stale_minutes)
+    )
+    return {
+        "last_signal_at": latest,
+        "minutes_since": round(minutes_since, 1) if minutes_since is not None else None,
+        "market_open": market_open,
+        "stale": stale,
+        "threshold_minutes": settings.signal_stale_minutes,
+        "checked_at": utc_now_iso(),
+    }
+
+
+def _parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+async def signal_monitor_loop() -> None:
+    interval_seconds = settings.signal_monitor_interval_minutes * 60
+    was_stale = False
+    while True:
+        try:
+            status = await asyncio.to_thread(signal_monitor_status)
+            if status["stale"] and not was_stale:
+                logger.warning(
+                    "Signal heartbeat stale: no webhook for %s+ minutes during market hours",
+                    status["threshold_minutes"],
+                )
+            was_stale = status["stale"]
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Signal monitor check failed")
+        await asyncio.sleep(interval_seconds)
+
+
+def populate_sectors_from_listing() -> dict[str, Any]:
+    """Fill missing ticker sectors from vnstock's full industry listing.
+
+    Additive only: seeded and admin-edited rows are preserved. No-ops cleanly
+    when vnstock is unavailable, leaving the built-in seed in place.
+    """
+    mapping = fetch_industry_map()
+    result = store.apply_auto_sector_mappings(mapping) if mapping else {"added": 0, "updated": 0}
+    store.set_app_setting("sectors_refreshed_at", utc_now_iso())
+    store.set_app_setting("sectors_source_count", str(len(mapping)))
+    logger.info(
+        "Sector auto-fill: %s symbols from vnstock listing, %s added, %s updated",
+        len(mapping),
+        result["added"],
+        result["updated"],
+    )
+    return {"fetched": len(mapping), **result}
+
+
+async def sector_autofill_loop() -> None:
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(populate_sectors_from_listing)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Sector auto-fill failed")
+        await asyncio.sleep(24 * 3600)
+
+
+async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
+    """Pull ex-rights (GDKHQ) events for every held ticker.
+
+    Additive: events are upserted by source+external_id, so this supplements
+    manual entries, VNStock events and FireAnt marks without creating duplicates.
+    """
+    positions = open_stock_positions_for_dividends()
+    tickers = sorted({
+        str(position.get("ticker") or "").upper()
+        for position in positions
+        if position.get("ticker")
+    })
+    collected: list[dict[str, Any]] = []
+    for ticker in tickers:
+        events = await collect_dividend_events_for_ticker(ticker)
+        collected.extend(relevant_dividend_events_for_positions(events, positions))
+        await asyncio.sleep(1)
+    upserted = store.upsert_external_dividend_events(collected) if collected else 0
+    store.set_app_setting("dividends_refreshed_at", utc_now_iso())
+    logger.info(
+        "Dividend auto-fetch: %s tickers checked, %s events, %s upserted",
+        len(tickers),
+        len(collected),
+        upserted,
+    )
+    return {"tickers": len(tickers), "events": len(collected), "upserted": upserted}
+
+
+async def collect_dividend_events_for_ticker(ticker: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    try:
+        events.extend(await asyncio.to_thread(fetch_dividend_events, ticker))
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        logger.exception("VNStock dividend fetch failed for %s", ticker)
+
+    try:
+        enrichment = await asyncio.to_thread(enricher.enrich, ticker)
+    except asyncio.CancelledError:
+        raise
+    except BaseException:
+        logger.exception("Market-data dividend fetch failed for %s", ticker)
+    else:
+        enrichment_events = enrichment.get("dividend_events")
+        if isinstance(enrichment_events, list):
+            events.extend(enrichment_events)
+
+    return events
+
+
+async def dividend_autofetch_loop() -> None:
+    await asyncio.sleep(8)
+    while True:
+        try:
+            await refresh_dividend_events_for_open_positions()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Dividend auto-fetch failed")
+        await asyncio.sleep(12 * 3600)
+
+
+async def refresh_open_position_prices(*, include_manual: bool = True) -> int:
+    performance_data = build_performance(
+        store.list_all_signals(),
+        store.list_dividend_events(),
+    )
+    open_trades = performance_data["open_trades"]
+    signal_ids_by_ticker: dict[str, list[int]] = {}
+    for trade in open_trades:
+        signal_ids_by_ticker.setdefault(trade["ticker"], []).append(trade["entry_signal_id"])
+
+    manual_tickers = set(store.list_open_manual_tickers()) if include_manual else set()
+    refresh_tickers = sorted(set(signal_ids_by_ticker) | manual_tickers)
+    updated_signals = 0
+
+    for ticker in refresh_tickers:
+        try:
+            enrichment = await asyncio.to_thread(enricher.enrich, ticker)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            logger.exception("Skipping scheduled price refresh for %s", ticker)
+            continue
+        enrichment["refreshed_by"] = "scheduled_price_refresh"
+        enrichment["refreshed_at"] = utc_now_iso()
+        sync_enrichment_dividends(enrichment)
+        for signal_id in signal_ids_by_ticker.get(ticker, []):
+            store.update_signal_enrichment(signal_id, enrichment)
+            updated_signals += 1
+        if ticker in manual_tickers:
+            price = latest_history_close(enrichment)
+            if price is not None and price > 0:
+                store.update_manual_market_price(
+                    ticker=ticker,
+                    price=price,
+                    recorded_at=enrichment["refreshed_at"],
+                )
+    if manual_tickers:
+        record_manual_daily_performance_if_due()
+    return updated_signals
+
+
+async def refresh_manual_portfolio_prices(*, force: bool = True) -> int:
+    updated = 0
+    for ticker in store.list_open_manual_tickers():
+        updated += await asyncio.to_thread(refresh_manual_ticker_price, ticker, force=force)
+    record_manual_daily_performance_if_due()
+    return updated
+
+
+async def refresh_manual_portfolio_prices_if_due(
+    recorded_at: str | None = None,
+    *,
+    force: bool = True,
+) -> int | None:
+    global last_auto_manual_price_refresh_date
+    if not is_after_manual_price_refresh_time(recorded_at):
+        return None
+    trade_date = market_date_iso(recorded_at)
+    if last_auto_manual_price_refresh_date == trade_date:
+        return None
+    if not store.list_open_manual_tickers():
+        return None
+    updated = await refresh_manual_portfolio_prices(force=force)
+    if updated > 0:
+        last_auto_manual_price_refresh_date = trade_date
+    return updated
+
+
+def refresh_manual_ticker_price(ticker: str, *, force: bool = True) -> int:
+    enrichment = enricher.enrich(ticker, force=force)
+    sync_enrichment_dividends(enrichment)
+    price = latest_history_close(enrichment)
+    if price is None or price <= 0:
+        return 0
+    return store.update_manual_market_price(
+        ticker=ticker,
+        price=price,
+        recorded_at=utc_now_iso(),
+    )
+
+
+def sync_enrichment_dividends(enrichment: dict[str, Any]) -> int:
+    events = enrichment.get("dividend_events") or []
+    if not isinstance(events, list) or not events:
+        return 0
+    relevant_events = relevant_dividend_events_for_positions(
+        events,
+        open_stock_positions_for_dividends(),
+    )
+    if not relevant_events:
+        return 0
+    return store.upsert_external_dividend_events(relevant_events)
+
+
+def open_stock_positions_for_dividends() -> list[dict[str, Any]]:
+    performance_data = build_performance(store.list_all_signals())
+    return [
+        {
+            "ticker": trade.get("ticker"),
+            "entry_time": trade.get("entry_time"),
+        }
+        for trade in performance_data["open_trades"]
+        if trade.get("ticker") and trade.get("entry_time")
+    ]
+
+
+def open_position_tickers() -> set[str]:
+    performance_data = build_performance(
+        store.list_all_signals(),
+        store.list_dividend_events(),
+    )
+    signal_tickers = {
+        str(trade.get("ticker") or "").upper()
+        for trade in performance_data["open_trades"]
+        if trade.get("ticker")
+    }
+    return signal_tickers | set(store.list_open_manual_tickers())
+
+
+def visible_open_position_tickers(user: dict[str, Any] | None) -> set[str]:
+    if not strategy_restricted(user):
+        return open_position_tickers()
+    signals = visible_signals_for_user(store.list_all_signals(), user)
+    performance_data = build_performance(signals, store.list_dividend_events())
+    return {
+        str(trade.get("ticker") or "").upper()
+        for trade in performance_data["open_trades"]
+        if trade.get("ticker")
+    }
+
+
+def cleanup_dividend_events_after_close(
+    ticker: str, *, position_was_open: bool
+) -> int:
+    return 0
+
+
+def record_manual_daily_performance_if_due(recorded_at: str | None = None) -> dict[str, Any] | None:
+    if not is_after_daily_cutoff(recorded_at):
+        return None
+    if not store.list_manual_positions():
+        return None
+    return record_manual_daily_performance(recorded_at=recorded_at)
+
+
+def record_manual_daily_performance(recorded_at: str | None = None) -> dict[str, Any]:
+    record = build_daily_performance_record(
+        store.list_manual_positions(),
+        recorded_at,
+        store.list_dividend_events(),
+    )
+    return store.upsert_manual_daily_performance(**record)
+
+
+def latest_history_close(enrichment: dict[str, Any]) -> float | None:
+    history = enrichment.get("history") or []
+    if not history:
+        return None
+    latest_row = history[-1]
+    value = (
+        latest_row.get("close")
+        or latest_row.get("Close")
+        or latest_row.get("closePrice")
+        or latest_row.get("c")
+    )
+    return coerce_float(value)
+
+
+def csv_response(filename: str, fields: list[str], rows: list[dict[str, Any]]) -> Response:
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({field: row.get(field) for field in fields})
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

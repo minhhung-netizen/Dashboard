@@ -1,0 +1,408 @@
+import unittest
+from app.services.enrichment import (
+    DnseEnricher,
+    DnseRestClient,
+    FireAntEnricher,
+    MarketDataEnricher,
+    VnstockEnricher,
+    _dnse_ohlc_records,
+    _industry_map_from_records,
+    _normalize_dnse_stock_history,
+    _fireant_dividend_events,
+    _normalize_fireant_history,
+    _vnstock_dividend_events,
+    average_daily_value,
+    coerce_float,
+    fetch_dividend_events,
+    fetch_industry_map,
+    normalize_action,
+    normalize_stock_price,
+    normalize_ticker,
+)
+
+
+class EnrichmentHelpersTest(unittest.TestCase):
+    def test_normalize_ticker_removes_exchange_prefix(self):
+        self.assertEqual(normalize_ticker("HOSE:VPB"), ("VPB", "HOSE"))
+
+    def test_normalize_ticker_keeps_plain_symbol(self):
+        self.assertEqual(normalize_ticker(" vpb "), ("VPB", None))
+
+    def test_normalize_ticker_accepts_tradingview_adjusted_symbol_object(self):
+        self.assertEqual(
+            normalize_ticker({"adjustment": "dividends", "symbol": "HOSE:HHS"}),
+            ("HHS", "HOSE"),
+        )
+
+    def test_normalize_ticker_accepts_tradingview_adjusted_symbol_string(self):
+        self.assertEqual(
+            normalize_ticker('={"adjustment":"dividends","symbol":"HOSE:HHS"}'),
+            ("HHS", "HOSE"),
+        )
+
+    def test_normalize_action_aliases(self):
+        self.assertEqual(normalize_action("long"), "buy")
+        self.assertEqual(normalize_action("exit"), "sell")
+        self.assertEqual(normalize_action("confirm-buy"), "confirm_buy")
+        self.assertEqual(normalize_action("confirmation_sell"), "confirm_sell")
+        self.assertEqual(normalize_action("confi m_buy"), "confirm_buy")
+        self.assertEqual(normalize_action("confim_buy"), "confirm_buy")
+        self.assertEqual(normalize_action("confi m_sell"), "confirm_sell")
+        self.assertEqual(normalize_action("confim_sell"), "confirm_sell")
+
+    def test_coerce_float_accepts_tradingview_strings(self):
+        self.assertEqual(coerce_float("19,500"), 19500.0)
+        self.assertIsNone(coerce_float(""))
+
+    def test_normalize_stock_price_converts_vnd_to_thousand_unit(self):
+        self.assertEqual(normalize_stock_price("74400"), 74.4)
+        self.assertEqual(normalize_stock_price("13.95"), 13.95)
+
+    def test_normalize_stock_price_keeps_vnindex_points(self):
+        self.assertEqual(normalize_stock_price("1876", ticker="VNINDEX"), 1876)
+        self.assertEqual(
+            normalize_stock_price("1876.75", ticker="VNINDEX", exchange="HOSE"),
+            1876.75,
+        )
+        self.assertEqual(normalize_stock_price("1876", exchange="VNINDEX"), 1876)
+
+    def test_enricher_handles_non_exception_vnstock_failures(self):
+        class ExplodingEnricher(VnstockEnricher):
+            def _enrich_with_vnstock(self, ticker):
+                raise SystemExit("vnstock exited")
+
+        result = ExplodingEnricher().enrich("VPB")
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["ticker"], "VPB")
+        self.assertEqual(result["history"], [])
+        self.assertEqual(result["metrics"], {})
+
+    def test_enricher_caches_by_ticker(self):
+        class CountingEnricher(VnstockEnricher):
+            def __init__(self):
+                super().__init__(cache_ttl_seconds=60, min_request_interval_seconds=0)
+                self.calls = 0
+
+            def _enrich_with_vnstock(self, ticker):
+                self.calls += 1
+                return {
+                    "status": "ok",
+                    "ticker": ticker,
+                    "history": [{"close": 10}],
+                    "metrics": {},
+                }
+
+        enricher = CountingEnricher()
+
+        first = enricher.enrich("VPB")
+        second = enricher.enrich("VPB")
+        first["history"][0]["close"] = 99
+
+        self.assertEqual(enricher.calls, 1)
+        self.assertEqual(second["history"][0]["close"], 10)
+
+    def test_enricher_force_bypasses_cache(self):
+        class CountingEnricher(VnstockEnricher):
+            def __init__(self):
+                super().__init__(cache_ttl_seconds=60, min_request_interval_seconds=0)
+                self.calls = 0
+
+            def _enrich_with_vnstock(self, ticker):
+                self.calls += 1
+                return {
+                    "status": "ok",
+                    "ticker": ticker,
+                    "history": [{"close": self.calls}],
+                    "metrics": {},
+                }
+
+        enricher = CountingEnricher()
+
+        first = enricher.enrich("VPB")
+        second = enricher.enrich("VPB", force=True)
+
+        self.assertEqual(enricher.calls, 2)
+        self.assertEqual(first["history"][0]["close"], 1)
+        self.assertEqual(second["history"][0]["close"], 2)
+
+    def test_dnse_ohlc_records_supports_tradingview_array_shape(self):
+        records = _dnse_ohlc_records(
+            {
+                "t": [1700000000, 1700086400],
+                "o": [10, 11],
+                "h": [12, 13],
+                "l": [9, 10],
+                "c": [11, 12],
+                "v": [100, 200],
+            }
+        )
+
+        self.assertEqual(records[-1]["close"], 12)
+        self.assertEqual(records[-1]["volume"], 200)
+
+    def test_dnse_stock_history_normalizes_vnd_prices(self):
+        records = _normalize_dnse_stock_history(
+            [{"time": 1700000000, "open": 74000, "high": 75000, "low": 73000, "close": 74500}]
+        )
+
+        self.assertEqual(records[0]["close"], 74.5)
+        self.assertTrue(records[0]["time"].startswith("2023-"))
+
+    def test_dnse_enricher_uses_latest_trade_as_current_close(self):
+        class FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def get_ohlc(self, **kwargs):
+                return 200, '{"t":[1700000000],"o":[10],"h":[12],"l":[9],"c":[11],"v":[100]}'
+
+            def get_latest_trade(self, **kwargs):
+                return 200, '{"price":11.5}'
+
+        enricher = DnseEnricher(
+            api_key="key",
+            api_secret="secret",
+            min_request_interval_seconds=0,
+            client=FakeClient(),
+        )
+
+        result = enricher.enrich("VPB")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["source"], "dnse")
+        self.assertEqual(result["history"][-1]["close"], 11.5)
+
+    def test_fireant_enricher_returns_daily_history_and_dividend_events(self):
+        class FakeClient:
+            def get_historical_quotes(self, **kwargs):
+                return [
+                    {
+                        "date": "2026-06-09T00:00:00",
+                        "priceOpen": 74000,
+                        "priceHigh": 75000,
+                        "priceLow": 73000,
+                        "priceClose": 74500,
+                        "totalVolume": 1000,
+                    }
+                ]
+
+            def get_timescale_marks(self, **kwargs):
+                return [
+                    {
+                        "id": "event-1",
+                        "label": "D",
+                        "date": "2026-06-20T00:00:00",
+                        "title": "Ngày GDKHQ trả cổ tức bằng tiền",
+                    }
+                ]
+
+            def get_dividends(self, **kwargs):
+                return [{"year": 2025, "cashDividend": 1000}]
+
+        result = FireAntEnricher(
+            access_token="token",
+            min_request_interval_seconds=0,
+            client=FakeClient(),
+        ).enrich("FPT")
+
+        self.assertEqual(result["source"], "fireant")
+        self.assertEqual(result["history"][0]["close"], 74.5)
+        self.assertEqual(result["dividend_events"][0]["ex_date"], "2026-06-20")
+        self.assertEqual(result["dividend_summary"][0]["cashDividend"], 1000)
+
+    def test_fireant_helpers_filter_non_dividend_marks(self):
+        history = _normalize_fireant_history(
+            [
+                {
+                    "date": "2026-06-10",
+                    "priceOpen": 10,
+                    "priceHigh": 12,
+                    "priceLow": 9,
+                    "priceClose": 11,
+                    "totalVolume": 200,
+                }
+            ]
+        )
+        events = _fireant_dividend_events(
+            "FPT",
+            [
+                {"id": "1", "date": "2026-06-20", "title": "Cổ tức bằng cổ phiếu"},
+                {"id": "2", "date": "2026-06-21", "title": "Báo cáo tài chính"},
+            ],
+        )
+
+        self.assertEqual(history[0]["volume"], 200)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["external_id"], "FPT:1")
+
+    def test_market_data_uses_fireant_history_and_dnse_latest_price(self):
+        class FireAntStub:
+            def enrich(self, ticker, force=False):
+                return {
+                    "status": "ok",
+                    "source": "fireant",
+                    "history": [{"time": "2026-06-10", "close": 10}],
+                    "dividend_events": [],
+                }
+
+        class DnseStub:
+            def latest_price(self, ticker):
+                return 11
+
+        result = MarketDataEnricher(
+            fireant=FireAntStub(),
+            dnse=DnseStub(),
+            vnstock=None,
+        ).enrich("FPT")
+
+        self.assertEqual(result["source"], "fireant")
+        self.assertEqual(result["latest_price_source"], "dnse")
+        self.assertEqual(result["history"][-1]["close"], 11)
+
+    def test_market_data_enricher_falls_back_to_vnstock(self):
+        class Stub:
+            def __init__(self, result):
+                self.result = result
+
+            def enrich(self, ticker, force=False):
+                return dict(self.result)
+
+        enricher = MarketDataEnricher(
+            dnse=Stub({"status": "unavailable", "message": "DNSE down", "history": []}),
+            vnstock=Stub({"status": "ok", "history": [{"close": 20}], "metrics": {}}),
+        )
+
+        result = enricher.enrich("VPB")
+
+        self.assertEqual(result["source"], "vnstock")
+        self.assertEqual(result["fallback_from"], "dnse")
+        self.assertEqual(result["history"][-1]["close"], 20)
+
+    def test_dnse_rest_client_builds_signed_headers_without_exposing_secret(self):
+        client = DnseRestClient(
+            api_key="public-key",
+            api_secret="private-secret",
+            base_url="https://openapi.dnse.com.vn",
+            api_version="2026-05-07",
+        )
+
+        headers = client._signed_headers("GET", "/price/VPB/trades/latest")
+
+        self.assertEqual(headers["x-api-key"], "public-key")
+        self.assertEqual(headers["version"], "2026-05-07")
+        self.assertIn('algorithm="hmac-sha256"', headers["X-Signature"])
+        self.assertNotIn("private-secret", str(headers))
+
+
+class IndustryMapTest(unittest.TestCase):
+    def test_parses_symbol_and_industry_columns(self):
+        records = [
+            {"symbol": "vcb", "icb_name2": "Ngân hàng", "icb_name3": "Ngân hàng"},
+            {"symbol": "FPT", "icb_name2": "Công nghệ"},
+            {"symbol": "", "icb_name2": "Bỏ qua"},
+            {"symbol": "GAS", "icb_name2": ""},
+        ]
+        mapping = _industry_map_from_records(records)
+        self.assertEqual(mapping, {"VCB": "Ngân hàng", "FPT": "Công nghệ"})
+
+    def test_returns_empty_when_columns_missing(self):
+        self.assertEqual(_industry_map_from_records([{"foo": "bar"}]), {})
+        self.assertEqual(_industry_map_from_records([]), {})
+
+    def test_icb_level_as_string_still_selects_level_two(self):
+        records = [
+            {"symbol": "FPT", "icb_name": "Broad", "icb_level": "1"},
+            {"symbol": "FPT", "icb_name": "Công nghệ Thông tin", "icb_level": "2"},
+            {"symbol": "FPT", "icb_name": "Deep", "icb_level": "3"},
+        ]
+        self.assertEqual(_industry_map_from_records(records), {"FPT": "Công nghệ Thông tin"})
+
+
+class CoerceFloatTest(unittest.TestCase):
+    def test_rejects_nan_and_infinity(self):
+        self.assertIsNone(coerce_float("NaN"))
+        self.assertIsNone(coerce_float("inf"))
+        self.assertIsNone(coerce_float("-Infinity"))
+        self.assertIsNone(coerce_float(float("nan")))
+
+    def test_parses_normal_numbers(self):
+        self.assertEqual(coerce_float("1,234.5"), 1234.5)
+        self.assertEqual(coerce_float(19.5), 19.5)
+        self.assertIsNone(coerce_float(""))
+
+
+class AverageDailyValueTest(unittest.TestCase):
+    def test_computes_value_in_vnd_from_thousands_close(self):
+        # close in thousands of VND, so value = close * 1000 * volume.
+        history = [
+            {"close": 20.0, "volume": 1_000_000},  # 20,000 * 1e6 = 20e9
+            {"close": 30.0, "volume": 1_000_000},  # 30,000 * 1e6 = 30e9
+        ]
+        self.assertAlmostEqual(average_daily_value(history, sessions=20), 25e9)
+
+    def test_uses_last_sessions_and_skips_bad_rows(self):
+        history = [
+            {"close": 10.0, "volume": 1_000_000},
+            {"close": 0, "volume": 5_000_000},      # skipped (no price)
+            {"close": 40.0, "volume": None},        # skipped (no volume)
+            {"close": 40.0, "volume": 1_000_000},
+        ]
+        self.assertAlmostEqual(average_daily_value(history, sessions=2), 40e9)
+        self.assertIsNone(average_daily_value([]))
+
+    def test_fetch_industry_map_is_safe_without_vnstock(self):
+        # vnstock is optional; the fetch must degrade to an empty map, never raise.
+        self.assertIsInstance(fetch_industry_map(), dict)
+
+
+class VnstockDividendEventsTest(unittest.TestCase):
+    def test_maps_cash_and_stock_dividends_with_unit_alignment(self):
+        records = [
+            {
+                "id": "evt-cash",
+                "category": "DIVIDEND",
+                "event_title_vi": "Trả cổ tức bằng tiền mặt - Cả năm 2025 - 500 VND",
+                "exright_date": "2026-05-15",
+                "value_per_share": 500.0,
+                "exercise_ratio": 0.05,
+            },
+            {
+                "id": "evt-stock",
+                "category": "DIVIDEND",
+                "event_title_vi": "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 15.0%",
+                "exright_date": "2026-06-20",
+                "value_per_share": None,
+                "exercise_ratio": 0.15,
+            },
+            {
+                "id": "evt-other",
+                "category": "MAJOR_SHAREHOLDER_TRADING",
+                "event_title_vi": "Giao dịch nội bộ",
+                "exright_date": "2026-06-21",
+            },
+            {
+                "id": "evt-no-date",
+                "category": "DIVIDEND",
+                "event_title_vi": "Cổ tức chưa có ngày",
+                "exright_date": None,
+            },
+        ]
+        events = _vnstock_dividend_events("VPB", records)
+        self.assertEqual(len(events), 2)
+        cash = events[0]
+        self.assertEqual(cash["ex_date"], "2026-05-15")
+        self.assertAlmostEqual(cash["cash_amount"], 0.5)  # 500 VND -> thousands
+        self.assertIsNone(cash["stock_ratio_pct"])
+        self.assertEqual(cash["source"], "vnstock")
+        self.assertEqual(cash["external_id"], "VPB:evt-cash")
+        stock = events[1]
+        self.assertAlmostEqual(stock["stock_ratio_pct"], 15.0)
+        self.assertIsNone(stock["cash_amount"])
+
+    def test_fetch_dividend_events_is_safe_without_vnstock(self):
+        self.assertIsInstance(fetch_dividend_events("VPB"), list)
+
+
+if __name__ == "__main__":
+    unittest.main()

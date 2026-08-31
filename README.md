@@ -1,26 +1,17 @@
-# VN Equity Backtest
+# VN Signals Dashboard
 
-A compact Railway-ready workspace for researching **long-only Vietnamese equity
-strategies** and reviewing future TradingView signals. It contains no portfolio
-tracking, derivatives, DCA, Kelly, dividend, or short-selling module.
+Dashboard for receiving webhook alerts, tracking stock and VN30 derivative strategies,
+storing portfolio history in SQLite, and enriching Vietnamese market data in the
+background.
 
-## What it does
+## Stack
 
-- Runs one or more Vietnamese stock tickers with daily OHLCV data from Vnstock.
-- Executes MA crossover, RSI mean reversion, and Donchian breakout strategies.
-- Uses close-of-day signals and next-session-open fills.
-- Applies board-lot rounding, commission, sell tax, slippage, and a volume cap.
-- Stores every run, trade, equity curve, and downloaded price bar in SQLite.
-- Receives TradingView webhooks and applies ticker/action/strategy allow lists.
-- Lets the dashboard classify a signal as accepted, excluded, entry, exit, watch,
-  or research; it can also hard-delete an irrelevant record.
-- Imports a locally executed backtest through a token-protected API and can mark
-  it as the standard for that strategy.
+- Backend: FastAPI
+- Database: SQLite
+- Data enrichment: `vnstock` when available, graceful fallback when unavailable
+- Frontend: Static HTML, CSS, and JavaScript served by FastAPI
 
-The engine allows `BUY` and `SELL` to close an existing holding only; it never
-opens a short stock position.
-
-## Run locally
+## Setup
 
 ```powershell
 python -m venv .venv
@@ -30,42 +21,213 @@ copy .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000` and sign in with the values in `.env`. Change the
-example password before exposing the app to another network.
-
-## Deploy to Railway
-
-1. Push this folder to a new GitHub repository.
-2. In Railway, choose **New Project → Deploy from GitHub Repo**.
-3. Attach a single Railway Volume at `/data`.
-4. Set these Railway Variables:
+Open the dashboard at:
 
 ```text
-DATABASE_PATH=/data/backtests.db
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<strong-unique-password>
-SESSION_DAYS=30
-WEBHOOK_SECRET=<long-random-secret>
+http://127.0.0.1:8000
+```
+
+Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. When configured, FireAnt supplies daily OHLCV history and dividend-event notes, DNSE supplies the latest matched price, and VNStock remains the automatic fallback.
+
+## Railway production setup
+
+SQLite is reliable for this single-service dashboard only when the database is
+stored on a persistent Railway Volume. Attach a Volume to the service at `/data`
+and set these variables:
+
+```text
+DATABASE_PATH=/data/signals.db
+DATABASE_BACKUP_DIRECTORY=/data/backups
+DATABASE_BACKUP_INTERVAL_HOURS=24
+DATABASE_BACKUP_RETENTION_DAYS=14
+WEBHOOK_SECRET=replace-with-a-long-random-secret
 REQUIRE_WEBHOOK_SECRET=true
-BACKTEST_UPLOAD_TOKEN=<separate-long-random-token>
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-strong-password
 ```
 
-5. Deploy. Railway uses the provided Dockerfile, `$PORT` command, and `/health`
-   health check from `railway.json`.
+Do not deploy production with `change-me`. The application stops during startup
+when webhook-secret enforcement is enabled but `WEBHOOK_SECRET` is missing. The
+health endpoint reports whether persistent storage is active, and administrators
+can create an on-demand SQLite snapshot from the **Quản trị** tab.
 
-SQLite is appropriate for one Railway service replica with its attached Volume.
-Do not scale the web service horizontally without moving runs and persistence to
-a shared database plus a dedicated job queue.
+User watchlists, theme, and language are stored per account in the database, so
+they follow the user across devices. Background refresh keeps realtime signals
+and positions current while loading heavier datasets only for the active tab.
 
-## TradingView webhook monitoring
+## FireAnt daily OHLCV and dividend events
 
-Create a TradingView alert with webhook URL:
+Create a FireAnt OAuth access token with the `symbols-read` scope, then add these
+Railway service variables:
 
 ```text
-https://your-railway-domain/webhook
+FIREANT_ACCESS_TOKEN=your-oauth-access-token
+FIREANT_BASE_URL=https://api.fireant.vn
+FIREANT_CACHE_TTL_MINUTES=240
+FIREANT_MIN_REQUEST_INTERVAL_SECONDS=1
 ```
 
-Use a JSON body such as:
+FireAnt daily OHLCV comes from `/symbols/{symbol}/historical-quotes`. Dated
+dividend notes come from `/symbols/{symbol}/timescale-marks` and are synchronized
+into the dashboard dividend calendar without creating duplicates. FireAnt's
+dated marks do not contain structured cash amounts or stock ratios, so imported
+events are informational only. Add a complete dividend event manually when
+automatic entry-price adjustment is required.
+
+## DNSE market data
+
+Create these Railway service variables using the API Key and API Secret issued
+for your DNSE LightSpeed API registration:
+
+```text
+DNSE_API_KEY=your-api-key
+DNSE_API_SECRET=your-api-secret
+DNSE_BASE_URL=https://openapi.dnse.com.vn
+DNSE_API_VERSION=2026-05-07
+```
+
+Do not place real credentials in `.env.example` or commit them to Git. After
+Railway redeploys, `/api/settings` reports
+`"market_data_provider":"fireant+dnse"` when both clients initialized
+successfully. If FireAnt history is unavailable, the dashboard falls back to
+DNSE history and then VNStock.
+
+Open-position prices refresh every 120 minutes during configured market sessions.
+By default this uses Vietnam time with `09:00-11:30,13:00-15:00`.
+Change these values in `.env` if needed:
+
+```powershell
+PRICE_REFRESH_MINUTES=120
+MARKET_SESSIONS=09:00-11:30,13:00-15:00
+VNSTOCK_CACHE_TTL_MINUTES=240
+VNSTOCK_MIN_REQUEST_INTERVAL_SECONDS=4
+VNSTOCK_LOOKBACK_DAYS=90
+VNSTOCK_INCLUDE_METRICS=false
+```
+
+The default `vnstock` settings are intentionally conservative for the free tier:
+each ticker is cached for 4 hours, calls are spaced by at least 4 seconds, and
+fundamental metrics are skipped unless explicitly enabled.
+
+## Performance Tracking
+
+The dashboard pairs and reports signals separately by `ticker` and `strategy`:
+
+- `buy` opens one long position.
+- The next `sell` for the same ticker and strategy closes that position.
+- Extra `buy` signals while a position is already open are ignored for performance math.
+- Open positions use the latest enriched close price when available, otherwise the latest signal price.
+
+Use this API to inspect strategy performance:
+
+```text
+http://127.0.0.1:8000/api/performance
+```
+
+Filter by ticker:
+
+```text
+http://127.0.0.1:8000/api/performance?ticker=VPB
+```
+
+Filter by strategy:
+
+```text
+http://127.0.0.1:8000/api/performance?strategy=manual-test
+```
+
+The dashboard also includes ticker and strategy filters plus sort controls in the Strategy Performance panel.
+
+## VN30 Derivatives Tracking
+
+VN30 futures events are stored and calculated separately from stock signals. The
+dashboard supports:
+
+- `long_start` and `short_start` to open a position.
+- `dca_long` and `dca_short` to add contracts and recalculate average price.
+- `close_long` and `close_short` to close the full position.
+- Enter and persist derivative initial capital from the VN30 derivatives tab.
+- Track current equity and maximum drawdown from closed trades and hidden price marks.
+- Derivative performance includes total P/L, total return, winning-trade rate,
+  profit factor, and an equity/drawdown chart. Hidden `mark` events contribute
+  to historical equity drawdown without appearing in the event table.
+- P/L in VN30 points and VND using `DERIVATIVE_CONTRACT_MULTIPLIER`.
+
+Derivative payloads must include `"asset_type":"derivative"` so they are routed
+away from the stock performance engine.
+
+The integrated Pine Script is available at:
+
+```text
+pinescript/vn30_modern_dca_dashboard.pine
+```
+
+In TradingView, create one strategy alert:
+
+- Condition: the VN30 Modern DCA strategy.
+- Trigger: Order fills only. Select "Order fills and alert() function calls"
+  when the optional open-position price updates are enabled.
+- Webhook URL: `https://your-dashboard-domain/webhook`
+- Message: `{{strategy.order.alert_message}}`
+
+Example derivative webhook:
+
+```json
+{
+  "asset_type": "derivative",
+  "market": "VN30F",
+  "ticker": "HNX:VN30F1M",
+  "action": "long_start",
+  "price": "1320.5",
+  "quantity": "1",
+  "contract_multiplier": "100000",
+  "timeframe": "5",
+  "strategy": "VN30 Modern DCA",
+  "time": "2026-06-09T09:00:00+07:00",
+  "reason": "Long Start",
+  "secret": "change-me"
+}
+```
+
+Inspect the separated derivative data at:
+
+```text
+http://127.0.0.1:8000/api/derivatives
+```
+
+## Open Positions And Chart Markers
+
+The dashboard includes an Open Positions table for active `buy` signals that have not yet received a matching `sell`.
+Candlestick charts show Buy/Sell markers from stored webhook signals.
+
+## Closed Trades, Equity Curve, And Invalid Signal Log
+
+- Closed Trades lists completed `buy -> sell` trades with entry, exit, return, and exit time.
+- Equity Curve compounds closed-trade returns from a starting value of 100.
+- Invalid Signal Log shows ignored webhook duplicates and derived invalid signals, such as a `sell` without an open `buy`.
+
+Inspect duplicate webhook logs directly:
+
+```text
+http://127.0.0.1:8000/api/invalid-signals
+```
+
+## Duplicate Signals
+
+Duplicate webhook alerts are ignored. A signal is considered duplicate when it has the same ticker, action, timeframe, strategy, and:
+
+- the same TradingView `time` value, when present; or
+- no `time` value and it arrives within `DUPLICATE_WINDOW_MINUTES`.
+
+Configure the fallback window in `.env`:
+
+```powershell
+DUPLICATE_WINDOW_MINUTES=5
+```
+
+## TradingView Alert Body
+
+Use this JSON body in the TradingView alert message. If `WEBHOOK_SECRET` is set, keep the same `secret` value here.
 
 ```json
 {
@@ -73,51 +235,53 @@ Use a JSON body such as:
   "action": "buy",
   "price": "{{close}}",
   "timeframe": "{{interval}}",
-  "strategy": "MA crossover",
+  "strategy": "RS Volume Breakout",
   "time": "{{time}}",
-  "secret": "same-value-as-WEBHOOK_SECRET"
+  "secret": "change-me"
 }
 ```
 
-In **Điều kiện nhận tín hiệu**, set optional comma-separated ticker and strategy
-allow lists plus the permitted actions. A valid signal is stored as `pending` so
-you can classify it in **Signal Monitor**. A signal outside the conditions is
-stored as `excluded` with its reason, giving you an audit trail without putting
-it in the active review set. Only long-only `buy` and `sell` actions are
-accepted; short-related actions are excluded.
+TradingView may send symbols such as `HOSE:VPB`. The backend normalizes this to `VPB` before calling `vnstock`.
 
-## Run backtest locally and publish the standard
-
-The local project in this workspace writes `metrics.json`, `equity_curve.csv`,
-`trades.csv`, and `config.json` whenever you run a backtest. Set the same
-`BACKTEST_UPLOAD_TOKEN` locally and in Railway, then publish a completed report:
+## Local Test Webhook
 
 ```powershell
-$env:BACKTEST_UPLOAD_TOKEN = "same-value-as-Railway"
-python -m vn_equity_backtest publish `
-  --results-dir results\my-run `
-  --symbols FPT,VCB `
-  --dashboard-url https://your-railway-domain `
-  --set-standard
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/webhook" `
+  -ContentType "application/json" `
+  -Body '{"ticker":"HOSE:VPB","action":"buy","price":"19.5","timeframe":"1D","strategy":"manual-test","secret":"change-me"}'
 ```
 
-The result appears with source `local_import`. Marking it as a standard applies
-one standard per strategy; incoming signals for that strategy show its return
-and maximum drawdown in Signal Monitor. The upload token works only for the
-import endpoint—do not use your administrator password in local scripts.
+## Public Webhook URL
 
-## Add a strategy
+For local testing with TradingView, expose the FastAPI server through ngrok:
 
-Strategies live in `app/services/backtesting.py`. Add a `StrategySpec` to the
-`STRATEGIES` registry. Its generator receives a normalized OHLCV DataFrame and
-must return a Boolean series: `True` means hold a long position, `False` means
-stay flat. The API and selector discover the registry automatically. When a
-strategy needs new parameters, add them to `BacktestConfig`,
-`BacktestRunPayload`, and the single form in `app/static/index.html`.
+```powershell
+ngrok http 8000
+```
 
-## Research limitations
+Then put this URL into TradingView Webhook URL:
 
-Vnstock data is cached for repeatability and to reduce provider requests, but
-it is still a research data source. Confirm corporate-action treatment,
-delisted tickers, historical index membership, trading limits, data quality,
-and your broker's actual fee schedule before taking an investment decision.
+```text
+https://your-ngrok-url/webhook
+```
+
+For a permanent setup, deploy the same FastAPI app to a small Ubuntu VPS and run it behind Nginx with HTTPS.
+
+## Admin And Read-Only Users
+
+The dashboard has two account roles:
+
+- `admin`: can edit data, manage users, and choose which dashboard sections each user can view.
+- `user`: read-only and can only view the sections assigned by an admin.
+
+Set the initial admin account through environment variables before the first deployment:
+
+```text
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=replace-with-a-strong-password
+SESSION_DAYS=30
+```
+
+On Railway, add these values under the service's **Variables** tab, then redeploy. Sign in with the admin account and open the **Quản trị** tab to create users and configure their visible features.
+When `ADMIN_PASSWORD` is explicitly set, redeploying also synchronizes the stored admin password with that variable.

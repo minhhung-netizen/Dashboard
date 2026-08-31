@@ -1,137 +1,1349 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>VN Equity Backtest</title>
-    <meta name="description" content="Long-only backtest workspace for Vietnamese equities." />
+    <title>VN Signals Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237c3aed'/%3E%3Cg fill='%23ffffff'%3E%3Crect x='15' y='26' width='11' height='20' rx='2'/%3E%3Crect x='19.5' y='18' width='2' height='8'/%3E%3Crect x='19.5' y='46' width='2' height='6'/%3E%3Crect x='38' y='14' width='11' height='22' rx='2'/%3E%3Crect x='42.5' y='36' width='2' height='9'/%3E%3Crect x='42.5' y='8' width='2' height='6'/%3E%3C/g%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/styles.css?v=backtest-only-1" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=20260710-hardening" />
   </head>
   <body>
-    <section id="loginScreen" class="loginScreen">
-      <form id="loginForm" class="loginCard">
-        <div class="brandMark">BT</div>
-        <p class="eyebrow">VN EQUITY RESEARCH</p>
-        <h1>Đăng nhập Backtest</h1>
-        <p>Không có signal trực tiếp hay phái sinh — chỉ phân tích chiến lược cổ phiếu long-only.</p>
-        <label><span>Tài khoản</span><input id="loginUsername" autocomplete="username" required /></label>
-        <label><span>Mật khẩu</span><input id="loginPassword" type="password" autocomplete="current-password" required /></label>
-        <p id="loginError" class="formError" hidden></p>
+    <div id="loginScreen" class="loginScreen">
+      <form id="loginForm" class="loginPanel">
+        <p class="eyebrow">VN Signals Dashboard</p>
+        <h1>Đăng nhập</h1>
+        <label>
+          <span>Tài khoản</span>
+          <input id="loginUsername" required autocomplete="username" />
+        </label>
+        <label>
+          <span>Mật khẩu</span>
+          <input id="loginPassword" required type="password" autocomplete="current-password" />
+        </label>
+        <p id="loginError" class="loginError" hidden></p>
         <button type="submit">Đăng nhập</button>
       </form>
-    </section>
+    </div>
 
-    <div id="appShell" hidden>
-      <header class="topbar">
-        <div class="brand">
-          <div class="brandMark">BT</div>
-          <div><p class="eyebrow">VN EQUITY RESEARCH</p><h1>Backtest Lab</h1></div>
-        </div>
-        <div class="account"><span id="currentUser"></span><button id="logoutButton" class="quietButton" type="button">Đăng xuất</button></div>
-      </header>
-
-      <main>
-        <section class="intro">
-          <div>
-            <p class="eyebrow">DAILY · LONG-ONLY · VIETNAM</p>
-            <h2>Kiểm tra chiến lược, trước khi quyết định.</h2>
-            <p>Tín hiệu dùng giá đóng cửa phiên T và khớp lệnh tại giá mở cửa phiên T + 1. Chỉ có BUY và SELL để đóng vị thế.</p>
+    <header class="topbar">
+      <div class="brandBlock">
+        <p class="eyebrow" data-i18n="webhookLabel">Signal Dashboard</p>
+        <h1>VN Signals Dashboard</h1>
+        <span id="syncStatus" class="syncStatus">Đang đồng bộ...</span>
+      </div>
+      <div class="actions">
+        <input id="watchlistInput" name="watchlist-symbols" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Watchlist symbols" placeholder="VPB,TCB,FPT" />
+        <label class="checkboxControl">
+          <input id="watchlistOnly" type="checkbox" />
+          <span data-i18n="watchlistOnly">Watchlist only</span>
+        </label>
+        <button id="refreshButton" class="refreshIcon" type="button" title="Refresh signals" aria-label="Refresh signals">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
+        <details id="accountMenu" class="accountMenu">
+          <summary id="currentUser" class="currentUser"></summary>
+          <div class="accountMenuPanel">
+            <label>
+              <span data-i18n="language">Ngôn ngữ</span>
+              <select id="languageSelect" aria-label="Language">
+                <option value="en">English</option>
+                <option value="vi">Tiếng Việt</option>
+              </select>
+            </label>
+            <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme" data-i18n="darkMode">Dark mode</button>
+            <button id="logoutButton" class="smallButton" type="button">Đăng xuất</button>
           </div>
-          <dl class="assumptionList">
-            <div><dt>Lô giao dịch</dt><dd>100 cổ phiếu</dd></div>
-            <div><dt>Dữ liệu</dt><dd>Vnstock + cache</dd></div>
-            <div><dt>Lưu trữ</dt><dd>Railway Volume</dd></div>
-          </dl>
-        </section>
+        </details>
+      </div>
+    </header>
 
-        <section class="signalSummary" aria-label="Signal monitor summary">
-          <article><span>Tổng tín hiệu</span><strong id="signalTotal">0</strong></article>
-          <article><span>Chờ phân loại</span><strong id="signalPending">0</strong></article>
-          <article><span>Đã chấp nhận</span><strong id="signalAccepted">0</strong></article>
-          <article><span>Đã loại</span><strong id="signalExcluded">0</strong></article>
-        </section>
+    <main>
+      <label class="mobileTabPicker" for="mobileTabSelect">
+        <span data-i18n="mobileSection">Mục đang xem</span>
+        <select id="mobileTabSelect" aria-label="Dashboard section"></select>
+      </label>
+      <nav class="tabs" aria-label="Dashboard sections">
+        <button class="tabButton active" type="button" data-tab-target="overview" data-i18n="tabOverview">Overview</button>
+        <button class="tabButton" type="button" data-tab-target="positions" data-i18n="tabPositions">Positions</button>
+        <button class="tabButton" type="button" data-tab-target="dcaSizing" data-i18n="tabDcaSizing">DCA Sizing</button>
+        <button class="tabButton" type="button" data-tab-target="kelly" data-i18n="tabKelly">Kelly</button>
+        <button class="tabButton" type="button" data-tab-target="performance" data-i18n="tabPerformance">Performance</button>
+        <button class="tabButton" type="button" data-tab-target="manualPortfolio" data-i18n="tabManualPortfolio">Manual Portfolio</button>
+        <button class="tabButton" type="button" data-tab-target="derivatives" data-i18n="tabDerivatives">VN30 Derivatives</button>
+        <button class="tabButton" type="button" data-tab-target="dividends" data-i18n="tabDividends">Dividends</button>
+        <button class="tabButton" type="button" data-tab-target="logs" data-i18n="tabLogs">Logs</button>
+        <button class="tabButton" type="button" data-tab-target="admin">Quản trị</button>
+      </nav>
 
-        <section class="signalWorkspace">
-          <section class="signalRulesCard">
-            <div class="sectionHead"><div><p class="eyebrow">TRADINGVIEW GATE</p><h2>Điều kiện nhận tín hiệu</h2></div></div>
-            <form id="signalFiltersForm" class="signalFiltersForm">
-              <label><span>Mã được phép</span><input id="allowedTickers" placeholder="FPT, VCB (để trống = tất cả)" autocapitalize="characters" /></label>
-              <label><span>Chiến lược được phép</span><input id="allowedStrategies" placeholder="MA crossover (để trống = tất cả)" /></label>
-              <label class="toggle"><input id="allowBuy" type="checkbox" checked /><span>Nhận BUY</span></label>
-              <label class="toggle"><input id="allowSell" type="checkbox" checked /><span>Nhận SELL để theo dõi thoát lệnh</span></label>
-              <button type="submit" class="smallSubmit">Lưu điều kiện</button>
-            </form>
-            <p class="webhookHint">TradingView gửi POST tới <code>/webhook</code>. Tín hiệu qua bộ lọc sẽ ở trạng thái <b>chờ phân loại</b>; tín hiệu không đạt vẫn được lưu là <b>đã loại</b> để đối chiếu.</p>
-          </section>
+      <section id="exDateAlerts" class="exDateAlerts" hidden aria-live="assertive"></section>
 
-          <section class="signalsCard">
-            <div class="sectionHead"><div><p class="eyebrow">SIGNAL MONITOR</p><h2>Phân loại tín hiệu</h2></div><div class="signalControls"><select id="signalStatusFilter"><option value="">Tất cả</option><option value="pending">Chờ phân loại</option><option value="accepted">Đã chấp nhận</option><option value="excluded">Đã loại</option></select><input id="signalTickerFilter" placeholder="Mã" autocapitalize="characters" /><button id="refreshSignals" class="quietButton" type="button">Làm mới</button></div></div>
-            <div class="tableWrap"><table><thead><tr><th>Thời gian</th><th>Mã / chiến lược</th><th>Tín hiệu</th><th>Backtest chuẩn</th><th>Phân loại</th><th>Thao tác</th></tr></thead><tbody id="signalsTable"><tr><td class="empty" colspan="6">Chưa có tín hiệu từ TradingView.</td></tr></tbody></table></div>
-          </section>
-        </section>
-
-        <div class="workspace">
-          <section class="setupCard">
-            <div class="sectionHead"><div><p class="eyebrow">NEW RUN</p><h2>Thiết lập backtest</h2></div><span id="runStatus" class="statusText">Sẵn sàng.</span></div>
-            <form id="backtestForm" class="backtestForm" autocomplete="off">
-              <label class="spanTwo"><span>Mã cổ phiếu</span><input id="symbols" name="symbols" value="FPT" required autocapitalize="characters" spellcheck="false" placeholder="FPT, VCB, TCB" /></label>
-              <label><span>Từ ngày</span><input name="start_date" type="date" value="2020-01-01" required /></label>
-              <label><span>Đến ngày</span><input name="end_date" type="date" value="2026-08-28" required /></label>
-              <label class="spanTwo"><span>Chiến lược</span><select id="strategy" name="strategy" required></select><small id="strategyDescription"></small></label>
-              <label><span>Vốn khởi tạo (VND)</span><input name="initial_cash" type="number" min="1" step="1000000" value="1000000000" required /></label>
-              <label><span>Tái cân bằng (phiên)</span><input name="rebalance_interval_days" type="number" min="1" value="20" required /></label>
-
-              <fieldset class="costSettings"><legend>Giả định giao dịch</legend>
-                <label><span>Phí</span><input name="commission_rate" type="number" min="0" step="0.0001" value="0.0015" required /></label>
-                <label><span>Thuế bán</span><input name="sell_tax_rate" type="number" min="0" step="0.0001" value="0.001" required /></label>
-                <label><span>Slippage (bps)</span><input name="slippage_bps" type="number" min="0" step="1" value="10" required /></label>
-                <label><span>Lô</span><input name="lot_size" type="number" min="1" step="100" value="100" required /></label>
-                <label><span>Giới hạn thanh khoản</span><input name="max_participation_rate" type="number" min="0.001" max="1" step="0.01" value="0.05" required /></label>
-              </fieldset>
-
-              <fieldset class="strategySettings" data-strategy-settings="ma_crossover"><legend>Tham số MA crossover</legend>
-                <label><span>MA nhanh</span><input name="fast_window" type="number" min="1" value="20" required /></label>
-                <label><span>MA chậm</span><input name="slow_window" type="number" min="2" value="100" required /></label>
-              </fieldset>
-              <fieldset class="strategySettings" data-strategy-settings="rsi_mean_reversion" hidden><legend>Tham số RSI</legend>
-                <label><span>RSI period</span><input name="rsi_window" type="number" min="2" value="14" required /></label>
-                <label><span>RSI mua</span><input name="rsi_entry" type="number" min="1" max="99" value="30" required /></label>
-                <label><span>RSI thoát</span><input name="rsi_exit" type="number" min="1" max="99" value="55" required /></label>
-              </fieldset>
-              <fieldset class="strategySettings" data-strategy-settings="donchian_breakout" hidden><legend>Tham số Donchian</legend>
-                <label><span>Chu kỳ vào</span><input name="breakout_window" type="number" min="2" value="55" required /></label>
-                <label><span>Chu kỳ thoát</span><input name="breakout_exit_window" type="number" min="2" value="20" required /></label>
-              </fieldset>
-              <button id="runButton" type="submit">Chạy backtest</button>
-            </form>
-            <details class="localImport">
-              <summary>Đã chạy local? Gửi kết quả lên làm chuẩn</summary>
-              <p>Đặt <code>BACKTEST_UPLOAD_TOKEN</code> giống Railway ở máy local, rồi chạy:</p>
-              <code id="localPublishCommand"></code>
-            </details>
-          </section>
-
-          <aside class="historyCard">
-            <div class="sectionHead"><div><p class="eyebrow">RUN HISTORY</p><h2>Lần chạy đã lưu</h2></div></div>
-            <div id="runHistory" class="runHistory"><p class="empty">Chưa có kết quả.</p></div>
-          </aside>
+      <section id="recentTradeBanner" class="recentTradeBanner" hidden aria-live="polite">
+        <div class="recentTradeBannerLabel" data-i18n="recentTradeBanner">Recent trade alerts</div>
+        <div class="recentTradeMarquee">
+          <div id="recentTradeBannerTrack" class="recentTradeBannerTrack"></div>
         </div>
+      </section>
 
-        <section class="resultsCard">
-          <div class="sectionHead resultHead"><div><p class="eyebrow">RESULT</p><h2 id="resultTitle">Chọn một lần chạy</h2></div><div class="resultActions"><button id="setStandard" class="quietButton" type="button" hidden>Đặt làm chuẩn</button><a id="downloadTrades" class="quietButton" hidden>Tải giao dịch CSV</a><button id="deleteRun" class="dangerButton" type="button" hidden>Xóa</button></div></div>
-          <div id="metrics" class="metrics"><p class="empty">Kết quả, equity curve và danh sách giao dịch sẽ xuất hiện ở đây.</p></div>
-          <div class="chartGrid"><div><p class="chartLabel">EQUITY CURVE</p><div id="equityChart" class="chart"></div></div><div><p class="chartLabel">DRAWDOWN</p><div id="drawdownChart" class="chart chartSmall"></div></div></div>
-          <div class="tableWrap"><table><thead><tr><th>Ngày</th><th>Mã</th><th>Loại</th><th>Khối lượng</th><th>Giá khớp</th><th>Chi phí</th></tr></thead><tbody id="trades"><tr><td class="empty" colspan="6">Chưa có giao dịch.</td></tr></tbody></table></div>
+      <section id="avgLossBanner" class="recentTradeBanner avgLossBanner" hidden aria-live="polite">
+        <div class="recentTradeBannerLabel" data-i18n="avgLossBanner">Average loss alerts</div>
+        <div class="recentTradeMarquee">
+          <div id="avgLossBannerTrack" class="recentTradeBannerTrack"></div>
+        </div>
+      </section>
+
+      <section id="avgGainBanner" class="recentTradeBanner avgGainBanner" hidden aria-live="polite">
+        <div class="recentTradeBannerLabel" data-i18n="avgGainBanner">Average gain alerts</div>
+        <div class="recentTradeMarquee">
+          <div id="avgGainBannerTrack" class="recentTradeBannerTrack"></div>
+        </div>
+      </section>
+
+      <div class="tabPanel active" data-tab-panel="overview">
+        <section class="metrics" aria-label="Signal summary">
+          <article>
+            <span id="metricTotalLabel" data-i18n="total">Total</span>
+            <strong id="totalSignals">0</strong>
+          </article>
+          <article>
+            <span id="metricBuyLabel" data-i18n="buy">Buy</span>
+            <strong id="buySignals">0</strong>
+          </article>
+          <article>
+            <span id="metricSellLabel" data-i18n="sell">Sell</span>
+            <strong id="sellSignals">0</strong>
+          </article>
+          <article>
+            <span id="metricTickerLabel" data-i18n="tickers">Tickers</span>
+            <strong id="tickerCount">0</strong>
+          </article>
         </section>
 
-        <p class="disclaimer">Kết quả chỉ phục vụ nghiên cứu. Hãy kiểm tra điều chỉnh giá, cổ tức, giới hạn giao dịch, thanh khoản và biểu phí thực tế trước khi đầu tư.</p>
-      </main>
+        <section class="overviewGrid">
+          <section class="riskPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="riskOverview">Risk Overview</p>
+                <h2 data-i18n="portfolioRisk">Portfolio Risk</h2>
+              </div>
+            </div>
+            <div class="riskMetrics">
+              <article>
+                <span data-i18n="totalExposure">Total exposure</span>
+                <strong id="riskTotalExposure">-</strong>
+              </article>
+              <article>
+                <span data-i18n="weightedOpenPl">Weighted open P/L</span>
+                <strong id="riskWeightedPl">-</strong>
+              </article>
+              <article>
+                <span data-i18n="topTickerExposure">Top ticker exposure</span>
+                <strong id="riskTopTicker">-</strong>
+              </article>
+              <article>
+                <span data-i18n="stressMinus5">Stress -5%</span>
+                <strong id="riskStressMinus5">-</strong>
+              </article>
+              <article>
+                <span data-i18n="portfolioHeat">Portfolio heat</span>
+                <strong id="riskHeat">-</strong>
+              </article>
+            </div>
+            <div id="riskStrategyBreakdown" class="riskBreakdown"></div>
+          </section>
+
+          <section class="alertCenterPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="alertCenter">Alert Center</p>
+                <h2 data-i18n="riskAlerts">Risk Alerts</h2>
+              </div>
+            </div>
+            <div id="riskAlertList" class="riskAlertList"></div>
+          </section>
+        </section>
+
+        <section id="userAttentionPanel" class="attentionPanel userOnly">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="attention">Cần chú ý</p>
+              <h2 data-i18n="positionAlerts">Vị thế và tín hiệu cần theo dõi</h2>
+            </div>
+          </div>
+          <div id="userAttentionList" class="attentionList"></div>
+        </section>
+
+        <section class="workspace">
+          <div class="chartPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="priceHistory">Price History</p>
+                <h2 id="chartTitle">No ticker selected</h2>
+              </div>
+              <div class="panelActions">
+                <button id="addTickerToWatchlist" class="smallButton" type="button" data-i18n="addToWatchlist">Add to watchlist</button>
+                <span id="lastUpdated">Waiting for webhook</span>
+              </div>
+            </div>
+            <div class="priceChartWrap">
+              <div id="priceChart" role="img" aria-label="Candlestick price chart"></div>
+              <div id="priceChartEmpty" class="chartEmpty" hidden></div>
+              <a
+                class="chartAttribution"
+                href="https://www.tradingview.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >TradingView Lightweight Charts</a>
+            </div>
+          </div>
+
+          <div class="signalsPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="realtimeFeed">Realtime Feed</p>
+                <h2 data-i18n="signals">Signals</h2>
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="time">Time</th>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="side">Side</th>
+                    <th data-i18n="price">Price</th>
+                    <th data-i18n="timeframe">Timeframe</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th class="adminOnly"></th>
+                  </tr>
+                </thead>
+                <tbody id="signalsTable">
+                  <tr class="skeletonRow"><td colspan="7"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="7"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="7"><i></i></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="signalCards" class="signalCardList"></div>
+          </div>
+        </section>
+
+        <section class="timelinePanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="tickerTimeline">Ticker Timeline</p>
+              <h2 id="timelineTitle" data-i18n="noTickerSelected">No ticker selected</h2>
+            </div>
+          </div>
+          <div id="tickerTimeline" class="timelineList"></div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="positions">
+        <section class="openPositionsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="openPositions">Open Positions</p>
+              <h2 data-i18n="currentHoldings">Current Holdings</h2>
+            </div>
+            <div class="positionControls">
+              <span class="positionTotal"><span data-i18n="openUnrealizedPl">Unrealized P/L</span>: <strong id="openPositionsTotalReturn">-</strong></span>
+              <button id="openPositionRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
+              <input id="openPositionTickerFilter" name="open-position-ticker-filter" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Open position ticker filter" placeholder="Ticker" />
+              <select id="openPositionStrategyFilter" aria-label="Open position strategy filter">
+                <option value="" data-i18n="allStrategies">All strategies</option>
+              </select>
+              <select id="openPositionSectorFilter" aria-label="Open position sector filter">
+                <option value="" data-i18n="allSectors">All sectors</option>
+              </select>
+              <select id="openPositionConfirmFilter" aria-label="Open position trend filter">
+                <option value="all" data-i18n="confirmAll">All signal states</option>
+                <option value="confirmed" data-i18n="confirmedOnly">Has other signal</option>
+                <option value="unconfirmed" data-i18n="unconfirmedOnly">No other signal</option>
+              </select>
+              <select id="openPositionSort" aria-label="Open position sort">
+                <option value="return_desc" data-i18n="sortReturnDesc">Return desc</option>
+                <option value="return_asc" data-i18n="sortReturnAsc">Return asc</option>
+                <option value="current_price_desc" data-i18n="sortCurrentPriceDesc">Current price desc</option>
+                <option value="current_price_asc" data-i18n="sortCurrentPriceAsc">Current price asc</option>
+                <option value="entry_newest" data-i18n="sortEntryNewest">Entry newest</option>
+                <option value="entry_oldest" data-i18n="sortEntryOldest">Entry oldest</option>
+                <option value="ticker_asc" data-i18n="sortTickerAsc">Ticker A-Z</option>
+                <option value="strategy_asc" data-i18n="sortStrategyAsc">Strategy A-Z</option>
+              </select>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="sector">Sector</th>
+                  <th data-i18n="timeframe">Timeframe</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="currentPrice">Current Price</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="allocationWeight">Weight</th>
+                  <th data-i18n="portfolioPl">P/L</th>
+                  <th data-i18n="confirm">Signal</th>
+                  <th data-i18n="foreignNet">Foreign net</th>
+                  <th data-i18n="dividend">Dividend</th>
+                  <th data-i18n="holdingDays">Days Held</th>
+                  <th data-i18n="entryTime">Entry Time</th>
+                  <th class="adminOnly" data-i18n="actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="openPositionsTable">
+                  <tr class="skeletonRow"><td colspan="15"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="15"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="15"><i></i></td></tr>
+                </tbody>
+            </table>
+          </div>
+          <div id="openPositionCards" class="positionCardList"></div>
+        </section>
+
+        <section class="closedTradesPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="closedTrades">Closed Trades</p>
+              <h2 data-i18n="tradeHistory">Trade History</h2>
+            </div>
+            <div class="performanceControls">
+              <select id="closedTradesStrategyFilter" aria-label="Closed trades strategy filter">
+                <option value="" data-i18n="allStrategies">All strategies</option>
+              </select>
+              <div id="closedTradesFilter" class="filterStatus" hidden>
+                <span id="closedTradesFilterLabel"></span>
+                <button id="clearClosedTradesFilter" class="smallButton" type="button" data-i18n="clearFilter">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="exitPrice">Exit</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="allocationWeight">Weight</th>
+                  <th data-i18n="portfolioPl">P/L</th>
+                  <th data-i18n="holdTime">Hold Time</th>
+                  <th data-i18n="exitTime">Exit Time</th>
+                  <th class="adminOnly" data-i18n="action">Action</th>
+                </tr>
+              </thead>
+              <tbody id="closedTradesTable">
+                  <tr class="skeletonRow"><td colspan="10"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="10"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="10"><i></i></td></tr>
+                </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="derivatives">
+        <section class="metrics" aria-label="Derivative summary">
+          <article>
+            <span data-i18n="derivativeOpenPositions">Open Positions</span>
+            <strong id="derivativeOpenCount">0</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeOpenPnl">Open P/L</span>
+            <strong id="derivativeOpenPnl">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeClosedTrades">Closed Trades</span>
+            <strong id="derivativeClosedCount">0</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeRealizedPnl">Realized P/L</span>
+            <strong id="derivativeRealizedPnl">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeInitialCapital">Initial Capital</span>
+            <strong id="derivativeInitialCapital">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeCurrentEquity">Current Equity</span>
+            <strong id="derivativeCurrentEquity">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeMaxDrawdown">Maximum Drawdown</span>
+            <strong id="derivativeMaxDrawdown">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeMaxDrawdownPct">Maximum Drawdown %</span>
+            <strong id="derivativeMaxDrawdownPct">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeTotalPnl">Total P/L</span>
+            <strong id="derivativeTotalPnl">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeTotalReturn">Total Return</span>
+            <strong id="derivativeTotalReturn">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeWinningTrades">Winning Trades</span>
+            <strong id="derivativeWinningTrades">-</strong>
+          </article>
+          <article>
+            <span data-i18n="derivativeProfitFactor">Profit Factor</span>
+            <strong id="derivativeProfitFactor">-</strong>
+          </article>
+        </section>
+
+        <section class="equityPanel derivativeEquityPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="derivativePerformance">Derivative Performance</p>
+              <h2 data-i18n="derivativeEquityCurve">Equity and Maximum Drawdown</h2>
+            </div>
+          </div>
+          <canvas id="derivativeEquityChart" height="280"></canvas>
+        </section>
+
+        <section class="openPositionsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="vn30Derivatives">VN30 Derivatives</p>
+              <h2 data-i18n="derivativeCurrentPositions">Current Long / Short Positions</h2>
+            </div>
+            <form id="derivativeCapitalForm" class="derivativeCapitalForm">
+              <input
+                id="derivativeCapitalInput"
+                type="number"
+                min="1"
+                step="1"
+                required
+                data-i18n-placeholder="derivativeCapitalPlaceholder"
+                aria-label="Derivative initial capital"
+                placeholder="Initial capital"
+              />
+              <button class="smallButton" type="submit" data-i18n="saveCapital">Save capital</button>
+            </form>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Symbol</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="side">Side</th>
+                  <th data-i18n="averagePrice">Average</th>
+                  <th data-i18n="currentPrice">Current</th>
+                  <th data-i18n="contracts">Contracts</th>
+                  <th data-i18n="layers">Layers</th>
+                  <th data-i18n="pnlPoints">P/L Points</th>
+                  <th data-i18n="pnlVnd">P/L VND</th>
+                  <th>TP</th>
+                  <th>SL</th>
+                </tr>
+              </thead>
+              <tbody id="derivativeOpenPositionsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="closedTradesPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="derivativeClosedTrades">Closed Trades</p>
+              <h2 data-i18n="derivativeTradeHistory">Derivative Trade History</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Symbol</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="side">Side</th>
+                  <th data-i18n="averagePrice">Average</th>
+                  <th data-i18n="exitPrice">Exit</th>
+                  <th data-i18n="contracts">Contracts</th>
+                  <th data-i18n="layers">Layers</th>
+                  <th data-i18n="reason">Reason</th>
+                  <th data-i18n="pnlPoints">P/L Points</th>
+                  <th data-i18n="pnlVnd">P/L VND</th>
+                  <th data-i18n="exitTime">Exit Time</th>
+                </tr>
+              </thead>
+              <tbody id="derivativeClosedTradesTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="invalidSignalsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="derivativeEvents">Derivative Events</p>
+              <h2 data-i18n="derivativeWebhookHistory">Webhook Event History</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="time">Time</th>
+                  <th data-i18n="ticker">Symbol</th>
+                  <th data-i18n="action">Action</th>
+                  <th data-i18n="price">Price</th>
+                  <th data-i18n="contracts">Contracts</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="reason">Reason</th>
+                  <th class="adminOnly"></th>
+                </tr>
+              </thead>
+              <tbody id="derivativeEventsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="manualPortfolio">
+        <section class="manualPortfolioGrid">
+          <div class="manualFormPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="manualEntry">Manual Entry</p>
+                <h2 data-i18n="addHolding">Add Holding</h2>
+              </div>
+            </div>
+            <form id="manualPositionForm" class="manualForm" autocomplete="off">
+              <input id="manualTicker" name="manual-ticker-symbol" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Manual ticker" placeholder="Ticker" />
+              <input id="manualWeight" required min="0.01" step="0.01" type="number" aria-label="Manual weight" placeholder="Weight %" />
+              <input id="manualEntryPrice" required min="0.001" step="0.001" type="number" aria-label="Manual entry price" placeholder="Entry" />
+              <input id="manualCurrentPrice" disabled aria-label="Manual current price" placeholder="Auto market price" />
+              <input id="manualQuantity" min="0.0001" step="0.0001" type="number" aria-label="Manual quantity" placeholder="Quantity" />
+              <input id="manualEntryDate" type="date" aria-label="Manual entry date" />
+              <input id="manualNote" name="manual-position-note" autocomplete="off" aria-label="Manual note" placeholder="Note" />
+              <button type="submit" data-i18n="addPosition">Add</button>
+            </form>
+          </div>
+
+          <div class="manualEquityPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="manualEquityCurve">Manual Equity Curve</p>
+                <h2 data-i18n="portfolioGrowth">Portfolio Growth</h2>
+              </div>
+              <div class="dailyPerformanceControls">
+                <span id="manualPortfolioReturn">-</span>
+                <button id="manualRecordDailyPerformance" class="smallButton" type="button" data-i18n="recordDailyPerformance">Save EOD</button>
+              </div>
+            </div>
+            <div id="manualDailyPerformanceStatus" class="dailyPerformanceStatus">-</div>
+            <canvas id="manualEquityChart" height="260"></canvas>
+          </div>
+        </section>
+
+        <section class="manualPositionsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="manualPortfolio">Manual Portfolio</p>
+              <h2 data-i18n="portfolioDetail">Portfolio Detail</h2>
+            </div>
+            <div class="portfolioSummary">
+              <button id="manualRefreshPrices" class="smallButton" type="button" data-i18n="refreshPrices">Refresh prices</button>
+              <span><span data-i18n="totalWeight">Weight</span>: <strong id="manualTotalWeight">0%</strong></span>
+              <span><span data-i18n="open">Open</span>: <strong id="manualOpenCount">0</strong></span>
+              <span><span data-i18n="closed">Closed</span>: <strong id="manualClosedCount">0</strong></span>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="weight">Weight</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="currentPrice">Current Price</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="quantity">Quantity</th>
+                  <th data-i18n="status">Status</th>
+                  <th data-i18n="entryDate">Entry Date</th>
+                  <th data-i18n="holdingDays">Days Held</th>
+                  <th data-i18n="dividend">Dividend</th>
+                  <th data-i18n="note">Note</th>
+                  <th class="adminOnly"></th>
+                </tr>
+              </thead>
+              <tbody id="manualPortfolioTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="manualDailyPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="dailyPerformance">Daily Performance</p>
+              <h2 data-i18n="savedDailyPerformance">Saved Daily Performance</h2>
+            </div>
+          </div>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="date">Date</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="equityValue">Equity</th>
+                  <th data-i18n="totalWeight">Weight</th>
+                  <th data-i18n="open">Open</th>
+                  <th data-i18n="closed">Closed</th>
+                  <th data-i18n="savedAt">Saved At</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="manualDailyPerformanceTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="performance">
+        <section class="analyticsGrid">
+          <div class="equityPanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="equityCurve">Equity Curve</p>
+                <h2 data-i18n="closedTradeGrowth">Closed Trade Growth</h2>
+              </div>
+            </div>
+            <div id="portfolioMetrics" class="portfolioMetrics"></div>
+            <canvas id="equityChart" height="260"></canvas>
+          </div>
+
+          <div class="performancePanel">
+            <div class="panelHead">
+              <div>
+                <p class="eyebrow" data-i18n="strategyPerformance">Strategy Performance</p>
+                <h2 data-i18n="buyToSellResults">Buy to Sell Results</h2>
+              </div>
+              <div class="performanceControls">
+                <input id="performanceTickerFilter" name="performance-ticker-filter" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Performance ticker filter" placeholder="Ticker" />
+                <select id="performanceStrategyFilter" aria-label="Performance strategy filter">
+                  <option value="" data-i18n="allStrategies">All strategies</option>
+                </select>
+                <select id="performanceSort" aria-label="Performance sort">
+                  <option value="current_desc" data-i18n="sortCurrentDesc">Current desc</option>
+                  <option value="current_asc" data-i18n="sortCurrentAsc">Current asc</option>
+                  <option value="realized_desc" data-i18n="sortRealizedDesc">Realized desc</option>
+                  <option value="realized_asc" data-i18n="sortRealizedAsc">Realized asc</option>
+                  <option value="win_desc" data-i18n="sortWinDesc">Win rate desc</option>
+                  <option value="ticker_asc" data-i18n="sortTickerAsc">Ticker A-Z</option>
+                  <option value="strategy_asc" data-i18n="sortStrategyAsc">Strategy A-Z</option>
+                </select>
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th data-i18n="allocationWeight">Weight</th>
+                    <th data-i18n="closed">Closed</th>
+                    <th data-i18n="open">Open</th>
+                    <th data-i18n="winRate">Win Rate</th>
+                    <th data-i18n="realizedPl">Realized</th>
+                    <th data-i18n="openPl">Open P/L</th>
+                    <th data-i18n="currentPl">Current</th>
+                  </tr>
+                </thead>
+              <tbody id="performanceTable">
+                  <tr class="skeletonRow"><td colspan="9"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="9"><i></i></td></tr>
+                  <tr class="skeletonRow"><td colspan="9"><i></i></td></tr>
+                </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+        <section class="backtestStatsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="backtestStats">Backtest Stats</p>
+              <h2 data-i18n="strategyBacktestStats">Strategy Backtest Stats</h2>
+            </div>
+            <div class="backtestControls">
+              <select id="backtestStrategyFilter" aria-label="Backtest strategy filter">
+                <option value="" data-i18n="allStrategies">All strategies</option>
+              </select>
+              <input id="backtestTickerSearch" name="backtest-ticker-search" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="Search ticker" />
+            </div>
+          </div>
+          <form id="backtestStatsForm" class="backtestStatsForm adminOnly" autocomplete="off">
+            <input id="backtestTicker" name="backtest-ticker-symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore required placeholder="Ticker" />
+            <select id="backtestStrategy" required>
+              <option value="" data-i18n="strategy">Strategy</option>
+            </select>
+            <input id="backtestClosedTrades" min="0" step="1" type="number" placeholder="Closed Trades" />
+            <input id="backtestNegativeTrades" min="0" step="1" type="number" placeholder="Negative Trades" />
+            <input id="backtestMaxLoss" step="0.01" type="number" placeholder="Max Loss %" />
+            <input id="backtestMinLoss" step="0.01" type="number" placeholder="Min Loss %" />
+            <input id="backtestAvgLoss" step="0.01" type="number" placeholder="Avg Loss %" />
+            <input id="backtestMaxGain" step="0.01" type="number" placeholder="Max Gain %" />
+            <input id="backtestAvgGain" step="0.01" type="number" placeholder="Avg Gain %" />
+            <input id="backtestTp1Hits" min="0" step="1" type="number" placeholder="TP1 Hits" />
+            <input id="backtestTp2Hits" min="0" step="1" type="number" placeholder="TP2 Hits" />
+            <input id="backtestTp3Hits" min="0" step="1" type="number" placeholder="TP3 Hits" />
+            <input id="backtestNote" name="backtest-note" autocomplete="off" placeholder="Note" />
+            <button type="submit" data-i18n="save">Save</button>
+          </form>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="closedTrades">Closed Trades</th>
+                  <th data-i18n="negativeTrades">Negative Trades</th>
+                  <th data-i18n="maxLoss">Max Loss</th>
+                  <th data-i18n="minLoss">Min Loss</th>
+                  <th data-i18n="avgLoss">Avg Loss</th>
+                  <th data-i18n="maxGain">Max Gain</th>
+                  <th data-i18n="avgGain">Avg Gain</th>
+                  <th data-i18n="tp1HitRate">TP1 / Trades</th>
+                  <th data-i18n="tp2HitRate">TP2 / Trades</th>
+                  <th data-i18n="tp3HitRate">TP3 / Trades</th>
+                  <th data-i18n="note">Note</th>
+                  <th class="adminOnly" data-i18n="actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="backtestStatsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="performanceHistoryPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="performanceTradeHistory">Trade History</p>
+              <h2 data-i18n="strategyTradeHistory">Strategy Closed Trades</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="timeframe">Timeframe</th>
+                  <th data-i18n="entryPrice">Entry</th>
+                  <th data-i18n="exitPrice">Exit</th>
+                  <th data-i18n="returnPct">Return</th>
+                  <th data-i18n="allocationWeight">Weight</th>
+                  <th data-i18n="portfolioPl">P/L</th>
+                  <th data-i18n="holdTime">Hold Time</th>
+                  <th data-i18n="exitTime">Exit Time</th>
+                </tr>
+              </thead>
+              <tbody id="performanceClosedTradesTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="kelly">
+        <section class="kellyPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="kellyCalculator">Kelly Calculator</p>
+              <h2 data-i18n="kellyAllocation">Allocation by Modern Chart DCA Metrics</h2>
+            </div>
+          </div>
+          <div class="kellyGrid">
+            <form id="kellyForm" class="kellyForm">
+              <label>
+                <span data-i18n="kellyTicker">Ticker</span>
+                <input id="kellyTicker" name="kelly-ticker-symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="VPB" />
+              </label>
+              <label>
+                <span data-i18n="strategy">Strategy</span>
+                <select id="kellyStrategy" aria-label="Kelly strategy">
+                  <option value="" data-i18n="allStrategies">All strategies</option>
+                </select>
+              </label>
+              <label>
+                <span data-i18n="kellyWinRate">Win Rate (%)</span>
+                <input id="kellyWinRate" min="0" max="100" step="0.01" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyWinningTrades">Winning Trades</span>
+                <input id="kellyWinningTrades" min="0" step="1" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyTotalTrades">Total Trades</span>
+                <input id="kellyTotalTrades" min="0" step="1" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyProfitFactor">Profit Factor</span>
+                <input id="kellyProfitFactor" min="0" step="0.001" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyMaxDrawdown">Max Drawdown (%)</span>
+                <input id="kellyMaxDrawdown" min="0" step="0.01" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyTargetDrawdown">Target Drawdown (%)</span>
+                <input id="kellyTargetDrawdown" min="0" step="0.01" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyFraction">Kelly Used (%)</span>
+                <input id="kellyFraction" min="0" max="100" step="1" type="number" />
+              </label>
+              <label>
+                <span data-i18n="kellyMaxAllocation">Max Allocation Cap (%)</span>
+                <input id="kellyMaxAllocation" min="0" max="100" step="1" type="number" />
+              </label>
+              <div class="kellyFormActions">
+                <button id="saveKellyEntry" class="smallButton" type="button" data-i18n="saveKellyEntry">Save ticker</button>
+              </div>
+            </form>
+
+            <div class="kellyOutputPanel">
+              <div class="kellyHeroResult">
+                <span data-i18n="kellyRecommended">Recommended Allocation</span>
+                <strong id="kellyRecommendedAllocation">-</strong>
+              </div>
+              <div class="kellyResultGrid">
+                <article>
+                  <span data-i18n="kellyFull">Full Kelly</span>
+                  <strong id="kellyFullKelly">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyHalf">1/2 Kelly</span>
+                  <strong id="kellyHalfKelly">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyQuarter">1/4 Kelly</span>
+                  <strong id="kellyQuarterKelly">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyWinLossRatio">Avg Win / Avg Loss</span>
+                  <strong id="kellyWinLossRatio">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyEdge">Edge</span>
+                  <strong id="kellyEdge">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="kellyDrawdownFactor">Drawdown Factor</span>
+                  <strong id="kellyDrawdownFactor">-</strong>
+                </article>
+              </div>
+              <p id="kellyNote" class="kellyNote">-</p>
+            </div>
+          </div>
+          <div class="kellySavedSection">
+            <div class="panelHead compactHead">
+              <div>
+                <p class="eyebrow" data-i18n="kellySavedList">Saved Kelly List</p>
+                <h2 data-i18n="kellySavedByTicker">Allocation by Ticker</h2>
+              </div>
+              <div class="kellySavedControls">
+                <select id="kellyStrategyFilter" aria-label="Kelly strategy filter">
+                  <option value="" data-i18n="allStrategies">All strategies</option>
+                </select>
+                <input id="kellySearch" name="kelly-ticker-search" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Kelly ticker search" data-i18n-placeholder="kellySearchPlaceholder" placeholder="Search ticker" />
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th data-i18n="kellyWinRate">Win Rate (%)</th>
+                    <th data-i18n="kellyWinningTrades">Winning Trades</th>
+                    <th data-i18n="kellyProfitFactor">Profit Factor</th>
+                    <th data-i18n="kellyMaxDrawdown">Max Drawdown (%)</th>
+                    <th data-i18n="kellyFull">Full Kelly</th>
+                    <th data-i18n="kellyRecommended">Recommended Allocation</th>
+                    <th data-i18n="kellyUsage">Usage</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="kellySavedTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="dcaSizing">
+        <section class="dcaSizingPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="dcaSizingEyebrow">DCA Sizing</p>
+              <h2 data-i18n="dcaSizingTitle">Position sizing by recommended allocation</h2>
+            </div>
+          </div>
+          <div class="dcaSizingGrid">
+            <form id="dcaSizingForm" class="dcaSizingForm" autocomplete="off">
+              <fieldset class="dcaFormGroup">
+                <legend data-i18n="currentPosition">Current Position</legend>
+                <label>
+                  <span data-i18n="ticker">Ticker</span>
+                  <input id="dcaSizingTicker" name="dca-sizing-ticker" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="VPB" />
+                </label>
+                <label>
+                  <span data-i18n="strategy">Strategy</span>
+                  <select id="dcaSizingStrategy" aria-label="DCA sizing strategy">
+                    <option value="" data-i18n="allStrategies">All strategies</option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="dcaInitialCapital">Initial capital</span>
+                  <input id="dcaInitialCapital" inputmode="numeric" autocomplete="off" value="500,000,000" />
+                </label>
+                <label>
+                  <span data-i18n="dcaAllocationPct">Recommended allocation (%)</span>
+                  <input id="dcaAllocationPct" min="0" max="100" step="0.01" type="number" />
+                </label>
+                <label>
+                  <span data-i18n="dcaEntryPrice">First buy price</span>
+                  <input id="dcaEntryPrice" min="0" step="0.01" type="number" />
+                </label>
+              </fieldset>
+
+              <fieldset class="dcaFormGroup">
+                <legend data-i18n="dcaLevels">DCA levels</legend>
+                <label>
+                  <span data-i18n="dcaDistanceMode">Distance mode</span>
+                  <select id="dcaDistanceMode" aria-label="DCA distance mode">
+                    <option value="percent" data-i18n="dcaDistanceModePercent">Percent from previous order</option>
+                    <option value="priceStep" data-i18n="dcaDistanceModePriceStep">Price step from previous order</option>
+                  </select>
+                </label>
+                <label id="dcaPriceStepModeLabel" hidden>
+                  <span data-i18n="dcaPriceStepMode">Price step mode</span>
+                  <select id="dcaPriceStepMode" aria-label="DCA price step mode">
+                    <option value="custom" data-i18n="dcaPriceStepModeCustom">Custom per level</option>
+                    <option value="fixed" data-i18n="dcaPriceStepModeFixed">Fixed step</option>
+                  </select>
+                </label>
+                <label id="dcaFixedPriceStepLabel" hidden>
+                  <span data-i18n="dcaFixedPriceStep">Fixed step distance</span>
+                  <input id="dcaFixedPriceStep" min="0" step="1" type="number" value="100" />
+                </label>
+                <label>
+                  <span data-i18n="dcaCount">DCA count</span>
+                  <input id="dcaCount" min="1" max="20" step="1" type="number" value="4" />
+                </label>
+                <label>
+                  <span data-i18n="dcaPreset">Preset</span>
+                  <select id="dcaPreset" aria-label="DCA preset">
+                    <option value="custom" data-i18n="dcaPresetCustom">Custom</option>
+                    <option value="conservative" data-i18n="dcaPresetConservative">Conservative</option>
+                    <option value="balanced" data-i18n="dcaPresetBalanced">Balanced</option>
+                    <option value="aggressive" data-i18n="dcaPresetAggressive">Aggressive</option>
+                  </select>
+                </label>
+              </fieldset>
+
+              <fieldset class="dcaFormGroup">
+                <legend data-i18n="riskOverview">Risk Overview</legend>
+                <label>
+                  <span data-i18n="dcaMaxLossPct">Max loss from backtest (%)</span>
+                  <input id="dcaMaxLossPct" min="0" step="0.01" type="number" />
+                </label>
+                <label>
+                  <span data-i18n="dcaRiskLimitPct">Risk limit (% capital)</span>
+                  <input id="dcaRiskLimitPct" min="0" max="100" step="0.01" type="number" value="1.5" />
+                </label>
+                <label>
+                  <span data-i18n="dcaLotSize">Lot size</span>
+                  <input id="dcaLotSize" min="1" step="1" type="number" value="100" />
+                </label>
+                <label>
+                  <span data-i18n="dcaPriceStep">Buy price rounding</span>
+                  <input id="dcaPriceStep" min="0" step="1" type="number" value="100" />
+                </label>
+              </fieldset>
+
+              <div class="dcaFormActions">
+                <button id="applyDcaHalfSuggestion" class="ghostButton" type="button" data-i18n="applyDcaHalfSuggestion">50% suggested distance</button>
+                <button id="applyDcaSuggestion" class="ghostButton" type="button" data-i18n="applyDcaSuggestion">Suggest distance</button>
+                <button id="saveDcaPlan" type="button" data-i18n="saveDcaPlan">Save allocation</button>
+                <button id="cancelDcaPlanEdit" class="ghostButton" type="button" data-i18n="cancelDcaPlanEdit" hidden>Cancel edit</button>
+              </div>
+            </form>
+
+            <div class="dcaSizingOutput">
+              <div class="kellyHeroResult dcaHeroResult">
+                <span data-i18n="dcaTotalShares">Total shares</span>
+                <strong id="dcaTotalShares">-</strong>
+              </div>
+              <div class="kellyResultGrid dcaResultGrid">
+                <article>
+                  <span data-i18n="dcaAllocatedCapital">Allocated capital</span>
+                  <strong id="dcaAllocatedCapital">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaUsedCapital">Used capital</span>
+                  <strong id="dcaUsedCapital">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaAveragePrice">Average buy price</span>
+                  <strong id="dcaAveragePrice">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaRiskPrice">Risk price</span>
+                  <strong id="dcaRiskPrice">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaTargetPrice">Target price</span>
+                  <strong id="dcaTargetPrice">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaProjectedLoss">Projected loss</span>
+                  <strong id="dcaProjectedLoss">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaActualProjectedLoss">Expected actual loss</span>
+                  <strong id="dcaActualProjectedLoss">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaProjectedProfit">Projected profit</span>
+                  <strong id="dcaProjectedProfit">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaRiskBudget">Risk / capital</span>
+                  <strong id="dcaRiskBudget">-</strong>
+                </article>
+                <article>
+                  <span data-i18n="dcaCashLeft">Cash left</span>
+                  <strong id="dcaCashLeft">-</strong>
+                </article>
+              </div>
+              <div id="dcaRiskAlert" class="dcaRiskAlert" hidden></div>
+              <div id="dcaLiquidityNote" class="dcaLiquidityNote" hidden></div>
+              <p id="dcaSizingNote" class="kellyNote">-</p>
+              <p id="dcaSuggestionNote" class="kellyNote">-</p>
+            </div>
+          </div>
+
+          <div class="dcaLevelsSection">
+            <div class="panelHead compactHead">
+              <div>
+                <p class="eyebrow" data-i18n="dcaLevels">DCA levels</p>
+                <h2 data-i18n="dcaLevelsTitle">Distance and multiplier</h2>
+              </div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="dcaLevel">Level</th>
+                    <th data-i18n="dcaDistanceValue">Distance</th>
+                    <th data-i18n="dcaMultiplier">Multiplier</th>
+                    <th data-i18n="dcaBuyPrice">Buy price</th>
+                    <th data-i18n="dcaShares">Shares</th>
+                    <th data-i18n="dcaCost">Cost</th>
+                    <th data-i18n="dcaCumulativeAverage">Cumulative average</th>
+                  </tr>
+                </thead>
+                <tbody id="dcaLevelsTable"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dcaSavedSection">
+            <div class="panelHead compactHead">
+              <div>
+                <p class="eyebrow" data-i18n="dcaSavedEyebrow">Saved DCA</p>
+                <h2 data-i18n="dcaSavedTitle">Saved allocation plans</h2>
+              </div>
+            </div>
+            <div class="tableWrap compactTable">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="ticker">Ticker</th>
+                    <th data-i18n="strategy">Strategy</th>
+                    <th data-i18n="dcaOpenPositionStatus">Position status</th>
+                    <th data-i18n="dcaAllocatedCapital">Allocated capital</th>
+                    <th data-i18n="dcaTotalShares">Total shares</th>
+                    <th data-i18n="dcaAveragePrice">Average buy price</th>
+                    <th data-i18n="dcaProjectedLoss">Projected loss</th>
+                    <th data-i18n="dcaActualProjectedLoss">Expected actual loss</th>
+                    <th data-i18n="dcaProjectedProfit">Projected profit</th>
+                    <th data-i18n="savedAt">Saved At</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="dcaPlansTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="dividends">
+        <section class="dividendPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="dividendCalendar">Dividend Calendar</p>
+              <h2 data-i18n="dividendRules">Ex-rights Adjustments</h2>
+            </div>
+            <div class="panelActions adminOnly">
+              <span id="dividendRefreshStatus" class="mutedText"></span>
+              <button id="pruneDividendEvents" class="smallButton" type="button" data-i18n="pruneDividendEvents">Clean calendar</button>
+              <button id="refreshDividendsButton" class="smallButton" type="button" data-i18n="refreshDividends">Auto-fetch dividends</button>
+            </div>
+          </div>
+          <form id="dividendEventForm" class="manualForm dividendForm" autocomplete="off">
+            <input id="dividendTicker" name="dividend-ticker-symbol" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Dividend ticker" placeholder="Ticker" />
+            <input id="dividendExDate" required type="date" aria-label="Dividend ex date" />
+            <input id="dividendCashAmount" min="0" step="0.001" type="number" aria-label="Cash dividend" placeholder="Cash / share, e.g. 1000" />
+            <input id="dividendStockRatio" min="0" step="0.01" type="number" aria-label="Stock dividend ratio" placeholder="Stock %" />
+            <input id="dividendIssueRatio" min="0" step="0.01" type="number" aria-label="Additional issue ratio" placeholder="Issue %" />
+            <input id="dividendIssuePrice" min="0" step="0.001" type="number" aria-label="Additional issue price" placeholder="Issue price, e.g. 10000" />
+            <input id="dividendNote" name="dividend-note" autocomplete="off" aria-label="Dividend note" placeholder="Note" />
+            <button type="submit" data-i18n="addDividendEvent">Add event</button>
+          </form>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="exDate">Ex-date</th>
+                  <th data-i18n="cashDividend">Cash</th>
+                  <th data-i18n="stockDividend">Stock %</th>
+                  <th data-i18n="additionalIssue">Issue %</th>
+                  <th data-i18n="issuePrice">Issue Price</th>
+                  <th data-i18n="note">Note</th>
+                  <th class="adminOnly"></th>
+                </tr>
+              </thead>
+              <tbody id="dividendEventsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="logs">
+        <section class="exportPanel adminOnly">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="exportBackup">Export / Backup</p>
+              <h2 data-i18n="downloadData">Download Data</h2>
+            </div>
+            <div class="exportActions">
+              <a class="smallButton linkButton" href="/api/export/signals.csv" data-i18n="exportSignals">Signals CSV</a>
+              <a class="smallButton linkButton" href="/api/export/manual-portfolio.csv" data-i18n="exportManualPortfolio">Manual CSV</a>
+              <a class="smallButton linkButton" href="/api/export/manual-daily-performance.csv" data-i18n="exportDailyPerformance">Daily CSV</a>
+              <a class="smallButton linkButton" href="/api/export/dividend-events.csv" data-i18n="exportDividends">Dividends CSV</a>
+              <a class="smallButton linkButton" href="/api/export/derivative-signals.csv" data-i18n="exportDerivatives">Derivatives CSV</a>
+              <a class="smallButton linkButton" href="/api/export/database" data-i18n="backupDatabase">Backup DB</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="invalidSignalsPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="invalidSignalLog">Invalid Signal Log</p>
+              <h2 data-i18n="ignoredAlerts">Ignored Alerts</h2>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="time">Time</th>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="side">Side</th>
+                  <th data-i18n="timeframe">Timeframe</th>
+                  <th data-i18n="strategy">Strategy</th>
+                  <th data-i18n="reason">Reason</th>
+                </tr>
+              </thead>
+              <tbody id="invalidSignalsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="tabPanel" data-tab-panel="admin">
+        <section class="adminPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow">Quản trị</p>
+              <h2>Tài khoản và quyền hiển thị</h2>
+            </div>
+          </div>
+          <form id="userCreateForm" class="userCreateForm">
+            <input id="newUsername" required autocomplete="off" placeholder="Tên tài khoản" />
+            <input id="newPassword" required type="password" minlength="8" autocomplete="new-password" placeholder="Mật khẩu tối thiểu 8 ký tự" />
+            <select id="newUserRole" aria-label="Vai trò">
+              <option value="user">User chỉ xem</option>
+              <option value="admin">Admin</option>
+            </select>
+            <div id="newUserFeatures" class="featureSelector"></div>
+            <div id="newUserStrategies" class="strategySelector"></div>
+            <button type="submit">Tạo tài khoản</button>
+          </form>
+          <section class="strategyDataDangerZone" aria-labelledby="strategyDataDangerTitle">
+            <div>
+              <p class="eyebrow">Dữ liệu chiến lược</p>
+              <h3 id="strategyDataDangerTitle">Xóa toàn bộ dữ liệu theo chiến lược</h3>
+              <p class="mutedText">Xóa tín hiệu, xác nhận liên quan, backtest, Kelly và kế hoạch DCA của chiến lược đã chọn.</p>
+            </div>
+            <select id="strategyDataSelect" aria-label="Chọn chiến lược cần xóa"></select>
+            <button id="deleteStrategyData" class="deleteButton" type="button">Xóa dữ liệu chiến lược</button>
+          </section>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tài khoản</th>
+                  <th>Vai trò</th>
+                  <th>Tính năng được xem</th>
+                  <th>Chiến lược được xem</th>
+                  <th>Trạng thái</th>
+                  <th>Mật khẩu mới</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="usersTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="adminPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="sectorMappingEyebrow">Sectors</p>
+              <h2 data-i18n="sectorMappingTitle">Ticker sectors</h2>
+            </div>
+            <div class="panelActions">
+              <span id="sectorRefreshStatus" class="mutedText"></span>
+              <button id="refreshSectorsButton" class="smallButton" type="button" data-i18n="refreshSectors">Auto-fill sectors</button>
+            </div>
+          </div>
+          <form id="sectorForm" class="userCreateForm sectorForm" autocomplete="off">
+            <input id="sectorTicker" name="sector-ticker" required autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore aria-label="Sector ticker" data-i18n-placeholder="sectorTickerPlaceholder" placeholder="Ticker" />
+            <input id="sectorName" name="sector-name" required autocomplete="off" aria-label="Sector name" data-i18n-placeholder="sectorNamePlaceholder" placeholder="Sector" />
+            <button type="submit" data-i18n="addSector">Save sector</button>
+          </form>
+          <div class="sectorTableControls">
+            <input id="sectorSearch" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false" data-i18n-placeholder="sectorSearchPlaceholder" placeholder="Tìm mã hoặc ngành" />
+            <select id="sectorFilter" aria-label="Sector filter">
+              <option value="" data-i18n="allSectors">Tất cả ngành</option>
+            </select>
+            <span id="sectorPageStatus" class="mutedText"></span>
+            <div class="paginationActions">
+              <button id="sectorPreviousPage" class="smallButton" type="button" aria-label="Previous page">‹</button>
+              <button id="sectorNextPage" class="smallButton" type="button" aria-label="Next page">›</button>
+            </div>
+          </div>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="ticker">Ticker</th>
+                  <th data-i18n="sector">Sector</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="sectorTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="adminPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="storageEyebrow">Dữ liệu</p>
+              <h2 data-i18n="storageTitle">Lưu trữ và sao lưu</h2>
+            </div>
+            <button id="databaseBackupButton" class="smallButton" type="button" data-i18n="createBackup">Tạo bản sao lưu</button>
+          </div>
+          <div id="databaseBackupStatus" class="storageStatus mutedText" role="status"></div>
+        </section>
+
+        <section class="adminPanel">
+          <div class="panelHead">
+            <div>
+              <p class="eyebrow" data-i18n="auditLogEyebrow">Audit</p>
+              <h2 data-i18n="auditLogTitle">Admin activity log</h2>
+            </div>
+          </div>
+          <div class="tableWrap compactTable">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="auditTime">Time</th>
+                  <th data-i18n="auditUser">User</th>
+                  <th data-i18n="auditMethod">Method</th>
+                  <th data-i18n="auditPath">Action</th>
+                  <th data-i18n="auditStatus">Status</th>
+                </tr>
+              </thead>
+              <tbody id="auditLogTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="positionInsightModal" class="modalOverlay" hidden>
+      <section class="modalPanel positionInsightPanel" role="dialog" aria-modal="true" aria-labelledby="positionInsightTitle">
+        <div class="modalHead">
+          <div>
+            <p class="eyebrow" data-i18n="positionInsightEyebrow">Position detail</p>
+            <h2 id="positionInsightTitle">-</h2>
+            <span id="positionInsightSubtitle" class="mutedText"></span>
+          </div>
+          <button id="positionInsightClose" class="iconButton" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="positionInsightBody" class="positionInsightBody"></div>
+        <div class="modalActions">
+          <button id="positionInsightChart" class="smallButton" type="button" data-i18n="openChart">Open chart</button>
+          <button id="positionInsightCloseBottom" class="smallButton ghostButton" type="button" data-i18n="close">Close</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="dcaPlanModal" class="modalOverlay" hidden>
+      <section class="modalPanel" role="dialog" aria-modal="true" aria-labelledby="dcaPlanTitle">
+        <div class="modalHead">
+          <div>
+            <p class="eyebrow" data-i18n="dcaPlanDetailEyebrow">DCA plan</p>
+            <h2 id="dcaPlanTitle">-</h2>
+            <span id="dcaPlanSubtitle" class="mutedText"></span>
+          </div>
+          <button id="dcaPlanClose" class="iconButton" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="dcaPlanBody" class="positionInsightBody"></div>
+        <div class="modalActions">
+          <button id="dcaPlanCloseBottom" class="smallButton ghostButton" type="button" data-i18n="close">Close</button>
+        </div>
+      </section>
     </div>
 
     <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/app.js?v=backtest-only-1"></script>
+    <div id="toastStack" class="toastStack" aria-live="polite"></div>
+
+    <script src="/static/constants.js?v=20260710-hardening"></script>
+    <script src="/static/i18n.js?v=20260710-hardening"></script>
+    <script src="/static/app.js?v=20260818-delete-strategy-data"></script>
   </body>
 </html>
