@@ -766,42 +766,6 @@ class SignalStoreTest(unittest.TestCase):
             self.assertNotIn("ABC", store.sector_map())
             self.assertFalse(store.delete_sector_mapping("ABC"))
 
-    def test_apply_auto_sector_mappings_protects_manual_rows(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = SignalStore(Path(tmp) / "signals.db")
-            # Seeded rows are source='seed' and should be overwritable.
-            self.assertEqual(store.sector_map()["VCB"], "Ngân hàng")
-            store.upsert_sector_mapping(ticker="FPT", sector="Manual choice")
-
-            result = store.apply_auto_sector_mappings(
-                {"VCB": "Ngân hàng ICB", "FPT": "Should not overwrite", "ZZZ": "Mới", "": "skip"}
-            )
-            self.assertEqual(result["added"], 1)  # ZZZ is new
-            self.assertEqual(result["updated"], 1)  # VCB seed overwritten
-            self.assertEqual(store.sector_map()["VCB"], "Ngân hàng ICB")
-            self.assertEqual(store.sector_map()["FPT"], "Manual choice")  # protected
-            self.assertEqual(store.sector_map()["ZZZ"], "Mới")
-            self.assertEqual(store.apply_auto_sector_mappings({}), {"added": 0, "updated": 0})
-
-    def test_foreign_flow_daily_records_and_history(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = SignalStore(Path(tmp) / "signals.db")
-            store.record_foreign_flow_daily(
-                {"VPB": {"buy_value": 3e11, "sell_value": 5e10, "net_value": 2.5e11}},
-                "2026-07-01",
-            )
-            store.record_foreign_flow_daily(
-                {"VPB": {"net_value": -1e11}, "FPT": {"net_value": 5e10}},
-                "2026-07-02",
-            )
-            # Re-record same day updates instead of duplicating.
-            store.record_foreign_flow_daily({"VPB": {"net_value": -1.2e11}}, "2026-07-02")
-
-            history = store.foreign_flow_history(["VPB", "FPT"], days=5)
-            self.assertEqual(history["VPB"], [-1.2e11, 2.5e11])  # newest first
-            self.assertEqual(history["FPT"], [5e10])
-            self.assertEqual(store.foreign_flow_history([]), {})
-
     def test_latest_signal_received_at(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SignalStore(Path(tmp) / "signals.db")

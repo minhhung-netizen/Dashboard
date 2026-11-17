@@ -8,7 +8,7 @@ background.
 
 - Backend: FastAPI
 - Database: SQLite
-- Data enrichment: `vnstock` when available, graceful fallback when unavailable
+- Data enrichment: DNSE (and FireAnt when configured); shows "unavailable" when no provider answers
 - Frontend: Static HTML, CSS, and JavaScript served by FastAPI
 
 ## Setup
@@ -27,7 +27,7 @@ Open the dashboard at:
 http://127.0.0.1:8000
 ```
 
-Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. When configured, FireAnt supplies daily OHLCV history and dividend-event notes, DNSE supplies the latest matched price, and VNStock remains the automatic fallback.
+Webhook requests return quickly. Price-history enrichment runs as a FastAPI background task and appears on the dashboard after the next refresh. When configured, FireAnt supplies daily OHLCV history and dividend-event notes, and DNSE supplies the latest matched price (and full history when FireAnt is not configured). If no provider is configured or all fail, enrichment is marked unavailable.
 
 ## Railway production setup
 
@@ -90,7 +90,7 @@ Do not place real credentials in `.env.example` or commit them to Git. After
 Railway redeploys, `/api/settings` reports
 `"market_data_provider":"fireant+dnse"` when both clients initialized
 successfully. If FireAnt history is unavailable, the dashboard falls back to
-DNSE history and then VNStock.
+DNSE history. With neither provider configured, `market_data_provider` is `"none"`.
 
 Open-position prices refresh every 120 minutes during configured market sessions.
 By default this uses Vietnam time with `09:00-11:30,13:00-15:00`.
@@ -99,15 +99,15 @@ Change these values in `.env` if needed:
 ```powershell
 PRICE_REFRESH_MINUTES=120
 MARKET_SESSIONS=09:00-11:30,13:00-15:00
-VNSTOCK_CACHE_TTL_MINUTES=240
-VNSTOCK_MIN_REQUEST_INTERVAL_SECONDS=4
-VNSTOCK_LOOKBACK_DAYS=90
-VNSTOCK_INCLUDE_METRICS=false
+MARKET_DATA_CACHE_TTL_MINUTES=240
+MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS=4
+MARKET_DATA_LOOKBACK_DAYS=90
 ```
 
-The default `vnstock` settings are intentionally conservative for the free tier:
-each ticker is cached for 4 hours, calls are spaced by at least 4 seconds, and
-fundamental metrics are skipped unless explicitly enabled.
+The `MARKET_DATA_*` settings apply to the DNSE provider (lookback also applies to
+FireAnt): each ticker is cached for 4 hours and calls are spaced by at least 4
+seconds. For backward compatibility the older `VNSTOCK_*` names of these three
+variables are still read when the new names are not set.
 
 ## Performance Tracking
 
@@ -241,7 +241,7 @@ Use this JSON body in the TradingView alert message. If `WEBHOOK_SECRET` is set,
 }
 ```
 
-TradingView may send symbols such as `HOSE:VPB`. The backend normalizes this to `VPB` before calling `vnstock`.
+TradingView may send symbols such as `HOSE:VPB`. The backend normalizes this to `VPB` before requesting market data.
 
 ## Local Test Webhook
 

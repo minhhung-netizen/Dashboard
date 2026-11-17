@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
-import sys
 import threading
 import time
 import unicodedata
@@ -11,17 +9,12 @@ import base64
 import hashlib
 import hmac
 from copy import deepcopy
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import date, datetime, timedelta, timezone
-from importlib import import_module
-from io import StringIO
 from typing import Any
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 from uuid import uuid4
-
-from app.config import PROJECT_ROOT
 
 
 EXCHANGE_PREFIXES = {"HOSE", "HNX", "UPCOM", "VNINDEX", "INDEX"}
@@ -127,173 +120,6 @@ def normalize_action(raw_action: str | None) -> str:
         "confisell": "confirm_sell",
     }
     return aliases.get(action, aliases.get(compact_action, action))
-
-
-def vnstock_installed() -> bool:
-    """True when the optional vnstock package can be imported."""
-    if "vnstock" in sys.modules:
-        return True
-    try:
-        from importlib.util import find_spec
-
-        return find_spec("vnstock") is not None
-    except (ImportError, ValueError):
-        return False
-
-
-class VnstockEnricher:
-    """Small adapter around vnstock with graceful fallback when APIs differ."""
-
-    def __init__(
-        self,
-        lookback_days: int = 90,
-        *,
-        cache_ttl_seconds: int = 240 * 60,
-        min_request_interval_seconds: float = 4.0,
-        include_metrics: bool = False,
-    ) -> None:
-        self.lookback_days = lookback_days
-        self.cache_ttl_seconds = cache_ttl_seconds
-        self.min_request_interval_seconds = min_request_interval_seconds
-        self.include_metrics = include_metrics
-        self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
-        self._lock = threading.Lock()
-        self._last_request_at = 0.0
-
-    def enrich(self, ticker: str, *, force: bool = False) -> dict[str, Any]:
-        if not force:
-            cached = self._get_cached(ticker)
-            if cached is not None:
-                return cached
-        try:
-            enrichment = self._enrich_with_vnstock(ticker)
-        except BaseException as exc:  # vnstock may raise non-Exception exits internally.
-            enrichment = {
-                "status": "unavailable",
-                "message": str(exc),
-                "ticker": ticker,
-                "history": [],
-                "metrics": {},
-            }
-        self._set_cached(ticker, enrichment)
-        return deepcopy(enrichment)
-
-    def _enrich_with_vnstock(self, ticker: str) -> dict[str, Any]:
-        if not vnstock_installed():
-            # vnstock < 6 stopped working on 2026-11-10 and is no longer on
-            # PyPI, so it is not installed by default. Fail fast instead of
-            # touching HOME/stdout or waiting on the rate limiter.
-            raise RuntimeError("vnstock is not installed")
-        vnstock_home = PROJECT_ROOT / "data" / "vnstock-home"
-        vnstock_home.mkdir(parents=True, exist_ok=True)
-        os.environ["HOME"] = str(vnstock_home)
-        os.environ["USERPROFILE"] = str(vnstock_home)
-        for stream in (sys.stdout, sys.stderr):
-            if hasattr(stream, "reconfigure"):
-                stream.reconfigure(encoding="utf-8", errors="replace")
-
-        with quiet_output():
-            module = __import__("vnstock")
-            end = date.today()
-            start = end - timedelta(days=self.lookback_days)
-            self._wait_for_rate_limit()
-            history = self._get_history(module, ticker, start.isoformat(), end.isoformat())
-            metrics = {}
-            if self.include_metrics:
-                self._wait_for_rate_limit()
-                metrics = self._get_metrics(module, ticker)
-
-        return {
-            "status": "ok",
-            "ticker": ticker,
-            "history": history[-80:],
-            "metrics": metrics,
-        }
-
-    def _get_cached(self, ticker: str) -> dict[str, Any] | None:
-        now = time.monotonic()
-        with self._lock:
-            cached = self._cache.get(ticker)
-            if not cached:
-                return None
-            cached_at, enrichment = cached
-            if now - cached_at > self.cache_ttl_seconds:
-                self._cache.pop(ticker, None)
-                return None
-            return deepcopy(enrichment)
-
-    def _set_cached(self, ticker: str, enrichment: dict[str, Any]) -> None:
-        with self._lock:
-            self._cache[ticker] = (time.monotonic(), deepcopy(enrichment))
-
-    def _wait_for_rate_limit(self) -> None:
-        if self.min_request_interval_seconds <= 0:
-            return
-        with self._lock:
-            now = time.monotonic()
-            wait_seconds = self.min_request_interval_seconds - (now - self._last_request_at)
-            if wait_seconds > 0:
-                time.sleep(wait_seconds)
-                now = time.monotonic()
-            self._last_request_at = now
-
-    def _get_history(
-        self, module: Any, ticker: str, start: str, end: str
-    ) -> list[dict[str, Any]]:
-        try:
-            quote_module = import_module("vnstock.api.quote")
-            quote_class = getattr(quote_module, "Quote")
-            for source in ("VCI", "KBS"):
-                try:
-                    quote = quote_class(symbol=ticker, source=source, show_log=False)
-                    data = quote.history(start=start, end=end, interval="1D")
-                    records = _records_from_dataframe_like(data)
-                    if records:
-                        return records
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-        if hasattr(module, "stock_historical_data"):
-            data = module.stock_historical_data(
-                symbol=ticker,
-                start_date=start,
-                end_date=end,
-                resolution="1D",
-                type="stock",
-            )
-            return _records_from_dataframe_like(data)
-
-        if hasattr(module, "Vnstock"):
-            stock = module.Vnstock().stock(symbol=ticker, source="VCI")
-            data = stock.quote.history(start=start, end=end, interval="1D")
-            return _records_from_dataframe_like(data)
-
-        raise RuntimeError("No supported vnstock history API was found")
-
-    def _get_metrics(self, module: Any, ticker: str) -> dict[str, Any]:
-        try:
-            finance_module = import_module("vnstock.api.financial")
-            finance_class = getattr(finance_module, "Finance")
-            finance = finance_class(symbol=ticker, source="VCI", period="year", show_log=False)
-            ratio = finance.ratio(period="year", lang="en", dropna=True)
-            records = _records_from_dataframe_like(ratio)
-            return records[-1] if records else {}
-        except BaseException:
-            pass
-
-        try:
-            if hasattr(module, "stock_intraday_data"):
-                return {}
-            if hasattr(module, "Vnstock"):
-                stock = module.Vnstock().stock(symbol=ticker, source="VCI")
-                ratio = stock.finance.ratio(period="year", lang="en", dropna=True)
-                records = _records_from_dataframe_like(ratio)
-                return records[-1] if records else {}
-        except BaseException:
-            return {}
-        return {}
 
 
 class FireAntEnricher:
@@ -534,18 +360,16 @@ class DnseEnricher:
 
 
 class MarketDataEnricher:
-    """Use FireAnt history, DNSE latest price, then fall back to VNStock."""
+    """Use FireAnt history with the DNSE latest price, falling back to DNSE history."""
 
     def __init__(
         self,
         *,
         fireant: FireAntEnricher | None = None,
-        dnse: DnseEnricher | None,
-        vnstock: VnstockEnricher,
+        dnse: DnseEnricher | None = None,
     ) -> None:
         self.fireant = fireant
         self.dnse = dnse
-        self.vnstock = vnstock
 
     def enrich(self, ticker: str, *, force: bool = False) -> dict[str, Any]:
         fireant_message = None
@@ -564,23 +388,34 @@ class MarketDataEnricher:
                 return primary
             fireant_message = primary.get("message")
 
+        dnse_message = None
         if self.dnse is not None:
             primary = self.dnse.enrich(ticker, force=force)
             if primary.get("status") == "ok" and primary.get("history"):
                 if fireant_message:
                     primary["fireant_message"] = fireant_message
                 return primary
-            fallback = self.vnstock.enrich(ticker, force=force)
-            fallback["fallback_from"] = "fireant,dnse" if fireant_message else "dnse"
-            fallback["fireant_message"] = fireant_message
-            fallback["dnse_message"] = primary.get("message")
-            fallback.setdefault("source", "vnstock")
-            return fallback
-        result = self.vnstock.enrich(ticker, force=force)
+            dnse_message = primary.get("message")
+
+        if self.fireant is None and self.dnse is None:
+            message = "No market-data provider is configured (set DNSE or FireAnt keys)"
+        else:
+            message = "; ".join(
+                f"{name}: {text}"
+                for name, text in (("fireant", fireant_message), ("dnse", dnse_message))
+                if text
+            ) or "Market data is unavailable"
+        result: dict[str, Any] = {
+            "status": "unavailable",
+            "ticker": ticker,
+            "history": [],
+            "metrics": {},
+            "message": message,
+        }
         if fireant_message:
-            result["fallback_from"] = "fireant"
             result["fireant_message"] = fireant_message
-        result.setdefault("source", "vnstock")
+        if dnse_message:
+            result["dnse_message"] = dnse_message
         return result
 
 
@@ -899,150 +734,6 @@ def _find_number(payload: Any, keys: tuple[str, ...]) -> float | None:
     return None
 
 
-@contextmanager
-def quiet_output() -> Any:
-    sink = StringIO()
-    with redirect_stdout(sink), redirect_stderr(sink):
-        yield
-
-
-def _records_from_dataframe_like(value: Any) -> list[dict[str, Any]]:
-    if value is None:
-        return []
-    if hasattr(value, "to_dict"):
-        records = value.to_dict(orient="records")
-    elif isinstance(value, list):
-        records = value
-    else:
-        return []
-    return [_json_ready(row) for row in records]
-
-
-def _json_ready(row: dict[str, Any]) -> dict[str, Any]:
-    cleaned: dict[str, Any] = {}
-    for key, value in row.items():
-        if hasattr(value, "isoformat"):
-            cleaned[str(key)] = value.isoformat()
-        elif value != value:
-            cleaned[str(key)] = None
-        else:
-            cleaned[str(key)] = value
-    return cleaned
-
-
-_SYMBOL_COLUMN_CANDIDATES = ("symbol", "ticker", "Symbol", "Ticker", "code", "stock_symbol")
-_INDUSTRY_COLUMN_CANDIDATES = (
-    "industry_name",
-    "icb_name2",
-    "icb_name3",
-    "icb_name4",
-    "icb_name1",
-    "icb_name",
-    "industry",
-    "industryName",
-    "sector",
-    "en_icb_name",
-    "en_icb_name2",
-)
-# vnstock returns one row per ICB level (1-4). Level 2 is the readable sector
-# tier ("Bất động sản", "Tài nguyên Cơ bản"); prefer it, then the nearest level.
-_ICB_LEVEL_PREFERENCE = (2, 3, 1, 4)
-
-
-def fetch_industry_map() -> dict[str, str]:
-    """Best-effort symbol -> ICB industry map from vnstock's listing API.
-
-    Returns an empty dict when vnstock is unavailable or its listing API
-    differs, so callers can treat sector auto-fill as purely additive.
-    """
-    listing = _resolve_vnstock_listing()
-    if listing is None:
-        return {}
-    for method_name in ("symbols_by_industries", "industries_icb"):
-        method = getattr(listing, method_name, None)
-        if method is None:
-            continue
-        try:
-            data = method()
-        except BaseException:
-            continue
-        mapping = _industry_map_from_records(_records_from_dataframe_like(data))
-        if mapping:
-            return mapping
-    return {}
-
-
-def _resolve_vnstock_listing() -> Any:
-    try:
-        listing_module = import_module("vnstock.api.listing")
-        listing_class = getattr(listing_module, "Listing", None)
-        if listing_class is not None:
-            try:
-                return listing_class(source="VCI")
-            except BaseException:
-                return listing_class()
-    except BaseException:
-        pass
-    try:
-        module = import_module("vnstock")
-        listing_class = getattr(module, "Listing", None)
-        if listing_class is not None:
-            try:
-                return listing_class(source="VCI")
-            except BaseException:
-                return listing_class()
-        if hasattr(module, "Vnstock"):
-            return module.Vnstock().stock(symbol="ACB", source="VCI").listing
-    except BaseException:
-        pass
-    return None
-
-
-def _industry_map_from_records(records: list[dict[str, Any]]) -> dict[str, str]:
-    if not records:
-        return {}
-    columns: set[str] = set()
-    for row in records[:100]:
-        if isinstance(row, dict):
-            columns.update(row.keys())
-    symbol_col = _first_present(columns, _SYMBOL_COLUMN_CANDIDATES)
-    industry_col = _first_present(columns, _INDUSTRY_COLUMN_CANDIDATES)
-    if not symbol_col or not industry_col:
-        return {}
-
-    # Some listing schemas emit one row per ICB level; keep a single level so
-    # each symbol maps to one readable sector instead of the deepest leaf.
-    level_col = "icb_level" if "icb_level" in columns else None
-    target_level = None
-    if level_col:
-        # Normalize levels to int so string values like "2" still match.
-        levels = {
-            _coerce_level(row.get(level_col)) for row in records if isinstance(row, dict)
-        }
-        target_level = next(
-            (level for level in _ICB_LEVEL_PREFERENCE if level in levels), None
-        )
-
-    mapping: dict[str, str] = {}
-    for row in records:
-        if not isinstance(row, dict):
-            continue
-        if target_level is not None and _coerce_level(row.get(level_col)) != target_level:
-            continue
-        symbol = str(row.get(symbol_col) or "").strip().upper()
-        industry = str(row.get(industry_col) or "").strip()
-        if symbol and industry and 1 <= len(symbol) <= 12:
-            mapping[symbol] = industry
-    return mapping
-
-
-def _coerce_level(value: Any) -> int | None:
-    try:
-        return int(float(str(value).strip()))
-    except (TypeError, ValueError):
-        return None
-
-
 def average_daily_value(history: list[dict[str, Any]] | None, sessions: int = 20) -> float | None:
     """Average daily traded value in VND over the last `sessions` bars.
 
@@ -1061,148 +752,3 @@ def average_daily_value(history: list[dict[str, Any]] | None, sessions: int = 20
     if not values:
         return None
     return sum(values) / len(values)
-
-
-def foreign_flow(tickers: list[str] | tuple[str, ...]) -> dict[str, dict[str, Any]]:
-    """Current-session foreign buy/sell/net (VND) per ticker from vnstock's
-    price board. One call covers many symbols. Returns {} when unavailable."""
-    symbols = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
-    if not symbols:
-        return {}
-    board = _vnstock_price_board(symbols)
-    if board is None:
-        return {}
-    try:
-        # price_board has MultiIndex columns like ("match", "foreign_buy_value");
-        # map by the leaf name so we tolerate group/layout changes.
-        leaf = {}
-        for col in board.columns:
-            name = col[-1] if isinstance(col, tuple) else col
-            leaf[name] = col
-        sym_col = leaf.get("symbol")
-        buy_col = leaf.get("foreign_buy_value")
-        sell_col = leaf.get("foreign_sell_value")
-        if sym_col is None or buy_col is None or sell_col is None:
-            return {}
-        buy_vol_col = leaf.get("foreign_buy_volume")
-        sell_vol_col = leaf.get("foreign_sell_volume")
-        result: dict[str, dict[str, Any]] = {}
-        for _, row in board.iterrows():
-            symbol = str(row.get(sym_col) or "").strip().upper()
-            if not symbol:
-                continue
-            buy = coerce_float(row.get(buy_col)) or 0.0
-            sell = coerce_float(row.get(sell_col)) or 0.0
-            result[symbol] = {
-                "buy_value": buy,
-                "sell_value": sell,
-                "net_value": buy - sell,
-                "buy_volume": coerce_float(row.get(buy_vol_col)) if buy_vol_col else None,
-                "sell_volume": coerce_float(row.get(sell_vol_col)) if sell_vol_col else None,
-            }
-        return result
-    except BaseException:
-        return {}
-
-
-def _vnstock_price_board(symbols: list[str]) -> Any:
-    try:
-        module = import_module("vnstock")
-    except BaseException:
-        return None
-    trading_class = getattr(module, "Trading", None)
-    if trading_class is None:
-        return None
-    for source in ("VCI", "KBS"):
-        try:
-            board = trading_class(symbol=symbols[0], source=source).price_board(symbols)
-            if board is not None and len(board):
-                return board
-        except BaseException:
-            continue
-    return None
-
-
-def _first_present(columns: set[str], candidates: tuple[str, ...]) -> str | None:
-    for candidate in candidates:
-        if candidate in columns:
-            return candidate
-    return None
-
-
-def fetch_dividend_events(ticker: str) -> list[dict[str, Any]]:
-    """Best-effort dividend / ex-rights events for one ticker from vnstock.
-
-    Returns [] when vnstock is unavailable, so callers treat this as an
-    additive supplement to manually entered dividend events.
-    """
-    symbol = str(ticker or "").strip().upper()
-    if not symbol:
-        return []
-    company = _resolve_vnstock_company(symbol)
-    if company is None:
-        return []
-    events_fn = getattr(company, "events", None)
-    if events_fn is None:
-        return []
-    try:
-        data = events_fn()
-    except BaseException:
-        return []
-    return _vnstock_dividend_events(symbol, _records_from_dataframe_like(data))
-
-
-def _resolve_vnstock_company(ticker: str) -> Any:
-    for module_name in ("vnstock", "vnstock.api.company"):
-        try:
-            module = import_module(module_name)
-        except BaseException:
-            continue
-        company_class = getattr(module, "Company", None)
-        if company_class is None:
-            continue
-        for source in ("VCI", "KBS"):
-            try:
-                return company_class(symbol=ticker, source=source)
-            except BaseException:
-                continue
-    return None
-
-
-def _vnstock_dividend_events(ticker: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for row in records:
-        if not isinstance(row, dict):
-            continue
-        if str(row.get("category") or "").strip().upper() != "DIVIDEND":
-            continue
-        # exright_date is the ex-rights / ex-dividend trading date (GDKHQ).
-        ex_date = _iso_date(row.get("exright_date"))
-        if not ex_date:
-            continue
-        title = str(row.get("event_title_vi") or row.get("event_name_vi") or "").strip()
-        folded = _ascii_fold(title)
-        cash = coerce_float(row.get("value_per_share"))
-        ratio = coerce_float(row.get("exercise_ratio"))
-        cash_amount = None
-        stock_ratio_pct = None
-        if "tien mat" in folded and cash and cash > 0:
-            # Prices are stored in thousands of VND; align the cash dividend.
-            cash_amount = cash / 1000
-        elif ("co phieu" in folded or "thuong" in folded) and ratio and 0 < ratio < 5:
-            stock_ratio_pct = ratio * 100
-        event_id = str(row.get("id") or f"{ex_date}:{title}")
-        events.append(
-            {
-                "ticker": ticker,
-                "ex_date": ex_date,
-                "cash_amount": cash_amount,
-                "stock_ratio_pct": stock_ratio_pct,
-                "issue_ratio_pct": None,
-                "issue_price": None,
-                "note": f"VNStock: {title}" if title else "VNStock dividend",
-                "source": "vnstock",
-                "external_id": f"{ticker}:{event_id}",
-            }
-        )
-    return events

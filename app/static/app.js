@@ -73,8 +73,6 @@ const els = {
   sectorPageStatus: document.querySelector("#sectorPageStatus"),
   sectorPreviousPage: document.querySelector("#sectorPreviousPage"),
   sectorNextPage: document.querySelector("#sectorNextPage"),
-  refreshSectorsButton: document.querySelector("#refreshSectorsButton"),
-  sectorRefreshStatus: document.querySelector("#sectorRefreshStatus"),
   refreshDividendsButton: document.querySelector("#refreshDividendsButton"),
   dividendRefreshStatus: document.querySelector("#dividendRefreshStatus"),
   performanceTickerFilter: document.querySelector("#performanceTickerFilter"),
@@ -253,10 +251,6 @@ Object.assign(translations.en, {
   sectorTickerPlaceholder: "Ticker",
   sectorNamePlaceholder: "Sector",
   addSector: "Save sector",
-  refreshSectors: "Auto-fill sectors",
-  sectorRefreshing: "Fetching sectors…",
-  sectorRefreshDone: "Updated",
-  sectorRefreshError: "Could not fetch sectors",
   auditLogEyebrow: "Audit",
   auditLogTitle: "Admin activity log",
   noAuditEvents: "No recorded activity yet",
@@ -282,9 +276,6 @@ Object.assign(translations.en, {
   liquidityPctOfAdtv: "Position / ADTV",
   liquidityExitDays: "Days to exit",
   liquidityWarn: "Large vs liquidity — hard to exit",
-  foreignNet: "Foreign net",
-  foreignSellAlert: "Foreign net selling",
-  foreign5dShort: "5d",
   pruneDividendEventsConfirm: "Delete dividend events that are not tied to an open position with entry before ex-date?",
   pruneDividendEventsDone: "Dividend calendar cleaned: removed {removed}, kept {kept}.",
   pruneDividendEventsFailed: "Could not clean dividend calendar",
@@ -338,10 +329,6 @@ Object.assign(translations.vi, {
   sectorTickerPlaceholder: "Mã",
   sectorNamePlaceholder: "Ngành",
   addSector: "Lưu ngành",
-  refreshSectors: "Tự động điền ngành",
-  sectorRefreshing: "Đang lấy ngành…",
-  sectorRefreshDone: "Đã cập nhật",
-  sectorRefreshError: "Không lấy được dữ liệu ngành",
   auditLogEyebrow: "Kiểm toán",
   auditLogTitle: "Nhật ký thao tác quản trị",
   noAuditEvents: "Chưa có thao tác nào được ghi lại",
@@ -366,9 +353,6 @@ Object.assign(translations.vi, {
   liquidityPctOfAdtv: "Vị thế / GTGD",
   liquidityExitDays: "Số ngày để thoát",
   liquidityWarn: "Quá lớn so với thanh khoản — khó thoát",
-  foreignNet: "NN ròng",
-  foreignSellAlert: "Khối ngoại bán ròng",
-  foreign5dShort: "5p",
   sectorMappingTitle: "Ngành của mã",
   sectorMappingEyebrow: "Ngành",
   portfolioMetricsEyebrow: "Theo tỷ trọng phân bổ",
@@ -1095,7 +1079,6 @@ const state = {
   performanceClosedTrades: [],
   benchmarkSeries: [],
   liquidity: {},
-  foreignFlow: {},
   sectorMap: {},
   sectorNames: [],
   sectorPage: 1,
@@ -1103,7 +1086,6 @@ const state = {
   signalMonitor: null,
   refreshInFlight: false,
   lastDividendLoadAt: 0,
-  lastForeignFlowLoadAt: 0,
   storageStatus: null,
 };
 
@@ -3291,10 +3273,6 @@ async function refresh(options = {}) {
   renderUserAttention();
   renderRiskOverview();
   renderRiskAlerts();
-  if (fullRefresh || now - state.lastForeignFlowLoadAt >= 180000) {
-    loadForeignFlow();
-    state.lastForeignFlowLoadAt = now;
-  }
   renderKellyEntries();
   state.derivatives = derivativePayload;
   renderDerivatives(derivativePayload);
@@ -4253,32 +4231,7 @@ async function submitSectorMapping(event) {
   await refresh();
 }
 
-async function refreshSectorsFromListing() {
-  if (!els.refreshSectorsButton) return;
-  els.refreshSectorsButton.disabled = true;
-  if (els.sectorRefreshStatus) els.sectorRefreshStatus.textContent = t("sectorRefreshing");
-  try {
-    const response = await fetch("/api/sectors/refresh", { method: "POST" });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      showToast(data.detail || t("sectorRefreshError"));
-      return;
-    }
-    if (els.sectorRefreshStatus) {
-      const added = data.added ?? 0;
-      const updated = data.updated ?? 0;
-      els.sectorRefreshStatus.textContent = `${t("sectorRefreshDone")}: +${added} · ~${updated} / ${data.fetched ?? 0}`;
-    }
-    await refresh();
-  } catch (error) {
-    console.error("Sector refresh failed", error);
-    showToast(t("sectorRefreshError"));
-  } finally {
-    els.refreshSectorsButton.disabled = false;
-  }
-}
-
-async function refreshDividendsFromVnstock() {
+async function refreshDividendEvents() {
   if (!els.refreshDividendsButton) return;
   els.refreshDividendsButton.disabled = true;
   if (els.dividendRefreshStatus) els.dividendRefreshStatus.textContent = t("dividendRefreshing");
@@ -4796,21 +4749,6 @@ function renderRiskAlerts() {
   }
 
   const openTickerSet = new Set(rows.map((row) => String(row.trade.ticker || "").toUpperCase()));
-  Object.entries(state.foreignFlow || {})
-    .filter(([ticker, flow]) =>
-      openTickerSet.has(ticker) && Number(flow?.net_value) <= -FOREIGN_NET_ALERT_VND
-    )
-    .sort((left, right) => Number(left[1].net_value) - Number(right[1].net_value))
-    .slice(0, 5)
-    .forEach(([ticker, flow]) => {
-      alerts.push({
-        level: "warning",
-        title: t("foreignSellAlert"),
-        detail: `${ticker} ${(Number(flow.net_value) / 1e9).toFixed(1)} ${t("billionUnit")}`,
-        ticker,
-      });
-    });
-
   if (state.signalMonitor?.stale) {
     alerts.push({
       level: "danger",
@@ -5136,7 +5074,7 @@ function renderOpenPositions() {
   const openTrades = sortOpenPositions(filterOpenPositions(state.openTrades));
   renderOpenPositionsTotalReturn(openTrades);
   if (!openTrades.length) {
-    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="15">${t("noOpenPositions")}</td></tr>`;
+    els.openPositionsTable.innerHTML = `<tr><td class="empty" colspan="14">${t("noOpenPositions")}</td></tr>`;
     els.openPositionCards.innerHTML = `<div class="empty">${t("noOpenPositions")}</div>`;
     return;
   }
@@ -5161,7 +5099,6 @@ function renderOpenPositions() {
         <td>${formatKellyPercent(weightPct)}</td>
         <td>${formatSignedPercent(allocatedPl)}</td>
         <td>${renderConfirmations(signals)}</td>
-        <td>${foreignNetCell(trade.ticker)}</td>
         <td>${renderDividendNotes(trade.dividend_notes || [])}</td>
         <td>${formatHoldingDaysBetween(trade.entry_time)}</td>
         <td>${formatDate(trade.entry_time)}</td>
@@ -5815,18 +5752,6 @@ async function ensureBenchmarkLoaded() {
       state.performanceClosedTrades.length ? state.performanceClosedTrades : state.closedTrades
     );
   }
-}
-
-async function loadForeignFlow() {
-  try {
-    const data = await fetchJson("/api/foreign-flow");
-    state.foreignFlow = data.foreign_flow || {};
-  } catch (error) {
-    state.foreignFlow = {};
-    return;
-  }
-  renderOpenPositions();
-  renderRiskAlerts();
 }
 
 function drawManualEquityCurve(curve) {
@@ -6649,19 +6574,6 @@ function formatSignedBillions(value) {
   return `<span class="${className}">${sign}${(number / 1e9).toFixed(1)} ${t("billionUnit")}</span>`;
 }
 
-function foreignNetCell(ticker) {
-  const flow = state.foreignFlow[String(ticker || "").trim().toUpperCase()];
-  if (!flow || !Number.isFinite(Number(flow.net_value))) return "-";
-  const today = formatSignedBillions(Number(flow.net_value));
-  const fiveDay = Number(flow.net_5d);
-  if (Number.isFinite(fiveDay)) {
-    const sign = fiveDay > 0 ? "+" : "";
-    const cls = fiveDay >= 0 ? "positive" : "negative";
-    return `${today}<br><small class="${cls}">${escapeHtml(t("foreign5dShort"))} ${sign}${(fiveDay / 1e9).toFixed(1)}</small>`;
-  }
-  return today;
-}
-
 function compactVnd(value) {
   return Number(value).toLocaleString(NUMBER_FORMAT_LOCALE, {
     notation: "compact",
@@ -6846,9 +6758,6 @@ els.derivativeCapitalForm.addEventListener("submit", saveDerivativeCapital);
 if (els.sectorForm) {
   els.sectorForm.addEventListener("submit", submitSectorMapping);
 }
-if (els.refreshSectorsButton) {
-  els.refreshSectorsButton.addEventListener("click", refreshSectorsFromListing);
-}
 if (els.sectorSearch) {
   els.sectorSearch.addEventListener("input", () => {
     state.sectorPage = 1;
@@ -6877,7 +6786,7 @@ if (els.databaseBackupButton) {
   els.databaseBackupButton.addEventListener("click", createDatabaseBackup);
 }
 if (els.refreshDividendsButton) {
-  els.refreshDividendsButton.addEventListener("click", refreshDividendsFromVnstock);
+  els.refreshDividendsButton.addEventListener("click", refreshDividendEvents);
 }
 if (els.pruneDividendEvents) {
   els.pruneDividendEvents.addEventListener("click", pruneDividendEvents);
