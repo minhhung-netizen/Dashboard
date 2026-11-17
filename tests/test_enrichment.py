@@ -406,3 +406,23 @@ class VnstockDividendEventsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VnstockMissingTest(unittest.TestCase):
+    def test_enrich_reports_unavailable_without_vnstock(self):
+        import sys
+        from unittest import mock
+
+        from app.services import enrichment as mod
+
+        with mock.patch.object(mod, "vnstock_installed", return_value=False):
+            result = mod.VnstockEnricher(min_request_interval_seconds=0).enrich("VPB")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["history"], [])
+        self.assertIn("not installed", result["message"])
+        self.assertNotIn("pandas", sys.modules)
+
+    def test_vnstock_installed_is_a_bool(self):
+        from app.services.enrichment import vnstock_installed
+
+        self.assertIsInstance(vnstock_installed(), bool)
