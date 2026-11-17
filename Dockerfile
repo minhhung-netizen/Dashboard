@@ -20,6 +20,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 2) Application code — changes here do NOT bust the deps layer above.
 COPY . .
 
-# Railway injects $PORT. railway.json deploy.startCommand takes precedence,
-# but this keeps the image runnable on its own too.
+# Railway injects $PORT. This CMD is the start command (railway.json was removed:
+# Railway stops reading Config as Code on 2026-12-01).
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
