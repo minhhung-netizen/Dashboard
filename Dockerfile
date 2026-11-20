@@ -1,4 +1,4 @@
-# Layered build so the heavy dependency install (vnstock -> pandas/numpy)
+# Layered build so the dependency install
 # is cached and only re-runs when requirements.txt changes. Frontend-only
 # commits (app/static/*) reuse the cached deps layer and deploy fast.
 

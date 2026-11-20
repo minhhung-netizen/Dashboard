@@ -4,17 +4,12 @@ from app.services.enrichment import (
     DnseRestClient,
     FireAntEnricher,
     MarketDataEnricher,
-    VnstockEnricher,
     _dnse_ohlc_records,
-    _industry_map_from_records,
     _normalize_dnse_stock_history,
     _fireant_dividend_events,
     _normalize_fireant_history,
-    _vnstock_dividend_events,
     average_daily_value,
     coerce_float,
-    fetch_dividend_events,
-    fetch_industry_map,
     normalize_action,
     normalize_stock_price,
     normalize_ticker,
@@ -65,66 +60,6 @@ class EnrichmentHelpersTest(unittest.TestCase):
             1876.75,
         )
         self.assertEqual(normalize_stock_price("1876", exchange="VNINDEX"), 1876)
-
-    def test_enricher_handles_non_exception_vnstock_failures(self):
-        class ExplodingEnricher(VnstockEnricher):
-            def _enrich_with_vnstock(self, ticker):
-                raise SystemExit("vnstock exited")
-
-        result = ExplodingEnricher().enrich("VPB")
-
-        self.assertEqual(result["status"], "unavailable")
-        self.assertEqual(result["ticker"], "VPB")
-        self.assertEqual(result["history"], [])
-        self.assertEqual(result["metrics"], {})
-
-    def test_enricher_caches_by_ticker(self):
-        class CountingEnricher(VnstockEnricher):
-            def __init__(self):
-                super().__init__(cache_ttl_seconds=60, min_request_interval_seconds=0)
-                self.calls = 0
-
-            def _enrich_with_vnstock(self, ticker):
-                self.calls += 1
-                return {
-                    "status": "ok",
-                    "ticker": ticker,
-                    "history": [{"close": 10}],
-                    "metrics": {},
-                }
-
-        enricher = CountingEnricher()
-
-        first = enricher.enrich("VPB")
-        second = enricher.enrich("VPB")
-        first["history"][0]["close"] = 99
-
-        self.assertEqual(enricher.calls, 1)
-        self.assertEqual(second["history"][0]["close"], 10)
-
-    def test_enricher_force_bypasses_cache(self):
-        class CountingEnricher(VnstockEnricher):
-            def __init__(self):
-                super().__init__(cache_ttl_seconds=60, min_request_interval_seconds=0)
-                self.calls = 0
-
-            def _enrich_with_vnstock(self, ticker):
-                self.calls += 1
-                return {
-                    "status": "ok",
-                    "ticker": ticker,
-                    "history": [{"close": self.calls}],
-                    "metrics": {},
-                }
-
-        enricher = CountingEnricher()
-
-        first = enricher.enrich("VPB")
-        second = enricher.enrich("VPB", force=True)
-
-        self.assertEqual(enricher.calls, 2)
-        self.assertEqual(first["history"][0]["close"], 1)
-        self.assertEqual(second["history"][0]["close"], 2)
 
     def test_dnse_ohlc_records_supports_tradingview_array_shape(self):
         records = _dnse_ohlc_records(
@@ -253,31 +188,34 @@ class EnrichmentHelpersTest(unittest.TestCase):
         result = MarketDataEnricher(
             fireant=FireAntStub(),
             dnse=DnseStub(),
-            vnstock=None,
         ).enrich("FPT")
 
         self.assertEqual(result["source"], "fireant")
         self.assertEqual(result["latest_price_source"], "dnse")
         self.assertEqual(result["history"][-1]["close"], 11)
 
-    def test_market_data_enricher_falls_back_to_vnstock(self):
+    def test_market_data_enricher_reports_dnse_failure_as_unavailable(self):
         class Stub:
-            def __init__(self, result):
-                self.result = result
-
             def enrich(self, ticker, force=False):
-                return dict(self.result)
+                return {"status": "unavailable", "message": "DNSE down", "history": []}
 
-        enricher = MarketDataEnricher(
-            dnse=Stub({"status": "unavailable", "message": "DNSE down", "history": []}),
-            vnstock=Stub({"status": "ok", "history": [{"close": 20}], "metrics": {}}),
-        )
+        result = MarketDataEnricher(dnse=Stub()).enrich("VPB")
 
-        result = enricher.enrich("VPB")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["ticker"], "VPB")
+        self.assertEqual(result["history"], [])
+        self.assertEqual(result["metrics"], {})
+        self.assertEqual(result["dnse_message"], "DNSE down")
+        self.assertIn("DNSE down", result["message"])
 
-        self.assertEqual(result["source"], "vnstock")
-        self.assertEqual(result["fallback_from"], "dnse")
-        self.assertEqual(result["history"][-1]["close"], 20)
+    def test_market_data_enricher_without_providers_is_unavailable(self):
+        result = MarketDataEnricher().enrich("VPB")
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["ticker"], "VPB")
+        self.assertEqual(result["history"], [])
+        self.assertEqual(result["metrics"], {})
+        self.assertIn("No market-data provider", result["message"])
 
     def test_dnse_rest_client_builds_signed_headers_without_exposing_secret(self):
         client = DnseRestClient(
@@ -293,30 +231,6 @@ class EnrichmentHelpersTest(unittest.TestCase):
         self.assertEqual(headers["version"], "2026-05-07")
         self.assertIn('algorithm="hmac-sha256"', headers["X-Signature"])
         self.assertNotIn("private-secret", str(headers))
-
-
-class IndustryMapTest(unittest.TestCase):
-    def test_parses_symbol_and_industry_columns(self):
-        records = [
-            {"symbol": "vcb", "icb_name2": "Ngân hàng", "icb_name3": "Ngân hàng"},
-            {"symbol": "FPT", "icb_name2": "Công nghệ"},
-            {"symbol": "", "icb_name2": "Bỏ qua"},
-            {"symbol": "GAS", "icb_name2": ""},
-        ]
-        mapping = _industry_map_from_records(records)
-        self.assertEqual(mapping, {"VCB": "Ngân hàng", "FPT": "Công nghệ"})
-
-    def test_returns_empty_when_columns_missing(self):
-        self.assertEqual(_industry_map_from_records([{"foo": "bar"}]), {})
-        self.assertEqual(_industry_map_from_records([]), {})
-
-    def test_icb_level_as_string_still_selects_level_two(self):
-        records = [
-            {"symbol": "FPT", "icb_name": "Broad", "icb_level": "1"},
-            {"symbol": "FPT", "icb_name": "Công nghệ Thông tin", "icb_level": "2"},
-            {"symbol": "FPT", "icb_name": "Deep", "icb_level": "3"},
-        ]
-        self.assertEqual(_industry_map_from_records(records), {"FPT": "Công nghệ Thông tin"})
 
 
 class CoerceFloatTest(unittest.TestCase):
@@ -351,78 +265,5 @@ class AverageDailyValueTest(unittest.TestCase):
         self.assertAlmostEqual(average_daily_value(history, sessions=2), 40e9)
         self.assertIsNone(average_daily_value([]))
 
-    def test_fetch_industry_map_is_safe_without_vnstock(self):
-        # vnstock is optional; the fetch must degrade to an empty map, never raise.
-        self.assertIsInstance(fetch_industry_map(), dict)
-
-
-class VnstockDividendEventsTest(unittest.TestCase):
-    def test_maps_cash_and_stock_dividends_with_unit_alignment(self):
-        records = [
-            {
-                "id": "evt-cash",
-                "category": "DIVIDEND",
-                "event_title_vi": "Trả cổ tức bằng tiền mặt - Cả năm 2025 - 500 VND",
-                "exright_date": "2026-05-15",
-                "value_per_share": 500.0,
-                "exercise_ratio": 0.05,
-            },
-            {
-                "id": "evt-stock",
-                "category": "DIVIDEND",
-                "event_title_vi": "Phát hành cổ phiếu - Cổ phiếu thưởng tỉ lệ 15.0%",
-                "exright_date": "2026-06-20",
-                "value_per_share": None,
-                "exercise_ratio": 0.15,
-            },
-            {
-                "id": "evt-other",
-                "category": "MAJOR_SHAREHOLDER_TRADING",
-                "event_title_vi": "Giao dịch nội bộ",
-                "exright_date": "2026-06-21",
-            },
-            {
-                "id": "evt-no-date",
-                "category": "DIVIDEND",
-                "event_title_vi": "Cổ tức chưa có ngày",
-                "exright_date": None,
-            },
-        ]
-        events = _vnstock_dividend_events("VPB", records)
-        self.assertEqual(len(events), 2)
-        cash = events[0]
-        self.assertEqual(cash["ex_date"], "2026-05-15")
-        self.assertAlmostEqual(cash["cash_amount"], 0.5)  # 500 VND -> thousands
-        self.assertIsNone(cash["stock_ratio_pct"])
-        self.assertEqual(cash["source"], "vnstock")
-        self.assertEqual(cash["external_id"], "VPB:evt-cash")
-        stock = events[1]
-        self.assertAlmostEqual(stock["stock_ratio_pct"], 15.0)
-        self.assertIsNone(stock["cash_amount"])
-
-    def test_fetch_dividend_events_is_safe_without_vnstock(self):
-        self.assertIsInstance(fetch_dividend_events("VPB"), list)
-
-
 if __name__ == "__main__":
     unittest.main()
-
-
-class VnstockMissingTest(unittest.TestCase):
-    def test_enrich_reports_unavailable_without_vnstock(self):
-        import sys
-        from unittest import mock
-
-        from app.services import enrichment as mod
-
-        with mock.patch.object(mod, "vnstock_installed", return_value=False):
-            result = mod.VnstockEnricher(min_request_interval_seconds=0).enrich("VPB")
-        self.assertEqual(result["status"], "unavailable")
-        self.assertEqual(result["history"], [])
-        self.assertIn("not installed", result["message"])
-        self.assertNotIn("pandas", sys.modules)
-
-    def test_vnstock_installed_is_a_bool(self):
-        from app.services.enrichment import vnstock_installed
-
-        self.assertIsInstance(vnstock_installed(), bool)

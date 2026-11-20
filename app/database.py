@@ -471,7 +471,7 @@ class SignalStore:
         }
         if "source" not in columns:
             # Existing rows predate the source column; treat them as 'auto' so a
-            # vnstock refresh can replace their labels with consistent ICB names.
+            # later automatic refresh could replace their labels.
             conn.execute(
                 "ALTER TABLE sector_mappings ADD COLUMN source TEXT NOT NULL DEFAULT 'auto'"
             )
@@ -1584,48 +1584,6 @@ class SignalStore:
             )
             return cursor.rowcount > 0
 
-    def apply_auto_sector_mappings(self, mapping: dict[str, str]) -> dict[str, int]:
-        """Apply an automatic ticker->sector map from a data provider.
-
-        Overwrites seeded and previously auto-filled rows so labels stay
-        consistent, but never touches rows an admin set manually. Returns the
-        number of newly added and updated tickers.
-        """
-        rows = []
-        for ticker, sector in (mapping or {}).items():
-            normalized_ticker = str(ticker or "").strip().upper()
-            normalized_sector = str(sector or "").strip()
-            if normalized_ticker and normalized_sector:
-                rows.append((normalized_ticker, normalized_sector))
-        if not rows:
-            return {"added": 0, "updated": 0}
-        now = utc_now_iso()
-        with self.connect() as conn:
-            manual = {
-                row["ticker"]
-                for row in conn.execute(
-                    "SELECT ticker FROM sector_mappings WHERE source = 'manual'"
-                ).fetchall()
-            }
-            before = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()["total"]
-            to_apply = [
-                (ticker, sector, now) for ticker, sector in rows if ticker not in manual
-            ]
-            conn.executemany(
-                """
-                INSERT INTO sector_mappings (ticker, sector, source, updated_at)
-                VALUES (?, ?, 'auto', ?)
-                ON CONFLICT(ticker) DO UPDATE SET
-                    sector = excluded.sector,
-                    source = 'auto',
-                    updated_at = excluded.updated_at
-                """,
-                to_apply,
-            )
-            after = conn.execute("SELECT COUNT(*) AS total FROM sector_mappings").fetchone()["total"]
-        added = after - before
-        return {"added": added, "updated": len(to_apply) - added}
-
     def latest_signal_received_at(self) -> str | None:
         with self.connect() as conn:
             row = conn.execute("SELECT MAX(received_at) AS latest FROM signals").fetchone()
@@ -1670,68 +1628,6 @@ class SignalStore:
                 (max(1, min(limit, 500)),),
             ).fetchall()
         return [dict(row) for row in rows]
-
-    def record_foreign_flow_daily(
-        self, data: dict[str, dict[str, Any]], trade_date: str
-    ) -> int:
-        rows = []
-        for ticker, info in (data or {}).items():
-            normalized = str(ticker or "").strip().upper()
-            if not normalized or not isinstance(info, dict):
-                continue
-            rows.append(
-                (
-                    normalized,
-                    trade_date,
-                    info.get("buy_value"),
-                    info.get("sell_value"),
-                    info.get("net_value"),
-                    utc_now_iso(),
-                )
-            )
-        if not rows:
-            return 0
-        with self.connect() as conn:
-            conn.executemany(
-                """
-                INSERT INTO foreign_flow_daily (
-                    ticker, trade_date, buy_value, sell_value, net_value, recorded_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(ticker, trade_date) DO UPDATE SET
-                    buy_value = excluded.buy_value,
-                    sell_value = excluded.sell_value,
-                    net_value = excluded.net_value,
-                    recorded_at = excluded.recorded_at
-                """,
-                rows,
-            )
-        return len(rows)
-
-    def foreign_flow_history(
-        self, tickers: list[str] | tuple[str, ...], days: int = 5
-    ) -> dict[str, list[float]]:
-        symbols = [str(t or "").strip().upper() for t in (tickers or []) if str(t or "").strip()]
-        if not symbols:
-            return {}
-        limit = max(1, days)
-        result: dict[str, list[float]] = {symbol: [] for symbol in symbols}
-        placeholders = ", ".join("?" for _ in symbols)
-        with self.connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT ticker, net_value
-                FROM foreign_flow_daily
-                WHERE ticker IN ({placeholders})
-                ORDER BY ticker ASC, trade_date DESC
-                """,
-                symbols,
-            ).fetchall()
-        for row in rows:
-            bucket = result.get(row["ticker"])
-            if bucket is not None and len(bucket) < limit and row["net_value"] is not None:
-                bucket.append(row["net_value"])
-        return result
 
     def insert_dca_plan(
         self,
@@ -2004,7 +1900,7 @@ class SignalStore:
                 # Cross-source de-dup: never create a second row for the same
                 # ticker + ex_date. This protects manual entries and prevents a
                 # dividend from being counted twice when it arrives from more
-                # than one provider (e.g. FireAnt and vnstock).
+                # than one provider (e.g. FireAnt and a manual entry).
                 duplicate = conn.execute(
                     """
                     SELECT id

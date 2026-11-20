@@ -24,12 +24,8 @@ from app.services.enrichment import (
     DnseEnricher,
     FireAntEnricher,
     MarketDataEnricher,
-    VnstockEnricher,
     average_daily_value,
     coerce_float,
-    fetch_dividend_events,
-    foreign_flow,
-    fetch_industry_map,
     normalize_stock_price,
     normalize_action,
     normalize_ticker,
@@ -90,12 +86,6 @@ else:
             else None,
         )
 logger = logging.getLogger(__name__)
-vnstock_enricher = VnstockEnricher(
-    lookback_days=settings.vnstock_lookback_days,
-    cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
-    min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
-    include_metrics=settings.vnstock_include_metrics,
-)
 dnse_enricher = None
 if settings.dnse_api_key and settings.dnse_api_secret:
     try:
@@ -104,19 +94,19 @@ if settings.dnse_api_key and settings.dnse_api_secret:
             api_secret=settings.dnse_api_secret,
             base_url=settings.dnse_base_url,
             api_version=settings.dnse_api_version,
-            lookback_days=settings.vnstock_lookback_days,
-            cache_ttl_seconds=settings.vnstock_cache_ttl_minutes * 60,
-            min_request_interval_seconds=settings.vnstock_min_request_interval_seconds,
+            lookback_days=settings.market_data_lookback_days,
+            cache_ttl_seconds=settings.market_data_cache_ttl_minutes * 60,
+            min_request_interval_seconds=settings.market_data_min_request_interval_seconds,
         )
     except BaseException:
-        logger.exception("Could not initialize DNSE market-data provider; using VNStock")
+        logger.exception("Could not initialize DNSE market-data provider")
 fireant_enricher = None
 if settings.fireant_access_token:
     try:
         fireant_enricher = FireAntEnricher(
             access_token=settings.fireant_access_token,
             base_url=settings.fireant_base_url,
-            lookback_days=settings.vnstock_lookback_days,
+            lookback_days=settings.market_data_lookback_days,
             cache_ttl_seconds=settings.fireant_cache_ttl_minutes * 60,
             min_request_interval_seconds=settings.fireant_min_request_interval_seconds,
         )
@@ -125,10 +115,8 @@ if settings.fireant_access_token:
 enricher = MarketDataEnricher(
     fireant=fireant_enricher,
     dnse=dnse_enricher,
-    vnstock=vnstock_enricher,
 )
 last_auto_manual_price_refresh_date: str | None = None
-last_foreign_flow_snapshot_date: str | None = None
 enrichment_queue: asyncio.Queue[tuple[int, str]] | None = None
 
 
@@ -151,7 +139,6 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(price_refresh_loop()),
         asyncio.create_task(manual_portfolio_automation_loop()),
         asyncio.create_task(signal_monitor_loop()),
-        asyncio.create_task(sector_autofill_loop()),
         asyncio.create_task(dividend_autofetch_loop()),
         asyncio.create_task(database_backup_loop()),
     ]
@@ -216,7 +203,6 @@ FEATURE_PATHS = {
     "positions": (
         "/api/performance",
         "/api/kelly-entries",
-        "/api/foreign-flow",
         "/api/sectors",
     ),
     "derivatives": ("/api/derivatives",),
@@ -751,7 +737,7 @@ def dashboard_settings() -> dict[str, Any]:
             if fireant_enricher is not None
             else "dnse"
             if dnse_enricher is not None
-            else "vnstock"
+            else "none"
         ),
         "signal_monitor": signal_monitor_status(),
         "storage": {
@@ -1109,55 +1095,6 @@ def performance(request: Request, ticker: str | None = None, strategy: str | Non
     return build_performance(signals, store.list_dividend_events())
 
 
-_foreign_flow_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
-_FOREIGN_FLOW_TTL_SECONDS = 180
-
-
-@app.get("/api/foreign-flow")
-async def foreign_flow_endpoint(
-    request: Request,
-    tickers: str | None = None,
-) -> dict[str, Any]:
-    """Current-session foreign net buy/sell per ticker (defaults to held tickers)."""
-    visible_tickers = visible_open_position_tickers(request.state.user)
-    if tickers:
-        requested = {
-            normalize_ticker(part)[0]
-            for part in tickers.split(",")
-            if part.strip()
-        }
-        symbols = sorted(
-            requested.intersection(visible_tickers)
-            if strategy_restricted(request.state.user)
-            else requested
-        )
-    else:
-        symbols = sorted(visible_tickers)
-    if not symbols:
-        return {"foreign_flow": {}}
-    key = tuple(symbols)
-    now = _time.monotonic()
-    cached = _foreign_flow_cache.get(key)
-    if cached and now - cached[0] < _FOREIGN_FLOW_TTL_SECONDS:
-        live = cached[1]
-    else:
-        live = await asyncio.to_thread(foreign_flow, symbols)
-        _foreign_flow_cache[key] = (now, live)
-    # Merge the stored multi-session trend (cheap, always fresh) onto the
-    # cached live snapshot.
-    history = store.foreign_flow_history(symbols, days=5)
-    merged: dict[str, Any] = {}
-    for symbol in symbols:
-        info = dict(live.get(symbol) or {})
-        nets = history.get(symbol) or []
-        if nets:
-            info["net_5d"] = sum(nets)
-            info["days_5d"] = len(nets)
-        if info:
-            merged[symbol] = info
-    return {"foreign_flow": merged}
-
-
 @app.get("/api/liquidity/{ticker}")
 async def liquidity(ticker: str, sessions: int = 20) -> dict[str, Any]:
     """Average daily traded value (VND) for a ticker, for position-size sanity checks."""
@@ -1320,12 +1257,6 @@ def upsert_sector_mapping(payload: SectorMappingPayload) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "saved", "sector": mapping}
-
-
-@app.post("/api/sectors/refresh")
-async def refresh_sectors() -> dict[str, Any]:
-    result = await asyncio.to_thread(populate_sectors_from_listing)
-    return {"status": "ok", **result}
 
 
 @app.delete("/api/sectors/{ticker}")
@@ -1883,33 +1814,11 @@ async def manual_portfolio_automation_loop() -> None:
         try:
             await refresh_manual_portfolio_prices_if_due(force=True)
             record_manual_daily_performance_if_due()
-            await record_foreign_flow_if_due()
         except asyncio.CancelledError:
             raise
         except BaseException:
             logger.exception("Manual portfolio automation failed")
         await asyncio.sleep(60)
-
-
-async def record_foreign_flow_if_due(recorded_at: str | None = None) -> None:
-    """After market close, snapshot the session's foreign net per held ticker
-    once per trading day so a multi-session trend can be built over time."""
-    global last_foreign_flow_snapshot_date
-    if not is_after_manual_price_refresh_time(recorded_at):
-        return
-    trade_date = market_date_iso(recorded_at)
-    if last_foreign_flow_snapshot_date == trade_date:
-        return
-    tickers = sorted(open_position_tickers())
-    if not tickers:
-        last_foreign_flow_snapshot_date = trade_date
-        return
-    data = await asyncio.to_thread(foreign_flow, tickers)
-    if not data:
-        return  # provider hiccup — retry on the next tick
-    await asyncio.to_thread(store.record_foreign_flow_daily, data, trade_date)
-    last_foreign_flow_snapshot_date = trade_date
-    logger.info("Foreign flow snapshot recorded for %s (%s tickers)", trade_date, len(data))
 
 
 def signal_monitor_status() -> dict[str, Any]:
@@ -1968,42 +1877,11 @@ async def signal_monitor_loop() -> None:
         await asyncio.sleep(interval_seconds)
 
 
-def populate_sectors_from_listing() -> dict[str, Any]:
-    """Fill missing ticker sectors from vnstock's full industry listing.
-
-    Additive only: seeded and admin-edited rows are preserved. No-ops cleanly
-    when vnstock is unavailable, leaving the built-in seed in place.
-    """
-    mapping = fetch_industry_map()
-    result = store.apply_auto_sector_mappings(mapping) if mapping else {"added": 0, "updated": 0}
-    store.set_app_setting("sectors_refreshed_at", utc_now_iso())
-    store.set_app_setting("sectors_source_count", str(len(mapping)))
-    logger.info(
-        "Sector auto-fill: %s symbols from vnstock listing, %s added, %s updated",
-        len(mapping),
-        result["added"],
-        result["updated"],
-    )
-    return {"fetched": len(mapping), **result}
-
-
-async def sector_autofill_loop() -> None:
-    await asyncio.sleep(5)
-    while True:
-        try:
-            await asyncio.to_thread(populate_sectors_from_listing)
-        except asyncio.CancelledError:
-            raise
-        except BaseException:
-            logger.exception("Sector auto-fill failed")
-        await asyncio.sleep(24 * 3600)
-
-
 async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
     """Pull ex-rights (GDKHQ) events for every held ticker.
 
     Additive: events are upserted by source+external_id, so this supplements
-    manual entries, VNStock events and FireAnt marks without creating duplicates.
+    manual entries and FireAnt marks without creating duplicates.
     """
     positions = open_stock_positions_for_dividends()
     tickers = sorted({
@@ -2029,13 +1907,6 @@ async def refresh_dividend_events_for_open_positions() -> dict[str, Any]:
 
 async def collect_dividend_events_for_ticker(ticker: str) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    try:
-        events.extend(await asyncio.to_thread(fetch_dividend_events, ticker))
-    except asyncio.CancelledError:
-        raise
-    except BaseException:
-        logger.exception("VNStock dividend fetch failed for %s", ticker)
-
     try:
         enrichment = await asyncio.to_thread(enricher.enrich, ticker)
     except asyncio.CancelledError:

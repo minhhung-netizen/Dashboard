@@ -23,10 +23,9 @@ class Settings:
     signal_monitor_interval_minutes: int = 5
     login_max_attempts: int = 8
     login_lockout_minutes: int = 15
-    vnstock_cache_ttl_minutes: int = 240
-    vnstock_min_request_interval_seconds: float = 4.0
-    vnstock_lookback_days: int = 90
-    vnstock_include_metrics: bool = False
+    market_data_cache_ttl_minutes: int = 240
+    market_data_min_request_interval_seconds: float = 4.0
+    market_data_lookback_days: int = 90
     dnse_api_key: str | None = None
     dnse_api_secret: str | None = None
     dnse_base_url: str = "https://openapi.dnse.com.vn"
@@ -75,12 +74,18 @@ def get_settings() -> Settings:
     signal_monitor_interval_minutes = int(os.getenv("SIGNAL_MONITOR_INTERVAL_MINUTES", "5"))
     login_max_attempts = int(os.getenv("LOGIN_MAX_ATTEMPTS", "8"))
     login_lockout_minutes = int(os.getenv("LOGIN_LOCKOUT_MINUTES", "15"))
-    vnstock_cache_ttl_minutes = int(os.getenv("VNSTOCK_CACHE_TTL_MINUTES", "240"))
-    vnstock_min_request_interval_seconds = float(
-        os.getenv("VNSTOCK_MIN_REQUEST_INTERVAL_SECONDS", "4")
+    # Legacy compatibility: fall back to the old VNSTOCK_* names still set on Railway.
+    market_data_cache_ttl_minutes = int(
+        _env_first("MARKET_DATA_CACHE_TTL_MINUTES", "VNSTOCK_CACHE_TTL_MINUTES", "240")
     )
-    vnstock_lookback_days = int(os.getenv("VNSTOCK_LOOKBACK_DAYS", "90"))
-    vnstock_include_metrics = _env_bool("VNSTOCK_INCLUDE_METRICS", default=False)
+    market_data_min_request_interval_seconds = float(
+        _env_first(
+            "MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS", "VNSTOCK_MIN_REQUEST_INTERVAL_SECONDS", "4"
+        )
+    )
+    market_data_lookback_days = int(
+        _env_first("MARKET_DATA_LOOKBACK_DAYS", "VNSTOCK_LOOKBACK_DAYS", "90")
+    )
     dnse_api_key = os.getenv("DNSE_API_KEY") or None
     dnse_api_secret = os.getenv("DNSE_API_SECRET") or None
     dnse_base_url = os.getenv("DNSE_BASE_URL", "https://openapi.dnse.com.vn")
@@ -116,10 +121,11 @@ def get_settings() -> Settings:
         signal_monitor_interval_minutes=max(1, signal_monitor_interval_minutes),
         login_max_attempts=max(1, login_max_attempts),
         login_lockout_minutes=max(1, login_lockout_minutes),
-        vnstock_cache_ttl_minutes=max(1, vnstock_cache_ttl_minutes),
-        vnstock_min_request_interval_seconds=max(0.0, vnstock_min_request_interval_seconds),
-        vnstock_lookback_days=max(30, vnstock_lookback_days),
-        vnstock_include_metrics=vnstock_include_metrics,
+        market_data_cache_ttl_minutes=max(1, market_data_cache_ttl_minutes),
+        market_data_min_request_interval_seconds=max(
+            0.0, market_data_min_request_interval_seconds
+        ),
+        market_data_lookback_days=max(30, market_data_lookback_days),
         dnse_api_key=dnse_api_key,
         dnse_api_secret=dnse_api_secret,
         dnse_base_url=dnse_base_url,
@@ -144,6 +150,15 @@ def _load_env_file() -> None:
     except ImportError:
         return
     load_dotenv(PROJECT_ROOT / ".env")
+
+
+def _env_first(name: str, legacy_name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        value = os.getenv(legacy_name)
+    if value is None or not value.strip():
+        return default
+    return value
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
